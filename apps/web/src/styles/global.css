@@ -1,0 +1,145 @@
+/* ---------------------------------------------------------------------------
+   Game Night — warm, cinematic card-table aesthetic.
+   Palette: deep espresso felt, warm lamplight amber, cream cards.
+--------------------------------------------------------------------------- */
+
+:root {
+  --bg-deep: #0d0a08;
+  --bg-room: #17110c;
+  --felt-1: #23391f;
+  --felt-2: #1b2d18;
+  --wood-1: #3a2417;
+  --wood-2: #241409;
+  --lamplight: rgba(255, 199, 120, 0.14);
+  --card-face: #f7f2e7;
+  --card-back-1: #7c2d2d;
+  --card-back-2: #571f1f;
+  --ink: #efe7d7;
+  --ink-dim: #b7a98f;
+  --accent: #e8a54b;
+  --accent-strong: #f0b968;
+  --danger: #e06c5a;
+  --success: #7fbf7a;
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --radius-card: 10px;
+  --shadow-card: 0 6px 14px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-card-lift: 0 14px 30px rgba(0, 0, 0, 0.55), 0 3px 8px rgba(0, 0, 0, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background:
+    radial-gradient(ellipse 120% 90% at 50% -10%, rgba(255, 190, 110, 0.08), transparent 60%),
+    radial-gradient(ellipse 100% 80% at 50% 110%, rgba(120, 60, 20, 0.12), transparent 60%),
+    linear-gradient(180deg, var(--bg-room), var(--bg-deep));
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--accent-strong), var(--accent));
+  color: #2a1a08;
+  font-weight: 600;
+  padding: 10px 20px;
+  font-size: 15px;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.ghost {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+input[type='text'] {
+  font-family: inherit;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  color: var(--ink);
+  padding: 10px 14px;
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type='text']:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(232, 165, 75, 0.18);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.overlay-msg {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  color: var(--ink-dim);
+  gap: 12px;
+  z-index: 100;
+  text-align: center;
+}
+
+.overlay-msg.error {
+  color: var(--danger);
+  flex-direction: column;
+}
+
+.overlay-msg a {
+  color: var(--ink-dim);
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (max-width: 700px) {
+  body {
+    font-size: 14px;
+  }
+  button {
+    padding: 9px 16px;
+    font-size: 14px;
+  }
+}

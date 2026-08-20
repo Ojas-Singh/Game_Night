@@ -1,0 +1,63 @@
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import type { RoomApi } from '../useRoom.js';
+import LobbyView from '../lobby/LobbyView.js';
+import TableView from '../table/TableView.js';
+
+export default function GamePage({ room }: { room: RoomApi }) {
+  const { roomId } = useParams<{ roomId: string }>();
+  const navigate = useNavigate();
+  const joinedRef = useRef(false);
+  const [namePrompt, setNamePrompt] = useState<string | null>(null);
+  const [pendingName, setPendingName] = useState('');
+
+  useEffect(() => {
+    if (!room.socket || !roomId || joinedRef.current) return;
+    joinedRef.current = true;
+    void room.joinRoom(roomId).then((res) => {
+      if (!res.ok && res.error === 'game already in progress') {
+        setNamePrompt(roomId);
+      } else if (!res.ok && /full|not found|closed/i.test(res.error ?? '')) {
+        navigate('/', { replace: true });
+      }
+    });
+  }, [room, roomId, navigate]);
+
+  if (namePrompt) {
+    return (
+      <div className="overlay-msg">
+        <div className="home-card compact">
+          <h2 className="font-display">Game in progress</h2>
+          <p className="home-sub">This seat is taken — join as a new player when the round ends.</p>
+          <button className="ghost" onClick={() => navigate('/')}>
+            Back home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (room.joinError) {
+    return (
+      <div className="overlay-msg error">
+        <div className="home-card compact">
+          <h2 className="font-display">Room unavailable</h2>
+          <p className="home-sub">{room.joinError}</p>
+          <button className="ghost" onClick={() => navigate('/')}>
+            Back home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!room.lobby) {
+    return <div className="overlay-msg">Joining table…</div>;
+  }
+
+  return room.lobby.inGame && room.view ? (
+    <TableView room={room} />
+  ) : (
+    <LobbyView room={room} />
+  );
+}
