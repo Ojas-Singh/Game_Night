@@ -39,5 +39,10 @@ apps/web              # React round-table client (2.5D DOM, framer-motion)
 ## Tests
 
 ```bash
-pnpm test   # 44 engine tests + 16 server/transport tests incl. full-game socket integration
+pnpm test   # 44 engine + 21 server/transport (incl. full-game socket integration & persistence) + 10 web logic tests
 ```
+
+## Deployment verification status
+
+- Dockerfile **build stage** and **runtime stage** have each been replicated step-by-step outside Docker (frozen installs from manifests, all four package builds, prod-only boot with SPA + WebSocket + debug-404 verified, full games played E2E against the production tree).
+- The literal `docker compose up -d` requires a Docker host: point Coolify at this repo, set `SESSION_SECRET`, expose port 3000.
