@@ -1,0 +1,117 @@
+import { describe, expect, it } from 'vitest';
+import { CaboEngine } from '../src/index.js';
+import { S, H, CL, D, c, setup, peekAll, mustFail, mustOk } from './helpers.js';
+
+/** p1: 4,9,2,7 · p2: K♠,3,5,Q · p3: 6,2,8,J — deliberate spread. */
+function order(): ReturnType<typeof c>[] {
+  return [
+    c('a1', S, 4), c('b1', CL, 13), c('d1', H, 6),
+    c('a2', H, 9), c('b2', D, 3), c('d2', S, 2),
+    c('a3', CL, 2), c('b3', H, 5), c('d3', D, 8),
+    c('a4', D, 7), c('b4', S, 12), c('d4', CL, 11),
+    c('draw0', H, 3),
+    ...Array.from({ length: 20 }, (_, i) => c(`x${i}`, S, 2 + (i % 3))),
+  ];
+}
+
+describe('hidden-information filtering', () => {
+  it('never sends other players\u2019 hidden card values', () => {
+    const e = setup(order(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    peekAll(e);
+    const v1 = e.getPlayerState('p1');
+    // p1 knows exactly their two peeked cards (indexes 0,1).
+    expect(Object.keys(v1.knownCards).sort()).toEqual(['a1', 'a2']);
+    // Opponent hands appear as opaque ids only.
+    expect(v1.handCardIds.p2).toEqual(['b1', 'b2', 'b3', 'b4']);
+    expect(v1.knownCards.b1).toBeUndefined();
+    expect(v1.knownCards.d4).toBeUndefined();
+    // No hidden card VALUE objects leak into the serialized view: the only
+    // value objects present are the viewer's own known cards.
+    const valueIds = Object.values(JSON.parse(JSON.stringify(v1)).knownCards).map(
+      (card) => (card as { id: string }).id,
+    );
+    expect(valueIds.sort()).toEqual(['a1', 'a2']);
+    const v2 = e.getPlayerState('p2');
+    expect(Object.keys(v2.knownCards).sort()).toEqual(['b1', 'b2']);
+  });
+
+  it('initial peeks grant knowledge only of the peeked cards', () => {
+    const e = setup(order());
+    // Only p1 and p2 peek indexes [0,1]; p3 peeks [2,3].
+    mustOk(e, { type: 'PEEK_STARTING', playerId: 'p1', cardIndexes: [0, 1] });
+    mustOk(e, { type: 'PEEK_STARTING', playerId: 'p2', cardIndexes: [0, 1] });
+    mustOk(e, { type: 'PEEK_STARTING', playerId: 'p3', cardIndexes: [2, 3] });
+    expect(Object.keys(e.getPlayerState('p3').knownCards).sort()).toEqual(['d3', 'd4']);
+  });
+
+  it('drawn card value is visible only to the drawing player', () => {
+    const e = setup(order(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    peekAll(e);
+    mustOk(e, { type: 'DRAW', playerId: 'p1' });
+    const v1 = e.getPlayerState('p1');
+    const v2 = e.getPlayerState('p2');
+    expect(v1.drawnCard).toMatchObject({ id: 'draw0', rank: 3 });
+    expect(v2.drawnCard).toBeNull();
+    expect(v2.knownCards.draw0).toBeUndefined();
+  });
+
+  it('peek powers do not leak into other players\u2019 views', () => {
+    const o = order();
+    o[12] = c('draw9', H, 9);
+    const e = setup(o, { rules: { endRoundWhenPlayerHasNoCards: false } });
+    peekAll(e);
+    mustOk(e, { type: 'DRAW', playerId: 'p1' });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: 'p1' }); // 9 → PEEK_OTHER
+    mustOk(e, {
+      type: 'POWER_APPLY',
+      playerId: 'p1',
+      payload: { power: 'PEEK_OTHER', targetPlayerId: 'p2', cardId: 'b4' },
+    });
+    expect(e.getPlayerState('p1').knownCards.b4).toMatchObject({ id: 'b4', rank: 12 });
+    expect(e.getPlayerState('p2').knownCards.b4).toBeUndefined();
+    expect(e.getPlayerState('p3').knownCards.b4).toBeUndefined();
+  });
+
+  it('public events never embed values that should stay hidden', () => {
+    const e = setup(order(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    peekAll(e);
+    mustOk(e, { type: 'DRAW', playerId: 'p1' });
+    mustOk(e, { type: 'KEEP_DRAWN', playerId: 'p1', handIndex: 3 }); // replaces a4 (7 → PEEK_OWN)
+    mustOk(e, { type: 'POWER_APPLY', playerId: 'p1', payload: { power: 'PEEK_OWN', cardId: 'a3' } });
+    const v2 = e.getPlayerState('p2');
+    const evJson = JSON.stringify(v2.events);
+    // Discarded card rank is public (it is on the pile) but hidden hands are not.
+    expect(evJson).not.toContain('knownCards');
+    // Failed flush attempts reveal nothing.
+    const res = e.handleAction({ type: 'FLUSH_OTHER', playerId: 'p2', targetPlayerId: 'p3', cardId: 'd1' });
+    expect(res.ok).toBe(true);
+    const last = e.getState().events.at(-1)!;
+    expect(last.type).toBe('FAILED_FLUSH_OTHER');
+    expect(JSON.stringify(last.payload)).not.toMatch(/rank|suit/);
+  });
+
+  it('reveal at round end grants everyone full knowledge', () => {
+    const e = setup(order(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    peekAll(e);
+    mustOk(e, { type: 'CALL_CABO', playerId: 'p1' });
+    mustOk(e, { type: 'DRAW', playerId: 'p2' });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: 'p2' });
+    mustOk(e, { type: 'DRAW', playerId: 'p3' });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: 'p3' });
+    const v1 = e.getPlayerState('p1');
+    const remaining = Object.values(v1.handCardIds).flat();
+    for (const id of remaining) {
+      expect(v1.knownCards[id]).toBeDefined();
+    }
+    expect(v1.scores).toBeDefined();
+  });
+
+  it('restoreState preserves knowledge filtering', () => {
+    const e = setup(order(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    peekAll(e);
+    const json = JSON.parse(JSON.stringify(e.getState()));
+    const e2 = new CaboEngine();
+    e2.restoreState(json);
+    expect(Object.keys(e2.getPlayerState('p1').knownCards).sort()).toEqual(['a1', 'a2']);
+  });
+});

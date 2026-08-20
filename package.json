@@ -1,0 +1,23 @@
+{
+  "name": "game-night",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Multiplayer card-game platform — online Cabo with a round-table experience",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@11.22.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "dev": "pnpm --filter @game-night/server dev",
+    "dev:web": "pnpm --filter @game-night/web dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8",
+    "@types/node": "^22.10.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
