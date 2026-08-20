@@ -30,7 +30,13 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
   };
 
   const broadcastLobby = (room: Room): void => {
-    io.to(room.id).emit('room:state', lobbyOf(room));
+    // Send each player a lobby view marked with their OWN player id, so the
+    // host sees the Start button and everyone sees their own name highlighted.
+    for (const p of room.players.values()) {
+      for (const sid of p.sockets) {
+        io.to(sid).emit('room:state', lobbyOf(room, p.id));
+      }
+    }
   };
 
   const broadcastGame = (room: Room): void => {

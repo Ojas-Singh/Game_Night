@@ -280,6 +280,43 @@ describe('socket integration', () => {
     host.close();
   });
 
+  it('the host sees themselves as host/isYou in the lobby (Start button renders)', async () => {
+    const host = await connect();
+    const created = await createRoom(host, 'Host');
+    const guest = await connect();
+    const joined = await joinRoom(guest, { roomId: created.roomId, name: 'Guest' });
+    expect(joined.ok).toBe(true);
+
+    // Host's own lobby view must mark them as you + host.
+    const hostState = await new Promise<{
+      players: Array<{ id: string; isYou: boolean; isHost: boolean }>;
+      hostId: string;
+    }>((resolve) => {
+      host.once('room:state', resolve);
+      host.emit('room:set_name', { name: 'Host' });
+    });
+    const hostMe = hostState.players.find((p) => p.id === created.playerId);
+    expect(hostMe?.isYou).toBe(true);
+    expect(hostMe?.isHost).toBe(true);
+    expect(hostState.hostId).toBe(created.playerId);
+
+    // Guest's lobby view marks the HOST as host but NOT as the guest's "you".
+    const guestState = await new Promise<{
+      players: Array<{ id: string; isYou: boolean; isHost: boolean }>;
+    }>((resolve) => {
+      guest.once('room:state', resolve);
+      guest.emit('room:set_ready', { ready: true });
+    });
+    const guestHost = guestState.players.find((p) => p.id === created.playerId);
+    const guestMe = guestState.players.find((p) => p.id === joined.playerId);
+    expect(guestHost?.isHost).toBe(true);
+    expect(guestHost?.isYou).toBe(false);
+    expect(guestMe?.isYou).toBe(true);
+
+    host.close();
+    guest.close();
+  });
+
   it('rejects joining a nonexistent room', async () => {
     const sock = await connect();
     const res = await joinRoom(sock, { roomId: 'ZZZZZZ', name: 'X' });
