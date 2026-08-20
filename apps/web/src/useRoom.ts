@@ -99,6 +99,8 @@ export function useRoom(): RoomApi {
   const [unread, setUnread] = useState(0);
   const [joinError, setJoinError] = useState<string | null>(null);
   const chatOpenRef = useRef(false);
+  /** Room we're attached to — drives automatic re-join on any reconnect. */
+  const activeRoomRef = useRef<string | null>(null);
   /** Card ids that became known recently → rendered face-up briefly, then flip down. */
   const [peekFlash, setPeekFlash] = useState<Record<string, number>>({});
   /** Emote reactions: playerId → latest { emote, at } (at = client receive time). */
@@ -130,7 +132,23 @@ export function useRoom(): RoomApi {
     const s = io({ transports: ['websocket', 'polling'] });
     socketRef.current = s;
     setSocket(s);
-    s.on('connect', () => setStatus('connected'));
+    s.on('connect', () => {
+      setStatus('connected');
+      // Robust reattachment: if the transport dropped and came back (proxy
+      // hiccup, sleep/wake, server restart), silently re-join with our secret
+      // token so the seat is restored without any user action.
+      const rid = activeRoomRef.current;
+      if (rid) {
+        const stored = loadSession(rid);
+        s.emit(
+          'room:join',
+          { roomId: rid, playerToken: stored?.playerToken },
+          (res: JoinResult) => {
+            if (res.ok) persistSession(res);
+          },
+        );
+      }
+    });
     s.on('disconnect', () => setStatus('reconnecting'));
     s.on('connect_error', () => setStatus((prev) => (prev === 'error' ? prev : 'reconnecting')));
     return () => {
@@ -177,8 +195,9 @@ export function useRoom(): RoomApi {
     };
   }, [socket]);
 
-  const persist = useCallback((res: JoinResult) => {
+  const persistSession = useCallback((res: JoinResult) => {
     if (res.ok && res.roomId && res.playerId && res.playerToken) {
+      activeRoomRef.current = res.roomId;
       saveSession({
         roomId: res.roomId,
         playerId: res.playerId,
@@ -196,12 +215,12 @@ export function useRoom(): RoomApi {
       new Promise<JoinResult>((resolve) => {
         saveName(name);
         socketRef.current?.emit('room:create', { name }, (res: JoinResult) => {
-          if (res.ok) persist(res);
+          if (res.ok) persistSession(res);
           else setJoinError(res.error ?? 'failed to create room');
           resolve(res);
         });
       }),
-    [persist],
+    [persistSession],
   );
 
   const joinRoom = useCallback(
@@ -214,12 +233,12 @@ export function useRoom(): RoomApi {
           playerToken: stored?.playerToken,
         };
         socketRef.current?.emit('room:join', payload, (res: JoinResult) => {
-          if (res.ok) persist(res);
+          if (res.ok) persistSession(res);
           else setJoinError(res.error ?? 'failed to join room');
           resolve(res);
         });
       }),
-    [persist],
+    [persistSession],
   );
 
   const api: RoomApi = useMemo(

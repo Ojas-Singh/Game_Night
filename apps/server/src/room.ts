@@ -116,9 +116,12 @@ export class Room {
     if (existingToken) {
       for (const p of this.players.values()) {
         if (p.token === existingToken) {
+          const wasDisconnected = !p.connected;
           p.connected = true;
           p.disconnectedAt = null;
-          this.system(`${p.name} reconnected`);
+          // Only announce a real return, not a duplicate/attach on an
+          // already-connected player (multiple tabs, reconnect spam).
+          if (wasDisconnected) this.system(`${p.name} reconnected`);
           return { player: p, reconnected: true };
         }
       }
@@ -190,7 +193,8 @@ export class Room {
     const p = this.players.get(playerId);
     if (!p) return;
     p.sockets.delete(socketId);
-    if (p.sockets.size === 0) this.markDisconnected(playerId);
+    // Note: presence marking is NOT done here — the caller decides (e.g.
+    // after a debounce window) so transient blips don't bounce seats.
   }
 
   // -------------------------------------------------------------------

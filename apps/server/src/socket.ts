@@ -16,6 +16,9 @@ interface SocketData {
   playerId?: string;
 }
 
+/** Grace window before a dropped socket marks a player disconnected. */
+const PRESENCE_DEBOUNCE_MS = 5_000;
+
 export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): void {
   const persistRoom = (room: Room): void => rooms.persistNow(room);
   const lobbyOf = (room: Room, forPlayerId?: string): RoomLobbyState => {
@@ -277,9 +280,20 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         const room = rooms.getRoom(roomId);
         if (!room) return;
         room.detachSocket(playerId, socket.id);
-        const last = room.chat[room.chat.length - 1]!;
-        io.to(room.id).emit('room:chat', last);
-        broadcastLobby(room);
+        // Presence debounce: only mark the player disconnected if they still
+        // have no sockets after a short grace window, so a transient blip or
+        // a quick transport reconnect never flips a seat to "reconnecting".
+        setTimeout(() => {
+          const now = rooms.getRoom(roomId);
+          if (!now) return;
+          const p = now.players.get(playerId);
+          if (!p) return;
+          if (p.sockets.size > 0) return; // already back
+          now.markDisconnected(playerId);
+          const last = now.chat[now.chat.length - 1]!;
+          io.to(now.id).emit('room:chat', last);
+          broadcastLobby(now);
+        }, PRESENCE_DEBOUNCE_MS);
       } catch (err) {
         log.error('disconnect_handler_error', { error: msg(err) });
       }

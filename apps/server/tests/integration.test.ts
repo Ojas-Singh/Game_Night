@@ -16,6 +16,9 @@ let http: HttpServer;
 let io: SocketServer;
 let url: string;
 
+/** Must match PRESENCE_DEBOUNCE_MS in socket.ts. */
+const PRESENCE_WINDOW = 5200;
+
 type TestSocket = ClientSocket;
 
 /** Persistent view tracker — a real client keeps a listener attached too. */
@@ -235,6 +238,43 @@ describe('socket integration', () => {
     });
     const me = lobby.players.find((p) => p.id === joined.playerId);
     expect(me?.connected).toBe(true);
+
+    guest2.close();
+    host.close();
+  });
+
+  it('a quick transport blip does NOT flip the player to reconnecting (presence debounce)', async () => {
+    const host = await connect();
+    const created = await createRoom(host, 'Host');
+    const guest = await connect();
+    const joined = await joinRoom(guest, { roomId: created.roomId, name: 'Guest' });
+    expect(joined.ok).toBe(true);
+    expect((await startGame(host)).ok).toBe(true);
+
+    // Simulate a blip lasting less than the 5s presence debounce.
+    const lobbyPromise = new Promise<{ players: Array<{ id: string; connected: boolean }> }>(
+      (resolve) => host.once('room:state', resolve),
+    );
+    guest.disconnect();
+    const lobby = await lobbyPromise;
+    const me = lobby.players.find((p) => p.id === joined.playerId);
+    // The host's broadcast may arrive either before or after the debounce;
+    // re-attach quickly so the debounce guard cancels the disconnect mark.
+    await new Promise((r) => setTimeout(r, 30));
+    const guest2 = await connect();
+    const rejoined = await joinRoom(guest2, { roomId: created.roomId, playerToken: joined.playerToken });
+    expect(rejoined.ok).toBe(true);
+
+    // After a debounce-length wait, the player must still be connected.
+    await new Promise((r) => setTimeout(r, PRESENCE_WINDOW));
+    const state = await new Promise<{ players: Array<{ id: string; connected: boolean }> }>(
+      (resolve) => {
+        host.once('room:state', resolve);
+        host.emit('room:set_ready', { ready: true });
+      },
+    );
+    const after = state.players.find((p) => p.id === joined.playerId);
+    expect(after?.connected).toBe(true);
 
     guest2.close();
     host.close();
