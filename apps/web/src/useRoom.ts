@@ -9,6 +9,42 @@ import { io, type Socket } from 'socket.io-client';
 import type { GameAction } from '@shared/game.js';
 import type { CaboPlayerView } from '@cabo/views.js';
 import type { ChatMessage, JoinResult, RoomLobbyState } from './server-protocol.js';
+import { playSound } from './sound.js';
+
+/** Derive sound cues from view transitions by comparing event logs. */
+function playSoundsFor(prev: CaboPlayerView, next: CaboPlayerView): void {
+  const seen = new Set(prev.events.map((e) => e.seq));
+  for (const ev of next.events) {
+    if (seen.has(ev.seq)) continue;
+    switch (ev.type) {
+      case 'CARD_DRAWN':
+        playSound('draw');
+        break;
+      case 'CARDS_DEALT':
+        playSound('deal');
+        break;
+      case 'CARD_DISCARDED':
+      case 'CARD_REPLACED':
+        playSound('discard');
+        break;
+      case 'CARD_FLUSHED':
+        playSound('flush');
+        break;
+      case 'POWER_RESOLVED':
+        playSound('flip');
+        break;
+      case 'CABO_CALLED':
+        playSound('cabo');
+        break;
+      case 'ROUND_REVEALED':
+        playSound('reveal');
+        break;
+      case 'INITIAL_PEEKED':
+        playSound('flip');
+        break;
+    }
+  }
+}
 import {
   loadSession,
   saveSession,
@@ -77,9 +113,15 @@ export function useRoom(): RoomApi {
         next.push(msg);
         return next.slice(-200);
       });
+      if (msg.playerId === null && /joined|reconnected/.test(msg.text)) playSound('join');
       if (!chatOpenRef.current && msg.playerId !== null) setUnread((n) => n + 1);
     };
-    const onView = (v: CaboPlayerView) => setView(v);
+    const onView = (v: CaboPlayerView) => {
+      setView((prev) => {
+        if (prev && prev !== v) playSoundsFor(prev, v);
+        return v;
+      });
+    };
     socket.on('room:state', onState);
     socket.on('room:chat', onChat);
     socket.on('game:view', onView);

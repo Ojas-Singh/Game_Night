@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CaboPlayerView } from '@cabo/views.js';
 import { POWER_DESCRIPTIONS } from '@cabo/rules.js';
+import { playSound } from '../sound.js';
 
 /**
  * Derives the one-line guidance prompt ("Ojas is drawing…",
@@ -16,7 +17,10 @@ export function useGuidance(view: CaboPlayerView, myId: string) {
     return () => clearTimeout(t);
   }, [error]);
 
-  const setError = useCallback((msg: string) => setErrorState(msg), []);
+  const setError = useCallback((msg: string) => {
+    playSound('error');
+    setErrorState(msg);
+  }, []);
 
   const current = view.players.find((p) => p.isCurrentTurn);
   const amCurrent = current?.id === myId;

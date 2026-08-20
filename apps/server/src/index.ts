@@ -20,6 +20,16 @@ const app = express();
 app.disable('x-powered-by');
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
 
+const rooms = new RoomManager(config.roomTtlMs);
+rooms.startSweeper();
+
+if (config.debugEnabled) {
+  // Dev-only debug endpoints. In production these do not exist at all.
+  const { debugRouter } = await import('./debug.js');
+  app.use('/debug', debugRouter(rooms));
+  log.warn('debug_mode_enabled', { note: 'privileged endpoints active (non-production)' });
+}
+
 const webDist = join(process.cwd(), 'web');
 if (existsSync(webDist)) {
   app.use(express.static(webDist));
@@ -33,9 +43,6 @@ const httpServer = createServer(app);
 const io = new SocketServer(httpServer, {
   cors: { origin: true, credentials: true },
 });
-
-const rooms = new RoomManager(config.roomTtlMs);
-rooms.startSweeper();
 
 registerSocketHandlers(io, rooms);
 

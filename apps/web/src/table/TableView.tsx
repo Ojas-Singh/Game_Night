@@ -8,6 +8,7 @@ import SeatPlanner from './SeatPlanner.js';
 import ScoreBoard from './ScoreBoard.js';
 import { useGuidance } from './guidance.js';
 import ChatPanel from '../chat/ChatPanel.js';
+import SoundToggle from '../SoundToggle.js';
 
 /**
  * The round-table experience. The local player always sits at the bottom;
@@ -191,6 +192,7 @@ export default function TableView({ room }: { room: RoomApi }) {
       <div className={`status-banner ${guidance.urgent ? 'urgent' : ''}`}>
         {guidance.text}
       </div>
+      <SoundToggle />
 
       {/* the table */}
       <div className="table-ellipse">

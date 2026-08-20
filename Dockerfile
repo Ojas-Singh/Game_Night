@@ -2,7 +2,7 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 RUN corepack enable
-COPY pnpm-workspace.yaml package.json ./
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/engine-cabo/package.json packages/engine-cabo/
 COPY apps/server/package.json apps/server/
@@ -21,7 +21,7 @@ FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 RUN corepack enable
-COPY pnpm-workspace.yaml package.json ./
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/engine-cabo/package.json packages/engine-cabo/
 COPY apps/server/package.json apps/server/

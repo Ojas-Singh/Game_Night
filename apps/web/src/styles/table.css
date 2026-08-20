@@ -326,6 +326,21 @@
 .chat-input-row input { flex: 1; padding: 8px 12px; font-size: 13.5px; }
 .chat-send { padding: 8px 12px; }
 
+.sound-toggle {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  z-index: 35;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  font-size: 17px;
+  padding: 0;
+  background: rgba(23, 17, 12, 0.8);
+  color: var(--ink);
+  box-shadow: var(--shadow-card);
+}
+
 /* ---- Table room ---- */
 .table-room {
   height: 100%;
@@ -740,6 +755,48 @@
   display: flex;
   gap: 10px;
   justify-content: center;
+}
+
+/* ---- Debug panel (dev only) ---- */
+.debug-panel {
+  position: relative;
+}
+.debug-toggle {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  font-size: 16px;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--ink-dim);
+}
+.debug-body {
+  position: absolute;
+  top: 44px;
+  left: 0;
+  width: 280px;
+  background: rgba(13, 10, 8, 0.95);
+  border: 1px solid rgba(255, 220, 160, 0.2);
+  border-radius: 12px;
+  padding: 12px;
+  z-index: 80;
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+  color: var(--success);
+}
+.debug-title {
+  color: var(--danger);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.debug-action {
+  margin-bottom: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.debug-state div {
+  margin: 2px 0;
+  word-break: break-all;
 }
 
 /* ---- Responsive ---- */

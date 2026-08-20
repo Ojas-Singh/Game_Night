@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RoomApi } from '../useRoom.js';
 import ChatPanel from '../chat/ChatPanel.js';
+import DebugPanel from '../DebugPanel.js';
 import { loadName } from '../session.js';
 
 export default function LobbyView({ room }: { room: RoomApi }) {
@@ -102,6 +103,7 @@ export default function LobbyView({ room }: { room: RoomApi }) {
       </div>
 
       <aside className="lobby-side">
+        <DebugPanel room={room} />
         <div className="lobby-panel name-panel">
           <h2 className="lobby-section-title">Your name</h2>
           <div className="name-row">
