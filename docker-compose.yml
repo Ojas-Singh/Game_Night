@@ -1,0 +1,40 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      ROOM_TTL_MINUTES: ${ROOM_TTL_MINUTES:-360}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/healthz']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--maxmemory', '128mb', '--maxmemory-policy', 'allkeys-lru']
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  redis-data:
