@@ -120,7 +120,7 @@ export default function TableView({ room }: { room: RoomApi }) {
       return;
     }
     if (mode === 'draw-decision' && view.drawnCard) {
-      act({ type: 'KEEP_DRAWN', payload: { handIndex: myHand.indexOf(cardId) } });
+      act({ type: 'KEEP_DRAWN', handIndex: myHand.indexOf(cardId) });
       return;
     }
     if (canFlushNow) {
@@ -132,7 +132,7 @@ export default function TableView({ room }: { room: RoomApi }) {
           : [...flushSel, cardId];
         setFlushSel(next);
         // Single-tap rapid flush: fire immediately on selection.
-        act({ type: 'FLUSH_OWN', payload: { cardIds: next } });
+        act({ type: 'FLUSH_OWN', cardIds: next });
       } else if (known) {
         guidance.setError(`That's a ${known.rank} — the pile wants ${view.discardTopRank}`);
       } else {
@@ -141,7 +141,7 @@ export default function TableView({ room }: { room: RoomApi }) {
       return;
     }
     if (mode === 'transfer') {
-      act({ type: 'TRANSFER_CARD', payload: { cardId } });
+      act({ type: 'TRANSFER_CARD', cardId });
     }
   };
 
@@ -163,7 +163,7 @@ export default function TableView({ room }: { room: RoomApi }) {
       // Flush another player's known card.
       const known = view.knownCards[cardId];
       if (known && known.rank === view.discardTopRank) {
-        act({ type: 'FLUSH_OTHER', payload: { targetPlayerId: playerId, cardId } });
+        act({ type: 'FLUSH_OTHER', targetPlayerId: playerId, cardId });
       } else if (known) {
         guidance.setError(`That's a ${known.rank} — doesn't match ${view.discardTopRank}`);
       } else {
@@ -298,7 +298,7 @@ export default function TableView({ room }: { room: RoomApi }) {
             )}
           </div>
           {mode === 'initial-peek' && flushSel.length === 2 && (
-            <button className="peek-confirm" onClick={() => act({ type: 'PEEK_STARTING', payload: { cardIndexes: flushSel.map((c) => myHand.indexOf(c)) } })}>
+            <button className="peek-confirm" onClick={() => act({ type: 'PEEK_STARTING', cardIndexes: flushSel.map((c) => myHand.indexOf(c)) })}>
               Peek these two
             </button>
           )}

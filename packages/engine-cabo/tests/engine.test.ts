@@ -127,6 +127,23 @@ describe('turn flow', () => {
     mustFail(e, { type: 'PEEK_STARTING', playerId: P1, cardIndexes: [0, 99] });
   });
 
+  it('expects cardIndexes at the TOP LEVEL of the action (not nested under payload)', () => {
+    // Regression: the web client used to nest fields under `payload`, so the
+    // engine read `cardIndexes.length` on undefined. It must succeed at the
+    // top level and be rejected (not throw) when nested.
+    const e = setup(baseOrder());
+    mustOk(e, { type: 'PEEK_STARTING', playerId: P1, cardIndexes: [0, 1] });
+    mustOk(e, { type: 'PEEK_STARTING', playerId: P2, cardIndexes: [0, 1] });
+    // Nested/unknown shape is treated as an invalid action, never a crash.
+    const bad = e.handleAction({
+      type: 'PEEK_STARTING',
+      playerId: P3,
+      payload: { cardIndexes: [0, 1] },
+    } as never);
+    expect(bad.ok).toBe(false);
+    expect(String(bad.error)).not.toMatch(/undefined/i);
+  });
+
   it('draw → flush drawn card (no power) advances the turn', () => {
     const e = setup(baseOrder());
     peekAll(e);

@@ -37,6 +37,12 @@ function INVALID(msg: string): never {
   throw new CaboEngineError(msg);
 }
 
+/** Lightweight structured warn (no card values / secrets). */
+function logWarn(msg: string, fields?: Record<string, unknown>): void {
+  // eslint-disable-next-line no-console
+  console.warn(JSON.stringify({ ts: new Date().toISOString(), level: 'warn', msg, ...fields }));
+}
+
 function findCard(hand: Card[], cardId: string): number {
   return hand.findIndex((c) => c.id === cardId);
 }
@@ -177,11 +183,13 @@ export class CaboEngine {
     try {
       this.applyAction(action as CaboAction);
     } catch (err) {
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : 'invalid action',
-        events: [],
-      };
+      if (err instanceof CaboEngineError) {
+        return { ok: false, error: err.message, events: [] };
+      }
+      // Malformed/unknown action shape: never leak a raw JS TypeError to the
+      // client. Report it as a plain invalid action and log for debugging.
+      logWarn('invalid_action_shape', { type: (action as { type?: string }).type, error: String(err) });
+      return { ok: false, error: 'invalid action', events: [] };
     }
     const s = this.getState();
     return { ok: true, events: s.events.filter((e) => e.seq > before) };

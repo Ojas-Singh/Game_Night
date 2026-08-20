@@ -6,9 +6,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import type { GameAction } from '@shared/game.js';
 import type { CaboPlayerView } from '@cabo/views.js';
 import type { ChatMessage, JoinResult, RoomLobbyState } from './server-protocol.js';
+import type { CaboAction } from '@cabo/types.js';
 import { playSound } from './sound.js';
 
 /** Derive sound cues from view transitions by comparing event logs. */
@@ -58,6 +58,11 @@ export type ConnStatus = 'connecting' | 'connected' | 'reconnecting' | 'error';
 /** How long a freshly peeked card stays face-up before flipping back down. */
 const PEEK_FLASH_MS = 2600;
 
+/** A Cabo action without playerId, preserving discriminated-union narrowing. */
+type ClientCaboAction = {
+  [K in CaboAction['type']]: Omit<Extract<CaboAction, { type: K }>, 'playerId'>;
+}[CaboAction['type']];
+
 export interface RoomApi {
   socket: Socket | null;
   status: ConnStatus;
@@ -81,7 +86,7 @@ export interface RoomApi {
   selectGame: (gameId: string) => void;
   startGame: () => Promise<{ ok: boolean; error?: string }>;
   sendChat: (text: string) => void;
-  sendAction: (action: Omit<GameAction, 'playerId'>) => Promise<{ ok: boolean; error?: string }>;
+  sendAction: (action: ClientCaboAction) => Promise<{ ok: boolean; error?: string }>;
   playAgain: () => Promise<{ ok: boolean; error?: string }>;
   returnToLobby: () => void;
   leaveRoom: () => void;
