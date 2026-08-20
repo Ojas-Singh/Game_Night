@@ -6,18 +6,25 @@ import GamePage from './pages/GamePage.js';
 export default function App() {
   const room = useRoom();
   return (
-    <Routes>
-      <Route path="/" element={<HomePage room={room} />} />
-      <Route
-        path="/game/:roomId"
-        element={
-          <RequireRoom room={room}>
-            <GamePage room={room} />
-          </RequireRoom>
-        }
-      />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/" element={<HomePage room={room} />} />
+        <Route
+          path="/game/:roomId"
+          element={
+            <RequireRoom room={room}>
+              <GamePage room={room} />
+            </RequireRoom>
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      {room.status === 'reconnecting' && room.roomId && (
+        <div className="reconnect-banner" role="status">
+          <span className="reconnect-dot" /> Connection lost — reconnecting…
+        </div>
+      )}
+    </>
   );
 }
 

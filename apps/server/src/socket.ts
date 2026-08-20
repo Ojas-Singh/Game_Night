@@ -17,6 +17,7 @@ interface SocketData {
 }
 
 export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): void {
+  const persistRoom = (room: Room): void => rooms.persistNow(room);
   const lobbyOf = (room: Room, forPlayerId?: string): RoomLobbyState => {
     const state = room.lobbyState();
     if (forPlayerId) {
@@ -43,6 +44,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
   const syncPlayer = (room: Room, playerId: string): void => {
     broadcastLobby(room);
     broadcastGame(room);
+    persistRoom(room);
   };
 
   const system = (room: Room, text: string): void => {
@@ -128,6 +130,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         }
         broadcastLobby(room);
         if (room.engine) broadcastGame(room);
+        persistRoom(room);
       } catch (err) {
         log.warn('set_name_failed', { error: msg(err) });
       }
@@ -164,6 +167,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         io.to(room.id).emit('room:chat', last);
         broadcastLobby(room);
         broadcastGame(room);
+        persistRoom(room);
       } catch (err) {
         ack?.(fail(err));
       }
@@ -203,6 +207,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         room.handleGameAction(playerId, action);
         ack?.({ ok: true });
         broadcastGame(room);
+        persistRoom(room);
       } catch (err) {
         ack?.(fail(err));
       }

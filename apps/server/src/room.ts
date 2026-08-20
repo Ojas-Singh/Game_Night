@@ -59,7 +59,7 @@ export function randomName(): string {
 
 export class Room {
   readonly id: string;
-  readonly createdAt = Date.now();
+  createdAt = Date.now();
   players = new Map<string, RoomPlayer>();
   hostId: string | null = null;
   gameId: GameId = 'cabo';
@@ -76,6 +76,35 @@ export class Room {
     this.id = opts.roomId ?? randomRoomCode();
     this.reconnectGraceMs = opts.reconnectGraceMs ?? 120_000;
     this.debug = opts.debug ?? {};
+  }
+
+  /** Rebuild a room from a persisted snapshot (app restart recovery). */
+  static fromSnapshot(snap: import('./persistence.js').RoomSnapshot): Room {
+    const room = new Room({ roomId: snap.id });
+    room.createdAt = snap.createdAt;
+    room.hostId = snap.hostId;
+    room.gameId = (snap.gameId in { cabo: 1 } ? snap.gameId : 'cabo') as GameId;
+    room.chat = snap.chat;
+    room.scoreboard = snap.scoreboard;
+    room.debug = snap.debug ?? {};
+    for (const sp of snap.players) {
+      room.players.set(sp.id, {
+        id: sp.id,
+        name: sp.name,
+        token: sp.token,
+        ready: sp.ready,
+        connected: false,
+        sockets: new Set(),
+        disconnectedAt: sp.disconnectedAt,
+        joinedAt: sp.joinedAt,
+      });
+    }
+    if (snap.engineState) {
+      const engine = new CaboEngine();
+      engine.restoreState(snap.engineState);
+      room.engine = engine;
+    }
+    return room;
   }
 
   // -------------------------------------------------------------------

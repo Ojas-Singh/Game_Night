@@ -799,6 +799,36 @@
   word-break: break-all;
 }
 
+/* Reconnect banner */
+.reconnect-banner {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: rgba(13, 10, 8, 0.92);
+  border: 1px solid var(--danger);
+  border-radius: 999px;
+  color: var(--ink);
+  padding: 9px 20px;
+  font-size: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  animation: reconnect-pulse 1.4s ease-in-out infinite;
+}
+.reconnect-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+@keyframes reconnect-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+
 /* ---- Responsive ---- */
 @media (max-width: 900px) {
   .lobby-wrap {
@@ -818,18 +848,42 @@
   }
 }
 @media (max-width: 640px) {
-  .pcard { --card-w: 64px; }
-  .pccard.small, .pcard.small { --card-w: 38px; }
+  /* Mobile portrait/landscape: keep OWN cards large and tappable; compress
+     opponent hands so the table still reads as a table. */
+  .pcard { --card-w: 62px; }
+  .pcard.small { --card-w: 34px; }
   .hand-grid { gap: 5px; }
   .table-ellipse {
     width: 98vw;
-    height: 96%;
+    height: 94%;
+  }
+  .seat-opponent .hand-grid {
+    grid-template-columns: repeat(4, auto);
+    gap: 3px;
   }
   .seat-label {
     font-size: 11px;
     padding: 4px 10px;
   }
-  .pile { width: 62px; height: 88px; }
-  .discard-card, .discard-empty { width: 62px; height: 88px; font-size: 24px; }
+  .seat-label .seat-name {
+    max-width: 70px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pile { width: 58px; height: 84px; }
+  .discard-card, .discard-empty { width: 58px; height: 84px; font-size: 22px; }
+  .pile-row { gap: 14px; }
+  .table-center { top: 42%; }
+  .status-banner {
+    font-size: 12.5px;
+    padding: 7px 14px;
+    max-width: 94vw;
+  }
   .home-form { flex-direction: column; }
+  .lobby-wrap { padding: 12px; }
+  .home-title { font-size: 36px; }
+  .seat-me { bottom: 0%; }
+  .chat-bubble { width: 42px; height: 42px; }
+  .sound-toggle { width: 36px; height: 36px; top: 60px; }
 }
