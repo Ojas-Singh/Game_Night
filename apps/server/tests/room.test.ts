@@ -124,6 +124,21 @@ describe('Room', () => {
     // Cannot play again while the (new) round is in progress.
     expect(() => room.playAgain(p1.id)).toThrow(/in progress/);
   });
+
+  it('only the host can toggle the 5-6 swap optional power; it flows into the engine', () => {
+    const room = new Room({ roomId: 'TEST11' });
+    const { player: p1 } = room.addPlayer('A');
+    const { player: p2 } = room.addPlayer('B');
+    // Non-host cannot toggle.
+    expect(() => room.setSwapOthers(p2.id, false)).toThrow(/host/);
+    room.setSwapOthers(p1.id, false);
+    expect(room.swapOthersEnabled).toBe(false);
+    expect(room.lobbyState().swapOthersEnabled).toBe(false);
+    // The engine receives the disabled rule at game start.
+    room.startGame(p1.id);
+    expect(room.engine!.getRules().swapOthersEnabled).toBe(false);
+    expect(room.chat.some((m) => m.text.includes('OFF'))).toBe(true);
+  });
 });
 
 function ra_id(room: Room, name: string): string | undefined {

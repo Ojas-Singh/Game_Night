@@ -72,7 +72,7 @@ describe('hidden-information filtering', () => {
     expect(e.getPlayerState('p3').knownCards.b4).toBeUndefined();
   });
 
-  it('public events never embed values that should stay hidden', () => {
+  it('public events reveal a card ONLY when the rules say so (misflush is visible)', () => {
     const e = setup(order(), { rules: { endRoundWhenPlayerHasNoCards: false } });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: 'p1' });
@@ -80,14 +80,21 @@ describe('hidden-information filtering', () => {
     mustOk(e, { type: 'POWER_APPLY', playerId: 'p1', payload: { power: 'PEEK_OWN', cardId: 'a3' } });
     const v2 = e.getPlayerState('p2');
     const evJson = JSON.stringify(v2.events);
-    // Discarded card rank is public (it is on the pile) but hidden hands are not.
+    // Hidden hand content stays out of the log.
     expect(evJson).not.toContain('knownCards');
-    // Failed flush attempts reveal nothing.
+    // Before the failed flush, p3's d1 is private to nobody except its owner.
+    expect(v2.knownCards.d1).toBeUndefined();
+
+    // A wrong flush-other is a VISIBLE mistake: the guessed card is revealed
+    // to everyone (embarrassing, like real life), then penalty applied.
     const res = e.handleAction({ type: 'FLUSH_OTHER', playerId: 'p2', targetPlayerId: 'p3', cardId: 'd1' });
     expect(res.ok).toBe(true);
-    const last = e.getState().events.at(-1)!;
-    expect(last.type).toBe('FAILED_FLUSH_OTHER');
-    expect(JSON.stringify(last.payload)).not.toMatch(/rank|suit/);
+    const failEvent = e.getState().events.find((ev) => ev.type === 'FAILED_FLUSH_OTHER')!;
+    expect(failEvent.payload).toMatchObject({ playerId: 'p2', cardId: 'd1', rank: 6 });
+    const v2b = e.getPlayerState('p2');
+    expect(v2b.knownCards.d1).toMatchObject({ id: 'd1', rank: 6 });
+    const v1 = e.getPlayerState('p1');
+    expect(v1.knownCards.d1).toMatchObject({ id: 'd1', rank: 6 });
   });
 
   it('reveal at round end grants everyone full knowledge', () => {

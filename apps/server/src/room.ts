@@ -67,6 +67,8 @@ export class Room {
   engine: CaboEngine | null = null;
   /** Cumulative match scoreboard across rounds. */
   scoreboard: Record<string, number> = {};
+  /** Host-selectable house rule: enable the 5–6 "swap others" power. */
+  swapOthersEnabled = true;
   debug: RoomDebug;
   private reconnectGraceMs: number;
   private chatSeq = 0;
@@ -86,6 +88,7 @@ export class Room {
     room.gameId = (snap.gameId in { cabo: 1 } ? snap.gameId : 'cabo') as GameId;
     room.chat = snap.chat;
     room.scoreboard = snap.scoreboard;
+    room.swapOthersEnabled = snap.swapOthersEnabled ?? true;
     room.debug = snap.debug ?? {};
     for (const sp of snap.players) {
       room.players.set(sp.id, {
@@ -236,12 +239,19 @@ export class Room {
     const engine = reg.create();
     engine.createGame(
       seated.map((p, i) => ({ id: p.id, name: p.name, seat: i })),
-      { seed: this.debug.seed },
+      { seed: this.debug.seed, rules: { swapOthersEnabled: this.swapOthersEnabled } },
     );
     this.engine = engine;
     for (const p of seated) p.ready = false;
     this.system('Game started — Cabo!');
     log.info('game_start', { roomId: this.id, gameId: this.gameId, players: seated.length });
+  }
+
+  /** Host toggles the optional 5–6 "swap others" power (applies next round). */
+  setSwapOthers(playerId: string, enabled: boolean): void {
+    if (playerId !== this.hostId) throw new RoomError('only the host can change house rules');
+    this.swapOthersEnabled = enabled;
+    this.system(enabled ? 'Host turned ON the 5–6 swap rule' : 'Host turned OFF the 5–6 swap rule');
   }
 
   returnToLobby(playerId: string): void {
@@ -308,6 +318,7 @@ export class Room {
       inGame: !!this.engine,
       hostId: this.hostId ?? '',
       scoreboard: this.getScoreboard(),
+      swapOthersEnabled: this.swapOthersEnabled,
     };
   }
 

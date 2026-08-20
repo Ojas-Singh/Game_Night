@@ -104,6 +104,20 @@ describe('power triggering rules', () => {
       expect(powerForRank(r, DEFAULT_CABO_RULES)).toBeNull();
     }
   });
+
+  it('host-toggle: when swapOthersEnabled is false, discarding a 5/6 triggers no power', () => {
+    const order = baseOrder();
+    order[12] = c('draw5', H, 5); // p1 draws a 5
+    const e = setup(order, { rules: { swapOthersEnabled: false, endRoundWhenPlayerHasNoCards: false } });
+    peekAll(e);
+    mustOk(e, { type: 'DRAW', playerId: P1 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
+    const s = e.getState();
+    // No power pending, and the turn advanced normally.
+    expect(s.pendingPower).toBeNull();
+    expect(s.phase).toBe('TURN_DRAW');
+    expect(s.players[s.currentTurn]!.id).toBe(P2);
+  });
 });
 
 describe('turn flow', () => {
@@ -376,9 +390,39 @@ describe('flushing own cards', () => {
     expect(after.phase).toBe('TURN_DRAW');
   });
 
-  it('rejects a non-matching card', () => {
+  it('a non-matching card is a MISFLUSH: penalty card + card revealed to everyone', () => {
     const e = withDiscardTop(3);
-    mustFail(e, { type: 'FLUSH_OWN', playerId: P3, cardIds: ['d1'] }); // d1 = 2
+    const deckBefore = e.getState().deck.length;
+    const res = e.handleAction({ type: 'FLUSH_OWN', playerId: P3, cardIds: ['d1'] }); // d1 = 2 ≠ 3
+    expect(res.ok).toBe(true);
+    const s = e.getState();
+    // Card stays in hand (nothing removed).
+    expect(s.hands.p3!.some((c) => c.id === 'd1')).toBe(true);
+    // Penalty draw applied (default draw_one).
+    expect(s.hands.p3!.length).toBe(5);
+    expect(s.deck.length).toBe(deckBefore - 1);
+    expect(s.events.at(-1)!.type).toBe('PENALTY_DRAWN');
+    // Everyone now knows the attempted (wrong) card — embarrassing, like real life.
+    for (const pid of s.players.map((p) => p.id)) {
+      expect(s.knowledge[pid]).toContain('d1');
+    }
+  });
+
+  it('a misflush does not remove matching cards in the same batch attempts', () => {
+    // p1's hand has an 8 at a1 and a 2 at a3. Discard top is an 8; a batch
+    // containing a non-matching card fails entirely (nothing removed).
+    const order = baseOrder();
+    order[0] = c('a1', S, 8); // p1 slot 0 = 8
+    order[6] = c('a3', S, 3); // p1 slot 2 = 3 (does not match 8)
+    order[12] = c('draw8', D, 8);
+    const e = setup(order, { rules: { endRoundWhenPlayerHasNoCards: false } });
+    peekAll(e);
+    mustOk(e, { type: 'DRAW', playerId: P1 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 }); // discard top = 8
+    const before = e.getState().hands.p1!.slice();
+    const res = e.handleAction({ type: 'FLUSH_OWN', playerId: P1, cardIds: ['a1', 'a3'] });
+    expect(res.ok).toBe(true);
+    expect(e.getState().hands.p1!.length).toBe(before.length + 1); // +1 penalty, nothing removed
   });
 
   it('rejects unknown and duplicate cards', () => {
@@ -464,32 +508,41 @@ describe('flushing another player\u2019s card', () => {
     expect(after.hands.p1!.find((card) => card.id === 'a1')).toBeUndefined();
   });
 
-  it('incorrect flush: nothing moves, no hidden info revealed, configurable penalty', () => {
+  it('incorrect flush of another player: card stays with owner, revealed to everyone, penalty drawn', () => {
     const e = setupTop(3);
     const s = e.getState();
     const p3Hand = s.hands.p3!.slice();
     const deckCount = s.deck.length;
-    // A wrong guess is a processed outcome (not an error): the attempt is
-    // logged, nothing moves, nothing is revealed.
+    // Wrong guess: processed outcome (not an error).
     const res = e.handleAction({ type: 'FLUSH_OTHER', playerId: P2, targetPlayerId: P3, cardId: 'd1' }); // d1 = 2
     expect(res.ok).toBe(true);
     const after = e.getState();
+    // The invalid card stays with its owner (nothing removed).
     expect(after.hands.p3).toEqual(p3Hand);
-    expect(after.deck.length).toBe(deckCount);
-    expect(after.events.at(-1)!.type).toBe('FAILED_FLUSH_OTHER');
-    expect(JSON.stringify(after.events.at(-1)!.payload)).not.toMatch(/rank|suit/);
+    // The failed guess reveals the card's identity to EVERYONE (visible mistake).
+    const last = after.events.at(-1)!;
+    expect(last.type).toBe('PENALTY_DRAWN');
+    const failEvent = after.events.filter((ev) => ev.type === 'FAILED_FLUSH_OTHER').at(-1)!;
+    expect(failEvent.payload).toMatchObject({ playerId: P2, targetPlayerId: P3, cardId: 'd1', rank: 2 });
+    for (const pid of after.players.map((p) => p.id)) {
+      expect(after.knowledge[pid]).toContain('d1');
+    }
+    // Penalty draw applied (default draw_one).
+    expect(after.hands.p2!.length).toBe(5);
+    expect(after.deck.length).toBe(deckCount - 1);
+  });
 
-    // Configured penalty applies.
-    const e3 = setup(baseOrder().map((card, i) => (i === 12 ? c('drawX', H, 3) : card)), {
-      rules: { wrongFlushPenalty: 'draw_one', endRoundWhenPlayerHasNoCards: false },
+  it('wrong-flush penalty is configurable (draw_two)', () => {
+    const e = setup(baseOrder().map((card, i) => (i === 12 ? c('drawX', H, 3) : card)), {
+      rules: { wrongFlushPenalty: 'draw_two', endRoundWhenPlayerHasNoCards: false },
     });
-    peekAll(e3);
-    mustOk(e3, { type: 'DRAW', playerId: P1 });
-    mustOk(e3, { type: 'DISCARD_DRAWN', playerId: P1 });
-    const deckBefore = e3.getState().deck.length;
-    e3.handleAction({ type: 'FLUSH_OTHER', playerId: P2, targetPlayerId: P3, cardId: 'd1' });
-    expect(e3.getState().hands.p2!.length).toBe(5);
-    expect(e3.getState().deck.length).toBe(deckBefore - 1);
+    peekAll(e);
+    mustOk(e, { type: 'DRAW', playerId: P1 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
+    const deckBefore = e.getState().deck.length;
+    e.handleAction({ type: 'FLUSH_OTHER', playerId: P2, targetPlayerId: P3, cardId: 'd1' });
+    expect(e.getState().hands.p2!.length).toBe(6);
+    expect(e.getState().deck.length).toBe(deckBefore - 2);
   });
 
   it('rejects flushing your own card via FLUSH_OTHER or targeting a card not in the target hand', () => {
@@ -522,7 +575,7 @@ describe('simultaneous flush attempts', () => {
     expect(new Set(all.map((card) => card.id)).size).toBe(all.length);
   });
 
-  it('atomic multi-flush: one wrong card in the batch rejects everything', () => {
+  it('misflush: a batch containing one wrong card removes nothing and draws a penalty', () => {
     const order = baseOrder();
     order[0] = c('a1', S, 8);
     order[3] = c('a2', H, 8);
@@ -532,8 +585,14 @@ describe('simultaneous flush attempts', () => {
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
     const handBefore = e.getState().hands.p1!.slice();
-    mustFail(e, { type: 'FLUSH_OWN', playerId: P1, cardIds: ['a1', 'a2', 'a3'] }); // a3 = 2
-    expect(e.getState().hands.p1).toEqual(handBefore);
+    const deckBefore = e.getState().deck.length;
+    const res = e.handleAction({ type: 'FLUSH_OWN', playerId: P1, cardIds: ['a1', 'a2', 'a3'] }); // a3 = 2
+    expect(res.ok).toBe(true);
+    // Nothing was removed from the hand (the whole attempt failed), but a
+    // penalty card was drawn and the wrong card revealed to everyone.
+    expect(e.getState().hands.p1!.length).toBe(handBefore.length + 1);
+    expect(e.getState().deck.length).toBe(deckBefore - 1);
+    expect(e.getState().knowledge.p2).toContain('a3');
   });
 });
 

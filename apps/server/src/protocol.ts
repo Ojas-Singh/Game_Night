@@ -17,6 +17,7 @@ export interface ClientEvents {
   'room:set_name': (payload: { name: string }) => void;
   'room:set_ready': (payload: { ready: boolean }) => void;
   'room:select_game': (payload: { gameId: string }) => void;
+  'room:set_swap_others': (payload: { enabled: boolean }) => void;
   'room:start_game': (payload: {}, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:chat': (payload: { text: string }) => void;
   'room:emote': (payload: { emote: string }) => void;
@@ -55,6 +56,8 @@ export interface RoomLobbyState {
   hostId: string;
   /** Cumulative match scoreboard across rounds (public). */
   scoreboard: Record<string, number>;
+  /** Host-selected optional 5–6 "swap others" power. */
+  swapOthersEnabled: boolean;
 }
 
 export interface ChatMessage {

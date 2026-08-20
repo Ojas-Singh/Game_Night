@@ -220,6 +220,26 @@
 .host-controls {
   margin-top: 16px;
 }
+.house-rule-row {
+  margin-bottom: 14px;
+}
+.rule-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--ink-dim);
+  font-size: 14px;
+  cursor: pointer;
+}
+.rule-label input[type='checkbox'] {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.rule-label span:hover {
+  color: var(--ink);
+}
 .start-btn {
   width: 100%;
   padding: 14px;
@@ -676,12 +696,58 @@
   border-radius: var(--radius-card);
   border: 2px dashed rgba(255, 240, 200, 0.15);
 }
-.cabo-btn {
-  background: linear-gradient(180deg, #d95f4c, #b3372c);
-  color: #fff0e6;
-  letter-spacing: 0.12em;
+.cabo-ring-zone {
+  position: absolute;
+  left: calc(50% + 132px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 16;
+}
+.cabo-ring {
+  width: 108px;
+  height: 108px;
+  border-radius: 50%;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0;
+  color: #2a1a08;
+  background: radial-gradient(circle at 50% 30%, #f8e6c0, #e3b870 60%, #c8964a);
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.55),
+    inset 0 2px 4px rgba(255, 255, 255, 0.5);
+  border: 5px solid rgba(255, 240, 200, 0.85);
   font-weight: 700;
-  box-shadow: 0 6px 20px rgba(179, 55, 44, 0.4);
+  position: relative;
+  animation: cabo-glow 2s ease-in-out infinite;
+}
+.cabo-ring::before {
+  content: '';
+  position: absolute;
+  inset: 9px;
+  border-radius: 50%;
+  border: 2px dashed rgba(120, 70, 10, 0.45);
+}
+.cabo-ring-top {
+  letter-spacing: 0.22em;
+  font-size: 13px;
+}
+.cabo-ring-center {
+  font-size: 22px;
+  line-height: 1;
+}
+.cabo-ring-bottom {
+  letter-spacing: 0.16em;
+  font-size: 15px;
+}
+@keyframes cabo-glow {
+  0%, 100% {
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55), 0 0 0 0 rgba(232, 165, 75, 0);
+  }
+  50% {
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55), 0 0 0 10px rgba(232, 165, 75, 0.22);
+  }
 }
 .cabo-called-note {
   font-size: 13px;
@@ -967,6 +1033,10 @@
   .pile { width: 58px; height: 84px; }
   .discard-card, .discard-empty { width: 58px; height: 84px; font-size: 22px; }
   .pile-row { gap: 14px; }
+  .cabo-ring-zone { left: calc(50% + 86px); }
+  .cabo-ring { width: 82px; height: 82px; }
+  .cabo-ring-top { font-size: 11px; }
+  .cabo-ring-bottom { font-size: 13px; }
   .table-center { top: 42%; }
   .status-banner {
     font-size: 12.5px;

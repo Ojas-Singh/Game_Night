@@ -49,19 +49,28 @@ export default function TableCenter({
           <span className="pile-label">DISCARD</span>
         </div>
       </div>
-      {onCallCabo && (
-        <motion.button
-          initial={{ scale: 0.8, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="cabo-btn"
-          onClick={onCallCabo}
-        >
-          CALL CABO
-        </motion.button>
-      )}
-      {view.cabo && !onCallCabo && (
-        <div className="cabo-called-note">🚨 Cabo called — final turns!</div>
-      )}
+      <div className="cabo-ring-zone">
+        {onCallCabo ? (
+          <AnimatePresence>
+            <motion.button
+              className="cabo-ring"
+              onClick={onCallCabo}
+              aria-label="Call Cabo"
+              title="Call Cabo — everyone gets one last turn"
+              initial={{ scale: 0.6, opacity: 0, rotate: -20 }}
+              animate={{ scale: 1, opacity: 1, rotate: 0 }}
+              exit={{ scale: 0.6, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+            >
+              <span className="cabo-ring-top">CALL</span>
+              <span className="cabo-ring-center">✋</span>
+              <span className="cabo-ring-bottom">CABO</span>
+            </motion.button>
+          </AnimatePresence>
+        ) : (
+          view.cabo && <div className="cabo-called-note">🚨 Cabo called — final turns!</div>
+        )}
+      </div>
     </div>
   );
 }

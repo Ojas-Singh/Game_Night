@@ -253,7 +253,6 @@ export class CaboEngine {
           seen.add(id);
           if (findCard(hand, id) < 0) INVALID('card not in your hand');
         }
-        this.assertMatchesDiscard(a.cardIds.map((id) => hand.find((c) => c.id === id)!));
         return;
       }
       case 'FLUSH_OTHER': {
@@ -327,15 +326,6 @@ export class CaboEngine {
     }
   }
 
-  private assertMatchesDiscard(cards: Card[]): void {
-    const s = this.getState();
-    const top = s.discard[s.discard.length - 1];
-    if (!top) INVALID('nothing to flush against');
-    for (const c of cards) {
-      if (c.rank !== top.rank) INVALID(`card ${c.id} does not match discard top`);
-    }
-  }
-
   // -------------------------------------------------------------------
   // Mutations
   // -------------------------------------------------------------------
@@ -380,14 +370,29 @@ export class CaboEngine {
         return;
       }
       case 'FLUSH_OWN': {
-        const hand = s.hands[a.playerId]!;
+        const sNow = s;
+        const hand = sNow.hands[a.playerId]!;
         const cards = a.cardIds
           .map((id) => hand.find((c) => c.id === id)!)
           .sort((x, y) => findCard(hand, x.id) - findCard(hand, y.id));
+        const top = sNow.discard[sNow.discard.length - 1];
+        const mismatches = top ? cards.filter((c) => c.rank !== top.rank) : [];
+        if (mismatches.length > 0) {
+          // Misflush: a visible mistake. Everyone sees the wrong card(s), the
+          // cards stay in hand, and the player draws a penalty card.
+          for (const card of mismatches) this.revealToAll(card);
+          this.emit('FAILED_FLUSH_OWN', {
+            playerId: a.playerId,
+            cardIds: mismatches.map((c) => c.id),
+            ranks: mismatches.map((c) => c.rank),
+          });
+          this.applyWrongFlushPenalty(a.playerId);
+          return;
+        }
         for (const card of cards) {
           hand.splice(findCard(hand, card.id), 1);
           this.forgetAll(card.id);
-          s.discard.push(card);
+          sNow.discard.push(card);
           this.emit('CARD_FLUSHED', { playerId: a.playerId, sourcePlayerId: a.playerId, cardId: card.id, rank: card.rank });
         }
         this.checkPlayerOutOrAdvance(a.playerId);
@@ -417,8 +422,16 @@ export class CaboEngine {
           this.emit('TRANSFER_REQUIRED', { fromPlayerId: a.playerId, toPlayerId: a.targetPlayerId });
           this.checkPlayerOut(a.targetPlayerId);
         } else {
-          // Incorrect flush — apply the configured penalty, reveal nothing.
-          this.emit('FAILED_FLUSH_OTHER', { playerId: a.playerId, targetPlayerId: a.targetPlayerId });
+          // Wrong guess at another player's card: a visible, embarrassing
+          // mistake. The invalid card stays with its owner, but everyone sees
+          // its identity, and the guesser draws a penalty card.
+          this.revealToAll(card);
+          this.emit('FAILED_FLUSH_OTHER', {
+            playerId: a.playerId,
+            targetPlayerId: a.targetPlayerId,
+            cardId: card.id,
+            rank: card.rank,
+          });
           this.applyWrongFlushPenalty(a.playerId);
         }
         return;
@@ -494,7 +507,9 @@ export class CaboEngine {
    *  otherwise end the turn. Mandatory — the turn cannot advance past a
    *  pending power. */
   private afterDiscard(playerId: string, card: Card): void {
-    const power = powerForRank(card.rank, this.rules);
+    let power = powerForRank(card.rank, this.rules);
+    // 5–6 swap-others is a host-selectable optional power in our house rules.
+    if (power === 'SWAP_OTHERS' && !this.rules.swapOthersEnabled) power = null;
     if (power) {
       this.getState().pendingPower = { playerId, power, sourceCardId: card.id };
       this.getState().phase = 'POWER_PENDING';
@@ -724,6 +739,12 @@ export class CaboEngine {
     for (const pid of Object.keys(s.knowledge)) {
       s.knowledge[pid] = s.knowledge[pid]!.filter((id) => id !== cardId);
     }
+  }
+
+  /** Reveal a card's identity to every player (used for visible misflushes). */
+  private revealToAll(card: Card): void {
+    const s = this.getState();
+    for (const p of s.players) this.learn(p.id, card.id);
   }
 
   private emit(type: string, payload?: Record<string, unknown>, playerId?: string): void {

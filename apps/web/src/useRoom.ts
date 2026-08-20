@@ -84,6 +84,7 @@ export interface RoomApi {
   setName: (name: string) => void;
   setReady: (ready: boolean) => void;
   selectGame: (gameId: string) => void;
+  setSwapOthers: (enabled: boolean) => void;
   startGame: () => Promise<{ ok: boolean; error?: string }>;
   sendChat: (text: string) => void;
   sendAction: (action: ClientCaboAction) => Promise<{ ok: boolean; error?: string }>;
@@ -272,6 +273,7 @@ export function useRoom(): RoomApi {
       },
       setReady: (ready: boolean) => socketRef.current?.emit('room:set_ready', { ready }),
       selectGame: (gameId: string) => socketRef.current?.emit('room:select_game', { gameId }),
+      setSwapOthers: (enabled: boolean) => socketRef.current?.emit('room:set_swap_others', { enabled }),
       startGame: () =>
         new Promise((resolve) => {
           socketRef.current?.emit('room:start_game', {}, resolve);

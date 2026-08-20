@@ -30,6 +30,7 @@ export interface RoomLobbyState {
   inGame: boolean;
   hostId: string;
   scoreboard: Record<string, number>;
+  swapOthersEnabled: boolean;
 }
 
 export interface ChatMessage {
@@ -50,6 +51,7 @@ export type ClientToServerEvents = {
   'room:set_name': (payload: { name: string }) => void;
   'room:set_ready': (payload: { ready: boolean }) => void;
   'room:select_game': (payload: { gameId: string }) => void;
+  'room:set_swap_others': (payload: { enabled: boolean }) => void;
   'room:start_game': (payload: Record<string, never>, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:chat': (payload: { text: string }) => void;
   'room:leave': () => void;

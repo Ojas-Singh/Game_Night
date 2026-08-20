@@ -30,7 +30,11 @@ export interface CaboRules {
   /** Rank bands that carry powers. */
   powerBands: Array<{ from: Rank; to: Rank; power: CaboPower }>;
 
-  /** Penalty for an incorrect flush attempt on another player's card. */
+  /** House-rule toggle (host-selectable): when false, discarding a 5–6
+   *  triggers no power. */
+  swapOthersEnabled: boolean;
+
+  /** Penalty for an incorrect flush attempt. */
   wrongFlushPenalty: WrongFlushPenalty;
 
   /** What happens when someone must draw from an empty deck. */
@@ -77,7 +81,9 @@ export const DEFAULT_CABO_RULES: CaboRules = {
     { from: 9, to: 10, power: 'PEEK_OTHER' },
     { from: 11, to: 12, power: 'BLIND_SWAP' },
   ],
-  wrongFlushPenalty: 'none',
+  // 5–6 optional by host (house rule); 7–10 and J–Q always on.
+  swapOthersEnabled: true,
+  wrongFlushPenalty: 'draw_one',
   emptyDeckBehavior: 'reshuffle_discard',
   endRoundWhenPlayerHasNoCards: true,
   cabo: {

@@ -86,6 +86,16 @@ export default function LobbyView({ room }: { room: RoomApi }) {
             </div>
             {isHost ? (
               <div className="host-controls">
+                <div className="house-rule-row">
+                  <label className="rule-label" title="When a player discards a 5 or 6, they swap two of their opponents' cards">
+                    <input
+                      type="checkbox"
+                      checked={lobby.swapOthersEnabled}
+                      onChange={(e) => room.setSwapOthers(e.target.checked)}
+                    />
+                    <span>5–6 swap rule</span>
+                  </label>
+                </div>
                 <button
                   className="start-btn"
                   disabled={!canStart}
