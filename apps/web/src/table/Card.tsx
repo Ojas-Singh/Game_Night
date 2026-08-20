@@ -47,10 +47,11 @@ export default function Card({
   return (
     <motion.button
       layout
-      initial={{ scale: 0.6, opacity: 0, y: -18 }}
+      layoutId={cardId}
+      initial={{ scale: 0.75, opacity: 0, y: drawn ? -110 : -26 }}
       animate={{ scale: 1, opacity: dimmed ? 0.55 : 1, y: 0 }}
-      exit={{ scale: 0.5, opacity: 0, y: -24 }}
-      transition={{ type: 'spring', stiffness: 420, damping: 30, mass: 0.9 }}
+      exit={{ scale: 0.6, opacity: 0, y: -30 }}
+      transition={{ type: 'spring', stiffness: 330, damping: 26, mass: 0.9 }}
       className={`pcard ${small ? 'small' : ''} ${faceDown ? 'facedown' : 'faceup'} ${
         highlight ? 'highlight' : ''
       } ${dimmed ? 'dimmed' : ''} ${lifted ? 'lifted' : ''} ${selectable ? 'selectable' : ''} ${

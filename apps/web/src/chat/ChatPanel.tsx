@@ -5,7 +5,7 @@ import type { RoomApi } from '../useRoom.js';
  * Collapsible chat — never obscures the table. In gameplay it starts
  * collapsed to a bubble with an unread badge; in the lobby it's expanded.
  */
-export default function ChatPanel({ room, expanded = false }: { room: RoomApi; expanded?: boolean }) {
+export default function ChatPanel({ room, expanded = false, floating = false }: { room: RoomApi; expanded?: boolean; floating?: boolean }) {
   const [open, setOpen] = useState(expanded);
   const [text, setText] = useState('');
   const [flash, setFlash] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export default function ChatPanel({ room, expanded = false }: { room: RoomApi; e
   };
 
   return (
-    <div className={`chat-panel ${open ? 'open' : 'closed'}`}>
+    <div className={`chat-panel ${open ? 'open' : 'closed'} ${floating ? 'floating' : ''}`}>
       {open ? (
         <>
           <div className="chat-head">

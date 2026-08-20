@@ -27,10 +27,11 @@ export default function TableCenter({
             {discard ? (
               <motion.div
                 key={discard.id}
-                initial={{ y: -60, scale: 0.7, opacity: 0, rotate: -12 }}
-                animate={{ y: 0, scale: 1, opacity: 1, rotate: discard.rank % 2 ? 3 : -4 }}
+                layoutId={discard.id}
+                initial={{ opacity: 0, scale: 0.6 }}
+                animate={{ opacity: 1, scale: 1, rotate: discard.rank % 2 ? 3 : -4 }}
                 exit={{ opacity: 0 }}
-                transition={{ type: 'spring', stiffness: 380, damping: 26 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 24 }}
                 className="discard-card"
               >
                 <span

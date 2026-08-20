@@ -312,7 +312,7 @@ export default function TableView({ room }: { room: RoomApi }) {
       {/* round-over overlay */}
       {mode === 'round-over' && <ScoreBoard view={view} room={room} />}
 
-      <ChatPanel room={room} />
+      <ChatPanel room={room} floating />
     </div>
   );
 }
