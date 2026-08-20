@@ -61,6 +61,7 @@ export type ClientToServerEvents = {
 export type ServerToClientEvents = {
   'room:state': (state: RoomLobbyState) => void;
   'room:chat': (message: ChatMessage) => void;
+  'room:emote': (payload: { playerId: string; emote: string; timestamp: string }) => void;
   'game:view': (view: CaboPlayerView) => void;
   'room:closed': (payload: { reason: string }) => void;
 };

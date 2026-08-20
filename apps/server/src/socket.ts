@@ -213,6 +213,21 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
       }
     });
 
+    socket.on('room:emote', ({ emote }) => {
+      try {
+        const { room, playerId } = requireRoom();
+        const clean = typeof emote === 'string' ? emote.slice(0, 8) : '';
+        if (!clean) return;
+        io.to(room.id).emit('room:emote', {
+          playerId,
+          emote: clean,
+          timestamp: new Date().toISOString(),
+        });
+      } catch {
+        /* ignore */
+      }
+    });
+
     // -----------------------------------------------------------------
     // Gameplay — opaque envelope to the engine
     // -----------------------------------------------------------------

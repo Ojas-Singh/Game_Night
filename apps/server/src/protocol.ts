@@ -19,6 +19,7 @@ export interface ClientEvents {
   'room:select_game': (payload: { gameId: string }) => void;
   'room:start_game': (payload: {}, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:chat': (payload: { text: string }) => void;
+  'room:emote': (payload: { emote: string }) => void;
   'room:leave': () => void;
   'game:action': (payload: { action: GameAction }, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:return_to_lobby': () => void;
@@ -68,6 +69,7 @@ export interface ChatMessage {
 export interface ServerEvents {
   'room:state': (state: RoomLobbyState) => void;
   'room:chat': (message: ChatMessage) => void;
+  'room:emote': (payload: { playerId: string; emote: string; timestamp: string }) => void;
   'game:view': (view: CaboPlayerView | { spectator: true }) => void;
   'room:closed': (payload: { reason: string }) => void;
 }

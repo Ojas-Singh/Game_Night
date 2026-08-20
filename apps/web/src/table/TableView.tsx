@@ -9,6 +9,8 @@ import ScoreBoard from './ScoreBoard.js';
 import { useGuidance } from './guidance.js';
 import ChatPanel from '../chat/ChatPanel.js';
 import SoundToggle from '../SoundToggle.js';
+import EmotePicker from '../EmotePicker.js';
+import FloatingEmote from './FloatingEmote.js';
 
 /**
  * The round-table experience. The local player always sits at the bottom;
@@ -197,6 +199,7 @@ export default function TableView({ room }: { room: RoomApi }) {
         {guidance.text}
       </div>
       <SoundToggle />
+      <EmotePicker room={room} />
 
       {/* the table */}
       <div className="table-ellipse">
@@ -214,6 +217,7 @@ export default function TableView({ room }: { room: RoomApi }) {
               className={`seat seat-opponent ${isTurn ? 'active' : ''} ${glowing ? 'glow' : ''}`}
               style={seat.style}
             >
+              <FloatingEmote emote={room.emotes[p.id]} />
               <div className="seat-cards hand-grid">
                 {(view.handCardIds[p.id] ?? []).map((cardId) => {
                   const known = view.knownCards[cardId];
@@ -253,6 +257,7 @@ export default function TableView({ room }: { room: RoomApi }) {
 
         {/* my hand */}
         <div className={`seat seat-me ${isMyTurn ? 'active' : ''}`}>
+          <FloatingEmote emote={room.emotes[me.id]} />
           <div className="my-hand hand-grid">
             <AnimatePresence>
               {myHand.map((cardId, idx) => {

@@ -69,6 +69,9 @@ export interface RoomApi {
   unreadChat: number;
   /** Card ids currently in their brief reveal window (face-up). */
   peekFlash: Record<string, number>;
+  /** Most recent emote per player: playerId → { emote, at }. */
+  emotes: Record<string, { emote: string; at: number }>;
+  sendEmote: (emote: string) => void;
   markChatRead: () => void;
   joinError: string | null;
   createRoom: (name: string) => Promise<JoinResult>;
@@ -98,6 +101,8 @@ export function useRoom(): RoomApi {
   const chatOpenRef = useRef(false);
   /** Card ids that became known recently → rendered face-up briefly, then flip down. */
   const [peekFlash, setPeekFlash] = useState<Record<string, number>>({});
+  /** Emote reactions: playerId → latest { emote, at } (at = client receive time). */
+  const [emotes, setEmotes] = useState<Record<string, { emote: string; at: number }>>({});
 
   const flashKnowledge = useCallback((prev: CaboPlayerView, next: CaboPlayerView) => {
     const before = new Set(Object.keys(prev.knownCards));
@@ -158,11 +163,16 @@ export function useRoom(): RoomApi {
     socket.on('room:state', onState);
     socket.on('room:chat', onChat);
     socket.on('game:view', onView);
+    const onEmote = ({ playerId, emote }: { playerId: string; emote: string }) => {
+      setEmotes((prev) => ({ ...prev, [playerId]: { emote, at: Date.now() } }));
+    };
+    socket.on('room:emote', onEmote);
     socket.on('room:closed', ({ reason }) => setJoinError(`Room closed: ${reason}`));
     return () => {
       socket.off('room:state', onState);
       socket.off('room:chat', onChat);
       socket.off('game:view', onView);
+      socket.off('room:emote', onEmote);
       socket.off('room:closed');
     };
   }, [socket]);
@@ -222,6 +232,8 @@ export function useRoom(): RoomApi {
       view,
       chat,
       peekFlash,
+      emotes,
+      sendEmote: (emote: string) => socketRef.current?.emit('room:emote', { emote }),
       unreadChat: unread,
       markChatRead: () => {
         chatOpenRef.current = true;
@@ -260,7 +272,7 @@ export function useRoom(): RoomApi {
         setMyPlayerId(null);
       },
     }),
-    [socket, status, roomId, myPlayerId, lobby, view, chat, peekFlash, unread, joinError, createRoom, joinRoom],
+    [socket, status, roomId, myPlayerId, lobby, view, chat, peekFlash, emotes, unread, joinError, createRoom, joinRoom],
   );
 
   return api;
