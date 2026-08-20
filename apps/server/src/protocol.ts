@@ -22,6 +22,7 @@ export interface ClientEvents {
   'room:leave': () => void;
   'game:action': (payload: { action: GameAction }, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:return_to_lobby': () => void;
+  'room:play_again': (payload: {}, ack: (res: { ok: boolean; error?: string }) => void) => void;
 }
 
 export interface JoinResult {
@@ -51,6 +52,8 @@ export interface RoomLobbyState {
   players: LobbyPlayer[];
   inGame: boolean;
   hostId: string;
+  /** Cumulative match scoreboard across rounds (public). */
+  scoreboard: Record<string, number>;
 }
 
 export interface ChatMessage {

@@ -29,6 +29,7 @@ export interface RoomLobbyState {
   players: LobbyPlayer[];
   inGame: boolean;
   hostId: string;
+  scoreboard: Record<string, number>;
 }
 
 export interface ChatMessage {
@@ -54,6 +55,7 @@ export type ClientToServerEvents = {
   'room:leave': () => void;
   'game:action': (payload: { action: GameAction }, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:return_to_lobby': () => void;
+  'room:play_again': (payload: Record<string, never>, ack: (res: { ok: boolean; error?: string }) => void) => void;
 };
 
 export type ServerToClientEvents = {

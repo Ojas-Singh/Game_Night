@@ -178,8 +178,24 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         const { room, playerId } = requireRoom();
         room.returnToLobby(playerId);
         broadcastLobby(room);
+        persistRoom(room);
       } catch {
         /* ignore */
+      }
+    });
+
+    socket.on('room:play_again', (_payload, ack) => {
+      try {
+        const { room, playerId } = requireRoom();
+        room.playAgain(playerId);
+        ack?.({ ok: true });
+        const last = room.chat[room.chat.length - 1]!;
+        io.to(room.id).emit('room:chat', last);
+        broadcastLobby(room);
+        broadcastGame(room);
+        persistRoom(room);
+      } catch (err) {
+        ack?.(fail(err));
       }
     });
 

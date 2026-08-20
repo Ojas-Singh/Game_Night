@@ -20,6 +20,10 @@ export default function TableView({ room }: { room: RoomApi }) {
   const view = room.view!;
   const me = view.players.find((p) => p.id === room.myPlayerId) ?? view.players[0]!;
   const others = view.players.filter((p) => p.id !== me.id);
+  // Cards inside their brief reveal window render face-up; afterwards they
+  // flip back down (knowledge retained as a small "seen" marker).
+  const flashActive = (cardId: string): boolean =>
+    !!room.peekFlash[cardId] && Date.now() - room.peekFlash[cardId] < 2_600;
 
   // Seat geometry: 2..6 opponents distribute around the top arc.
   const seats = useMemo(() => SeatPlanner(others.length), [others.length]);
@@ -213,12 +217,14 @@ export default function TableView({ room }: { room: RoomApi }) {
               <div className="seat-cards hand-grid">
                 {(view.handCardIds[p.id] ?? []).map((cardId) => {
                   const known = view.knownCards[cardId];
+                  const revealed = flashActive(cardId) || mode === 'round-over';
                   return (
                     <Card
                       key={cardId}
                       cardId={cardId}
                       card={known ?? null}
-                      faceDown={!known}
+                      faceDown={!revealed}
+                      seenMarker={!!known && !revealed}
                       small
                       selectable={selectable}
                       onClick={() => onOpponentCardClick(p.id, cardId)}
@@ -251,6 +257,7 @@ export default function TableView({ room }: { room: RoomApi }) {
             <AnimatePresence>
               {myHand.map((cardId, idx) => {
                 const known = view.knownCards[cardId];
+                const revealed = flashActive(cardId) || mode === 'round-over';
                 const highlight =
                   (mode === 'initial-peek' && flushSel.includes(cardId)) ||
                   (mode === 'power-blind-swap' && selectedOwn === cardId) ||
@@ -262,7 +269,8 @@ export default function TableView({ room }: { room: RoomApi }) {
                     key={cardId}
                     cardId={cardId}
                     card={known ?? null}
-                    faceDown={!known && mode !== 'round-over'}
+                    faceDown={!revealed}
+                    seenMarker={!!known && !revealed}
                     highlight={!!highlight}
                     dimmed={dimmed}
                     lifted={mode === 'draw-decision' || mode === 'initial-peek' || mode === 'power-peek-own' || mode === 'transfer'}

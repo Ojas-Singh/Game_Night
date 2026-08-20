@@ -12,6 +12,9 @@ export default function ScoreBoard({ view, room }: { view: CaboPlayerView; room:
   const scores = view.scores ?? {};
   const best = Math.min(...Object.values(scores));
   const winners = Object.entries(scores).filter(([, s]) => s === best);
+  const matchScores = room.lobby?.scoreboard ?? {};
+  const isHost = room.lobby?.hostId === room.myPlayerId;
+  const nameOf = (id: string) => view.players.find((p) => p.id === id)?.name ?? id;
 
   return (
     <motion.div
@@ -29,6 +32,19 @@ export default function ScoreBoard({ view, room }: { view: CaboPlayerView; room:
           <p className="round-winner">
             🤝 Tie between {winners.map(([id]) => view.players.find((p) => p.id === id)?.name).join(' & ')}
           </p>
+        )}
+        {Object.keys(matchScores).length > 0 && (
+          <div className="match-scores">
+            <span className="match-title">Match totals</span>
+            {Object.entries(matchScores)
+              .sort((a, b) => a[1] - b[1])
+              .map(([id, total]) => (
+                <span key={id} className="match-entry">
+                  {nameOf(id)} <strong>{total}</strong>
+                </span>
+              ))}
+            <span className="match-hint">(lowest total leads)</span>
+          </div>
         )}
         <table className="score-table">
           <thead>
@@ -77,9 +93,12 @@ export default function ScoreBoard({ view, room }: { view: CaboPlayerView; room:
             })}
           </tbody>
         </table>
-        {room.lobby?.hostId === room.myPlayerId ? (
+        {isHost ? (
           <div className="round-actions">
-            <button onClick={() => room.returnToLobby()}>Return to Lobby</button>
+            <button onClick={() => void room.playAgain()}>Play Again</button>
+            <button className="ghost" onClick={() => room.returnToLobby()}>
+              Return to Lobby
+            </button>
           </div>
         ) : (
           <p className="waiting-host">Waiting for the host…</p>

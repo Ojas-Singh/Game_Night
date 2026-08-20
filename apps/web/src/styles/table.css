@@ -563,6 +563,19 @@
 .pcard.dimmed {
   filter: saturate(0.5) brightness(0.75);
 }
+/* "Seen" cards: face-down but the value is remembered. */
+.pcard.seen::before {
+  content: '';
+  position: absolute;
+  top: 7%;
+  right: 9%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(232, 165, 75, 0.85);
+  box-shadow: 0 0 6px rgba(232, 165, 75, 0.6);
+  z-index: 5;
+}
 .pcard.drawn {
   --card-w: 96px;
 }
@@ -576,6 +589,11 @@
   letter-spacing: 0.16em;
   color: var(--accent-strong);
   font-weight: 700;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
 }
 .peek-confirm {
   margin-top: 6px;
@@ -755,6 +773,31 @@
   display: flex;
   gap: 10px;
   justify-content: center;
+}
+.match-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  justify-content: center;
+  align-items: baseline;
+  margin: 0 0 20px;
+  font-size: 13.5px;
+  color: var(--ink-dim);
+}
+.match-title {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 11px;
+  font-weight: 700;
+}
+.match-entry strong {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 16px;
+}
+.match-hint {
+  font-size: 11px;
+  opacity: 0.7;
 }
 
 /* ---- Debug panel (dev only) ---- */

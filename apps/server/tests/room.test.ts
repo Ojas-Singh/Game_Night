@@ -104,6 +104,26 @@ describe('Room', () => {
     const msg = room.playerChat(player.id, long)!;
     expect(msg.text.length).toBe(500);
   });
+
+  it('play_again starts a fresh round and keeps the match scoreboard', () => {
+    const room = new Room({ roomId: 'TEST10' });
+    const { player: p1 } = room.addPlayer('A');
+    const { player: p2 } = room.addPlayer('B');
+    room.startGame(room.hostId!);
+    // Simulate round completion: engine finished + scores tallied.
+    room.engine!.getState().phase = 'ROUND_COMPLETE';
+    room.scoreboard[p1.id] = 17;
+
+    // Non-host cannot restart, and cannot restart mid-round.
+    expect(() => room.playAgain(p2.id)).toThrow(/host/);
+    room.playAgain(p1.id);
+    expect(room.engine).not.toBeNull();
+    expect(room.engine!.getState().phase).toBe('INITIAL_PEEK');
+    // Match scoreboard persists across rounds.
+    expect(room.lobbyState().scoreboard[p1.id]).toBe(17);
+    // Cannot play again while the (new) round is in progress.
+    expect(() => room.playAgain(p1.id)).toThrow(/in progress/);
+  });
 });
 
 function ra_id(room: Room, name: string): string | undefined {

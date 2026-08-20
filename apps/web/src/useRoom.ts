@@ -55,6 +55,9 @@ import {
 
 export type ConnStatus = 'connecting' | 'connected' | 'reconnecting' | 'error';
 
+/** How long a freshly peeked card stays face-up before flipping back down. */
+const PEEK_FLASH_MS = 2600;
+
 export interface RoomApi {
   socket: Socket | null;
   status: ConnStatus;
@@ -64,6 +67,8 @@ export interface RoomApi {
   view: CaboPlayerView | null;
   chat: ChatMessage[];
   unreadChat: number;
+  /** Card ids currently in their brief reveal window (face-up). */
+  peekFlash: Record<string, number>;
   markChatRead: () => void;
   joinError: string | null;
   createRoom: (name: string) => Promise<JoinResult>;
@@ -74,6 +79,7 @@ export interface RoomApi {
   startGame: () => Promise<{ ok: boolean; error?: string }>;
   sendChat: (text: string) => void;
   sendAction: (action: Omit<GameAction, 'playerId'>) => Promise<{ ok: boolean; error?: string }>;
+  playAgain: () => Promise<{ ok: boolean; error?: string }>;
   returnToLobby: () => void;
   leaveRoom: () => void;
 }
@@ -90,6 +96,30 @@ export function useRoom(): RoomApi {
   const [unread, setUnread] = useState(0);
   const [joinError, setJoinError] = useState<string | null>(null);
   const chatOpenRef = useRef(false);
+  /** Card ids that became known recently → rendered face-up briefly, then flip down. */
+  const [peekFlash, setPeekFlash] = useState<Record<string, number>>({});
+
+  const flashKnowledge = useCallback((prev: CaboPlayerView, next: CaboPlayerView) => {
+    const before = new Set(Object.keys(prev.knownCards));
+    const fresh = Object.keys(next.knownCards).filter((id) => !before.has(id));
+    if (fresh.length === 0) return;
+    const now = Date.now();
+    setPeekFlash((cur) => {
+      const updated = { ...cur };
+      for (const id of fresh) updated[id] = now;
+      return updated;
+    });
+    // Flip back down after the reveal window.
+    setTimeout(() => {
+      setPeekFlash((cur) => {
+        const nextMap: Record<string, number> = {};
+        for (const [id, t] of Object.entries(cur)) {
+          if (now - t < PEEK_FLASH_MS - 50) nextMap[id] = t;
+        }
+        return nextMap;
+      });
+    }, PEEK_FLASH_MS);
+  }, []);
 
   useEffect(() => {
     const s = io({ transports: ['websocket', 'polling'] });
@@ -118,7 +148,10 @@ export function useRoom(): RoomApi {
     };
     const onView = (v: CaboPlayerView) => {
       setView((prev) => {
-        if (prev && prev !== v) playSoundsFor(prev, v);
+        if (prev && prev !== v) {
+          playSoundsFor(prev, v);
+          flashKnowledge(prev, v);
+        }
         return v;
       });
     };
@@ -188,6 +221,7 @@ export function useRoom(): RoomApi {
       lobby,
       view,
       chat,
+      peekFlash,
       unreadChat: unread,
       markChatRead: () => {
         chatOpenRef.current = true;
@@ -211,6 +245,10 @@ export function useRoom(): RoomApi {
         new Promise((resolve) => {
           socketRef.current?.emit('game:action', { action }, resolve);
         }),
+      playAgain: () =>
+        new Promise((resolve) => {
+          socketRef.current?.emit('room:play_again', {}, resolve);
+        }),
       returnToLobby: () => socketRef.current?.emit('room:return_to_lobby'),
       leaveRoom: () => {
         if (roomId) clearSession(roomId);
@@ -222,7 +260,7 @@ export function useRoom(): RoomApi {
         setMyPlayerId(null);
       },
     }),
-    [socket, status, roomId, myPlayerId, lobby, view, chat, unread, joinError, createRoom, joinRoom],
+    [socket, status, roomId, myPlayerId, lobby, view, chat, peekFlash, unread, joinError, createRoom, joinRoom],
   );
 
   return api;

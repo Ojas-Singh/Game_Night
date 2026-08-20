@@ -13,6 +13,8 @@ export interface CardProps {
   cardId: string;
   card: CardModel | null;
   faceDown?: boolean;
+  /** Small dot: value remembered but currently face-down. */
+  seenMarker?: boolean;
   small?: boolean;
   drawn?: boolean;
   highlight?: boolean;
@@ -30,6 +32,7 @@ export default function Card({
   cardId,
   card,
   faceDown = false,
+  seenMarker = false,
   small = false,
   drawn = false,
   highlight = false,
@@ -52,10 +55,10 @@ export default function Card({
         highlight ? 'highlight' : ''
       } ${dimmed ? 'dimmed' : ''} ${lifted ? 'lifted' : ''} ${selectable ? 'selectable' : ''} ${
         drawn ? 'drawn' : ''
-      } ${interactive ? 'clickable' : ''}`}
+      } ${interactive ? 'clickable' : ''} ${seenMarker ? 'seen' : ''}`}
       onClick={onClick}
       disabled={!interactive}
-      aria-label={faceDown ? 'face-down card' : card ? `${RANK_LABELS[card.rank]} of ${card.suit}` : 'card'}
+      aria-label={faceDown ? (card ? `face-down card (you saw this one)` : 'face-down card') : card ? `${RANK_LABELS[card.rank]} of ${card.suit}` : 'card'}
       data-card-id={cardId}
     >
       <div className="pcard-inner">

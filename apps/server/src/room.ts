@@ -246,6 +246,22 @@ export class Room {
     this.system('Returned to the lobby');
   }
 
+  /** Host starts a fresh round in the same room; match scoreboard persists. */
+  playAgain(playerId: string): void {
+    if (playerId !== this.hostId) throw new RoomError('only the host can start the next round');
+    if (this.engine && !this.engine.isGameFinished()) {
+      throw new RoomError('current round is still in progress');
+    }
+    this.engine = null;
+    this.startGame(playerId);
+    this.system('Next round — Cabo!');
+  }
+
+  /** Cumulative match scoreboard across rounds (public info). */
+  getScoreboard(): Record<string, number> {
+    return { ...this.scoreboard };
+  }
+
   // -------------------------------------------------------------------
   // Gameplay
   // -------------------------------------------------------------------
@@ -287,6 +303,7 @@ export class Room {
         })),
       inGame: !!this.engine,
       hostId: this.hostId ?? '',
+      scoreboard: this.getScoreboard(),
     };
   }
 
