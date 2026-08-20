@@ -9,6 +9,8 @@
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
 import express from 'express';
 import { Server as SocketServer } from 'socket.io';
 import { config } from './config.js';
@@ -46,14 +48,20 @@ if (config.debugEnabled) {
   log.warn('debug_mode_enabled', { note: 'privileged endpoints active (non-production)' });
 }
 
-const webDist = join(process.cwd(), 'web');
-if (existsSync(webDist)) {
-  app.use(express.static(webDist));
+// Web client location is resolved relative to THIS module so the server
+// works from any cwd (Docker WORKDIR /app, local dev, PM2, ...).
+// dist/index.js → sibling ../web (i.e. apps/server/web).
+const webDist = join(dirname(fileURLToPath(import.meta.url)), '..', 'web');
+// Backwards compat for deployments that ran from inside apps/server.
+const webDistLegacy = join(process.cwd(), 'web');
+const webRoot = existsSync(webDist) ? webDist : existsSync(webDistLegacy) ? webDistLegacy : null;
+if (webRoot) {
+  app.use(express.static(webRoot));
   // Never let debug paths fall through to the SPA — they must plainly 404
   // in production rather than look like valid endpoints.
   app.get('/debug/*', (_req, res) => res.status(404).json({ error: 'not found' }));
   // SPA fallback: every non-socket route renders the client.
-  app.get('*', (_req, res) => res.sendFile(join(webDist, 'index.html')));
+  app.get('*', (_req, res) => res.sendFile(join(webRoot, 'index.html')));
 } else {
   app.get('/', (_req, res) => res.send('Game Night server — web client not bundled'));
 }
