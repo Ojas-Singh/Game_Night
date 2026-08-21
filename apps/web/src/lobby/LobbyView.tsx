@@ -181,6 +181,10 @@ export default function LobbyView({ room }: { room: RoomApi }) {
           </div>
         </div>
         <ChatPanel room={room} expanded />
+        <InfoModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
+        <button className="ghost rules-again" onClick={() => setRulesOpen(true)}>
+          📖 Show rules again
+        </button>
       </aside>
     </div>
   );
