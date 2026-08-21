@@ -103,10 +103,12 @@ describe('collectFlights', () => {
     ]);
     const flights = collectFlights(view([]), next);
     expect(flights).toHaveLength(4);
-    expect(flights[0]).toMatchObject({ fromPlayerId: 'A', toPlayerId: 'B', rank: 0 });
-    expect(flights[1]).toMatchObject({ fromPlayerId: 'B', toPlayerId: 'A', rank: 0 });
-    expect(flights[2]).toMatchObject({ fromPlayerId: 'B', toPlayerId: 'C', rank: 0 });
-    expect(flights[3]).toMatchObject({ fromPlayerId: 'C', toPlayerId: 'B', rank: 0 });
+    // Blind swap: each ghost runs card-to-card along the true exchange path.
+    expect(flights[0]).toMatchObject({ fromPlayerId: 'A', fromCardId: 'y', toPlayerId: 'B', toCardId: 'x', rank: 0 });
+    expect(flights[1]).toMatchObject({ fromPlayerId: 'B', fromCardId: 'x', toPlayerId: 'A', toCardId: 'y', rank: 0 });
+    // Others swap: card A now sits where card B was (and vice versa).
+    expect(flights[2]).toMatchObject({ fromPlayerId: 'B', fromCardId: 'q', toPlayerId: 'C', toCardId: 'p', rank: 0 });
+    expect(flights[3]).toMatchObject({ fromPlayerId: 'C', fromCardId: 'p', toPlayerId: 'B', toCardId: 'q', rank: 0 });
   });
 
   it('only reports events newer than the previous view (delta)', () => {

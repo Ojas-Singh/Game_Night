@@ -103,32 +103,61 @@ export function collectFlights(
           rank: 0,
         });
       } else if (pow === 'BLIND_SWAP') {
-        // Two cards cross between the performer and the target (face-down:
-        // values must not leak through the shared event log).
+        // Two cards EXCHANGE PLACES: after the swap each card's element sits
+        // where the other used to be, so ghost A flies from card B's element
+        // to card A's element (and vice versa) — card-to-card, hand-agnostic.
+        // Face-down: values must not leak through the shared event log.
         const meId = String(ev.playerId ?? '');
         const target = String(p?.targetPlayerId ?? '');
+        const own = typeof p?.ownCardId === 'string' ? p.ownCardId : undefined;
+        const tgt = typeof p?.targetCardId === 'string' ? p.targetCardId : undefined;
         out.push({
           id: `${ev.type}-${ev.seq}-a`,
           seq: ev.seq,
           fromPlayerId: meId,
+          fromCardId: tgt,
           toDiscard: false,
           toPlayerId: target,
+          toCardId: own,
           rank: 0,
         });
         out.push({
           id: `${ev.type}-${ev.seq}-b`,
           seq: ev.seq,
           fromPlayerId: target,
+          fromCardId: own,
           toDiscard: false,
           toPlayerId: meId,
+          toCardId: tgt,
           rank: 0,
         });
       } else if (pow === 'SWAP_OTHERS' && typeof p?.ownerA === 'string' && typeof p?.ownerB === 'string') {
         const a = String(p.ownerA);
         const b = String(p.ownerB);
         if (a && b && a !== b) {
-          out.push({ id: `${ev.type}-${ev.seq}-a`, seq: ev.seq, fromPlayerId: a, toDiscard: false, toPlayerId: b, rank: 0 });
-          out.push({ id: `${ev.type}-${ev.seq}-b`, seq: ev.seq, fromPlayerId: b, toDiscard: false, toPlayerId: a, rank: 0 });
+          const cardA = typeof p?.cardIdA === 'string' ? p.cardIdA : undefined;
+          const cardB = typeof p?.cardIdB === 'string' ? p.cardIdB : undefined;
+          // Same exchange trick: card A now sits in card B's old slot.
+          out.push({
+            id: `${ev.type}-${ev.seq}-a`,
+            seq: ev.seq,
+            fromPlayerId: a,
+            fromCardId: cardB,
+            toDiscard: false,
+            toPlayerId: b,
+            toCardId: cardA,
+            rank: 0,
+          });
+          out.push({
+            id: `${ev.type}-${ev.seq}-b`,
+            seq: ev.seq,
+            fromPlayerId: b,
+            fromCardId: cardA,
+            toDiscard: false,
+            toPlayerId: a,
+            toCardId: cardB,
+            rank: 0,
+          });
         }
       }
     } else if (ev.type === 'PENALTY_DRAWN') {
