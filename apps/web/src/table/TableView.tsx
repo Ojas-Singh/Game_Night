@@ -218,7 +218,10 @@ export default function TableView({ room }: { room: RoomApi }) {
               style={seat.style}
             >
               <FloatingEmote emote={room.emotes[p.id]} />
-              <div className="seat-cards hand-grid">
+              <div
+                className="seat-cards hand-grid"
+                style={seat.facing ? { transform: `rotate(${seat.facing}deg)` } : undefined}
+              >
                 {(view.handCardIds[p.id] ?? []).map((cardId) => {
                   const known = view.knownCards[cardId];
                   const revealed = flashActive(cardId) || mode === 'round-over';
@@ -229,6 +232,7 @@ export default function TableView({ room }: { room: RoomApi }) {
                       card={known ?? null}
                       faceDown={!revealed}
                       seenMarker={!!known && !revealed}
+                      contentRotate={-seat.facing}
                       small
                       selectable={selectable}
                       onClick={() => onOpponentCardClick(p.id, cardId)}

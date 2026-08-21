@@ -357,7 +357,7 @@
 
 .sound-toggle {
   position: absolute;
-  top: 14px;
+  bottom: 88px;
   right: 18px;
   z-index: 35;
   width: 42px;
@@ -402,12 +402,11 @@
   color: var(--accent-strong);
 }
 
-/* The elliptical table */
+/* The elliptical table — flat 2D, no perspective tilt. */
 .table-ellipse {
   position: relative;
   width: min(94vw, 1240px);
   height: min(100% - 130px, 88vh);
-  perspective: 1400px;
 }
 .table-felt {
   position: absolute;
@@ -418,10 +417,8 @@
     radial-gradient(ellipse at 50% 45%, var(--felt-1), var(--felt-2) 75%);
   border: 14px solid transparent;
   box-shadow:
-    0 40px 90px rgba(0, 0, 0, 0.65),
-    inset 0 0 90px rgba(0, 0, 0, 0.5),
-    inset 0 2px 0 rgba(255, 255, 255, 0.05);
-  transform: rotateX(16deg);
+    0 26px 60px rgba(0, 0, 0, 0.55),
+    inset 0 0 90px rgba(0, 0, 0, 0.5);
 }
 .table-felt::after {
   content: '';
@@ -498,7 +495,7 @@
 .pcard {
   position: relative;
   width: var(--card-w, 88px);
-  height: calc(var(--card-w, 88px) * 1.42);
+  height: var(--card-w, 88px);
   border-radius: var(--radius-card);
   background: transparent;
   padding: 0;
@@ -920,7 +917,7 @@
 /* Emotes */
 .emote-picker {
   position: absolute;
-  top: 62px;
+  bottom: 140px;
   right: 18px;
   z-index: 36;
 }
@@ -936,7 +933,7 @@
 }
 .emote-row {
   position: absolute;
-  top: 48px;
+  bottom: 48px;
   right: 0;
   display: flex;
   gap: 3px;
@@ -1057,5 +1054,5 @@
   .home-title { font-size: 36px; }
   .seat-me { bottom: 0%; }
   .chat-bubble { width: 42px; height: 42px; }
-  .sound-toggle { width: 36px; height: 36px; top: 60px; }
+  .sound-toggle { width: 36px; height: 36px; bottom: 84px; }
 }

@@ -8,6 +8,9 @@ export interface Seat {
   /** CSS positioning (percent within the table container). */
   style: React.CSSProperties;
   angle: number;
+  /** Degrees to rotate a player's hand so it "faces" their seat (0 = toward
+   *  the viewer/bottom; square cards keep values upright via counter-rotation). */
+  facing: number;
 }
 
 export default function SeatPlanner(opponentCount: number): Seat[] {
@@ -24,12 +27,16 @@ export default function SeatPlanner(opponentCount: number): Seat[] {
     // Ellipse: a bit wider than tall so 6 players still fit.
     const xPct = 50 + 44 * Math.cos(Math.PI - rad);
     const yPct = 46 - 34 * Math.sin(rad);
+    // The hand faces toward the table for top players (0°) and tilts in for
+    // the left (−) and right (+) sides so each player reads their own hand.
+    const facing = angle - 90;
     seats.push({
       angle,
+      facing,
       style: {
         left: `${xPct}%`,
         top: `${yPct}%`,
-        transform: `translate(-50%, -50%) rotate(${(angle - 90) * 0.12}deg)`,
+        transform: `translate(-50%, -50%)`,
       },
     });
   }

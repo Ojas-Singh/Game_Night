@@ -21,12 +21,16 @@ export interface CardProps {
   dimmed?: boolean;
   lifted?: boolean;
   selectable?: boolean;
+  /** Counter-rotation (deg) so the value stays upright when the whole hand
+   *  is rotated to face the player who sits there. */
+  contentRotate?: number;
   onClick?: () => void;
 }
 
 /**
- * A physical-feeling card: 3D flip via backface transforms, hover lift,
- * selection glow. Value is rendered ONLY when the server says we know it.
+ * A card. Square, so it can be oriented toward a player with the value always
+ * upright. Light, localized animations only — cards never reposition the
+ * whole layout. Value is rendered only when the server says we know it.
  */
 export default function Card({
   cardId,
@@ -39,19 +43,18 @@ export default function Card({
   dimmed = false,
   lifted = false,
   selectable = false,
+  contentRotate = 0,
   onClick,
 }: CardProps) {
   const red = card && (card.suit === 'hearts' || card.suit === 'diamonds');
   const interactive = !!onClick;
+  const valueStyle = contentRotate ? { transform: `rotate(${contentRotate}deg)` } : undefined;
 
   return (
     <motion.button
-      layout
-      layoutId={cardId}
-      initial={{ scale: 0.75, opacity: 0, y: drawn ? -110 : -26 }}
-      animate={{ scale: 1, opacity: dimmed ? 0.55 : 1, y: 0 }}
-      exit={{ scale: 0.6, opacity: 0, y: -30 }}
-      transition={{ type: 'spring', stiffness: 330, damping: 26, mass: 0.9 }}
+      initial={{ opacity: 0, scale: 0.7 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 26 }}
       className={`pcard ${small ? 'small' : ''} ${faceDown ? 'facedown' : 'faceup'} ${
         highlight ? 'highlight' : ''
       } ${dimmed ? 'dimmed' : ''} ${lifted ? 'lifted' : ''} ${selectable ? 'selectable' : ''} ${
@@ -65,11 +68,11 @@ export default function Card({
       <div className="pcard-inner">
         <div className="pcard-face pcard-front">
           {card ? (
-            <>
+            <div className="pcard-value" style={valueStyle}>
               <span className={`corner tl ${red ? 'red' : ''}`}>{RANK_LABELS[card.rank]}</span>
               <span className={`pip ${red ? 'red' : ''}`}>{SUIT_GLYPH[card.suit] ?? ''}</span>
               <span className={`corner br ${red ? 'red' : ''}`}>{RANK_LABELS[card.rank]}</span>
-            </>
+            </div>
           ) : (
             <span className="unknown">?</span>
           )}
