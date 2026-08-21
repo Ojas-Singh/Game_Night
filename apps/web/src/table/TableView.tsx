@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { RoomApi, CardFlight } from '../useRoom.js';
+import type { FlightPos } from './CardFlights.js';
 import type { CaboPlayerView } from '@cabo/views.js';
 import Card from './Card.js';
 import TableCenter from './TableCenter.js';
@@ -26,29 +27,55 @@ export default function TableView({ room }: { room: RoomApi }) {
   const others = view.players.filter((p) => p.id !== me.id);
   // Cards inside their brief reveal window render face-up; afterwards they
   // flip back down (knowledge retained as a small "seen" marker).
-  const flashActive = (cardId: string): boolean =>
-    !!room.peekFlash[cardId] && Date.now() - room.peekFlash[cardId] < 2_600;
+  const flashActive = (cardId: string): boolean => {
+    const f = room.peekFlash[cardId];
+    return !!f && Date.now() - f.at < f.ms;
+  };
 
   // Seat geometry: 2..6 opponents distribute around the top arc.
   const seats = useMemo(() => SeatPlanner(others.length), [others.length]);
 
   const [infoOpen, setInfoOpen] = useState(false);
 
-  // Measure the table so flight destinations match the real DOM: the draw
-  // slot sits at left calc(50% + 96px), top 50% of .table-ellipse.
+  // ---- Pixel-accurate flight anchors -----------------------------------
+  // Every flight source/destination is MEASURED from the real DOM (deck pile,
+  // discard pile, draw slot, each player's actual hand grid) instead of being
+  // guessed from planner percentages — so ghosts fly along true paths.
   const tableRef = useRef<HTMLDivElement>(null);
-  const [drawSlotPos, setDrawSlotPos] = useState({ x: 62, y: 50 });
-  useEffect(() => {
-    const el = tableRef.current;
-    if (!el) return;
-    const update = () => {
-      const w = el.offsetWidth || 900;
-      setDrawSlotPos({ x: 50 + (96 / w) * 100, y: 50 });
+  const [anchors, setAnchors] = useState<{
+    size: { w: number; h: number };
+    deck: FlightPos;
+    discard: FlightPos;
+    draw: FlightPos;
+    hands: Record<string, FlightPos>;
+  } | null>(null);
+  const measureAnchors = useCallback(() => {
+    const table = tableRef.current;
+    if (!table) return;
+    const rect = table.getBoundingClientRect();
+    const center = (el: Element | null): FlightPos => {
+      if (!el) return { x: rect.width / 2, y: rect.height / 2 };
+      const r = el.getBoundingClientRect();
+      return { x: r.left - rect.left + r.width / 2, y: r.top - rect.top + r.height / 2 };
     };
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
+    const hands: Record<string, FlightPos> = {};
+    table.querySelectorAll<HTMLElement>('[data-hand-for]').forEach((el) => {
+      const pid = el.dataset.handFor;
+      if (pid) hands[pid] = center(el);
+    });
+    setAnchors({
+      size: { w: rect.width, h: rect.height },
+      deck: center(table.querySelector('.deck-pile')),
+      discard: center(table.querySelector('.discard-pile')),
+      draw: center(table.querySelector('.draw-slot')) ?? { x: rect.width * 0.62, y: rect.height * 0.5 },
+      hands,
+    });
   }, []);
+  useLayoutEffect(() => {
+    measureAnchors();
+    window.addEventListener('resize', measureAnchors);
+    return () => window.removeEventListener('resize', measureAnchors);
+  }, [measureAnchors, room.flights, others.length]);
 
   const myHand = view.handCardIds[me.id] ?? [];
   const isMyTurn = view.players.find((p) => p.isCurrentTurn)?.id === me.id;
@@ -78,18 +105,6 @@ export default function TableView({ room }: { room: RoomApi }) {
     () => (id: string) => setFlights((cur) => cur.filter((f) => f.id !== id)),
     [],
   );
-  // Map playerId → desktop percent coords for the ghost-card source.
-  const seatPos = useMemo((): Record<string, { x: number; y: number }> => {
-    const map: Record<string, { x: number; y: number }> = {};
-    others.forEach((p, i) => {
-      const s = seats[i]!;
-      map[p.id] = { x: parseFloat(s.style.left as string), y: parseFloat(s.style.top as string) };
-    });
-    // The local player sits bottom-centre.
-    map[me.id] = { x: 50, y: 96 };
-    return map;
-  }, [others, seats, me.id]);
-
   // Interaction state for powers / decisions.
   const [selectedOwn, setSelectedOwn] = useState<string | null>(null);
   const [targetPlayer, setTargetPlayer] = useState<string | null>(null);
@@ -222,6 +237,11 @@ export default function TableView({ room }: { room: RoomApi }) {
       </div>
       {/* Test Mode — reveals every card so you can verify the flow. */}
       {room.testMode && <div className="test-banner">TEST MODE — all cards revealed</div>}
+      {/* The starting peek: a sticky reminder while your cards are flashed. */}
+      {myHand.some((id) => {
+        const f = room.peekFlash[id];
+        return f && f.ms >= 6000 && Date.now() - f.at < f.ms;
+      }) && <div className="memorize-note">👁 Remember your bottom two cards!</div>}
       {room.lobby?.hostId === room.myPlayerId && (
         <button
           className={`test-toggle ${room.testMode ? 'on' : ''}`}
@@ -262,6 +282,7 @@ export default function TableView({ room }: { room: RoomApi }) {
               <FloatingEmote emote={room.emotes[p.id]} />
               <div
                 className="seat-cards hand-grid"
+                data-hand-for={p.id}
                 style={seat.facing ? { transform: `rotate(${seat.facing}deg)` } : undefined}
               >
                 {(view.handCardIds[p.id] ?? []).map((cardId) =>
@@ -315,18 +336,19 @@ export default function TableView({ room }: { room: RoomApi }) {
         />
 
         {/* flying-card overlay: every player sees where each card went */}
-        <CardFlights
-          flights={flights}
-          seatPos={seatPos}
-          discardPos={{ x: 50, y: 46 }}
-          drawPos={drawSlotPos}
-          onDone={dropFlight}
-        />
+        {anchors && (
+          <CardFlights
+            flights={flights}
+            anchors={anchors}
+            myId={me.id}
+            onDone={dropFlight}
+          />
+        )}
 
         {/* my hand */}
         <div className={`seat seat-me ${isMyTurn ? 'active' : ''}`}>
           <FloatingEmote emote={room.emotes[me.id]} />
-          <div className="my-hand hand-grid">
+          <div className="my-hand hand-grid" data-hand-for={me.id}>
             <AnimatePresence>
               {myHand.map((cardId) =>
                 isEmptySlot(cardId) ? (

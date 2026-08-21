@@ -157,7 +157,10 @@ import {
 export type ConnStatus = 'connecting' | 'connected' | 'reconnecting' | 'error';
 
 /** How long a freshly peeked card stays face-up before flipping back down. */
-const PEEK_FLASH_MS = 2600;
+const PEEK_FLASH_MS = 3200;
+/** The STARTING peek (your bottom two cards) stays up much longer — that's
+ *  the memorize-your-hand moment of the whole game. */
+const START_FLASH_MS = 6500;
 /** How long the "someone peeked here" eye badge stays visible. */
 const PEEK_MARK_MS = 6000;
 
@@ -190,8 +193,8 @@ export interface RoomApi {
   view: CaboPlayerView | null;
   chat: ChatMessage[];
   unreadChat: number;
-  /** Card ids currently in their brief reveal window (face-up). */
-  peekFlash: Record<string, number>;
+  /** Cards currently in their reveal window (face-up): { at, ms }. */
+  peekFlash: Record<string, { at: number; ms: number }>;
   /** Recent card movements to animate as flying cards (source → destination). */
   flights: CardFlight[];
   /** Most recent emote per player: playerId → { emote, at }. */
@@ -234,8 +237,12 @@ export function useRoom(): RoomApi {
   const chatOpenRef = useRef(false);
   /** Room we're attached to — drives automatic re-join on any reconnect. */
   const activeRoomRef = useRef<string | null>(null);
-  /** Card ids that became known recently → rendered face-up briefly, then flip down. */
-  const [peekFlash, setPeekFlash] = useState<Record<string, number>>({});
+  /** Cards in their reveal window → rendered face-up briefly, then flip down. */
+  const [peekFlash, setPeekFlash] = useState<Record<string, { at: number; ms: number }>>({});
+  /** Latest applied game:view — side effects diff against this OUTSIDE any
+   *  React updater (StrictMode re-invokes updaters; impure ones lose updates,
+   *  which is why the starting peek used to never flash). */
+  const viewRef = useRef<CaboPlayerView | null>(null);
   /** Emote reactions: playerId → latest { emote, at } (at = client receive time). */
   const [emotes, setEmotes] = useState<Record<string, { emote: string; at: number }>>({});
   /** Recent card movements to animate (pruned automatically over time). */
@@ -245,28 +252,30 @@ export function useRoom(): RoomApi {
   const myIdRef = useRef<string | null>(null);
   myIdRef.current = myPlayerId;
 
-  const flashKnowledge = useCallback((prev: CaboPlayerView | null, next: CaboPlayerView) => {
+  const flashKnowledge = useCallback((prev: CaboPlayerView | null, next: CaboPlayerView): void => {
     // prev === null on the FIRST view after (re)join — the starting peek of
-    // the bottom two cards arrives that way, so it must flash too.
+    // the bottom two cards arrives that way, so it must flash too (longer:
+    // it's the memorize-your-cards moment).
     const before = new Set(prev ? Object.keys(prev.knownCards) : []);
     const fresh = Object.keys(next.knownCards).filter((id) => !before.has(id));
     if (fresh.length === 0) return;
-    const now = Date.now();
+    const ms = prev ? PEEK_FLASH_MS : START_FLASH_MS;
+    const at = Date.now();
     setPeekFlash((cur) => {
       const updated = { ...cur };
-      for (const id of fresh) updated[id] = now;
+      for (const id of fresh) updated[id] = { at, ms };
       return updated;
     });
     // Flip back down after the reveal window.
     setTimeout(() => {
       setPeekFlash((cur) => {
-        const nextMap: Record<string, number> = {};
-        for (const [id, t] of Object.entries(cur)) {
-          if (now - t < PEEK_FLASH_MS - 50) nextMap[id] = t;
+        const nextMap: Record<string, { at: number; ms: number }> = {};
+        for (const [id, f] of Object.entries(cur)) {
+          if (at - f.at < f.ms - 50) nextMap[id] = f;
         }
         return nextMap;
       });
-    }, PEEK_FLASH_MS);
+    }, ms);
   }, []);
 
   useEffect(() => {
@@ -314,46 +323,47 @@ export function useRoom(): RoomApi {
       if (!chatOpenRef.current && msg.playerId !== null) setUnread((n) => n + 1);
     };
     const onView = (v: CaboPlayerView) => {
-      setView((prev) => {
-        if (prev !== v) {
-          if (prev) playSoundsFor(prev, v);
-          flashKnowledge(prev, v);
-          if (prev) {
-            const fresh = collectFlights(prev, v, myIdRef.current);
-            if (fresh.length > 0) {
-              setFlights((cur) => [...cur, ...fresh].slice(-8));
-            }
-            // Eye badges: which cards were just peeked (by whom).
-            const seen = new Set(prev.events.map((e) => e.seq));
-            const now = Date.now();
-            const marks: Array<[string, string]> = [];
-            for (const ev of v.events) {
-              if (seen.has(ev.seq)) continue;
-              const p = ev.payload as Record<string, unknown> | undefined;
-              if (ev.type === 'POWER_RESOLVED' && (p?.power === 'PEEK_OWN' || p?.power === 'PEEK_OTHER') && typeof p?.cardId === 'string') {
-                marks.push([p.cardId, String(ev.playerId ?? '')]);
-              }
-            }
-            if (marks.length > 0) {
-              setPeekMarks((cur) => {
-                const nextMarks = { ...cur };
-                for (const [cardId, by] of marks) nextMarks[cardId] = { byPlayerId: by, at: now };
-                return nextMarks;
-              });
-              setTimeout(() => {
-                setPeekMarks((cur) => {
-                  const kept: typeof cur = {};
-                  for (const [id, m] of Object.entries(cur)) {
-                    if (now - m.at < PEEK_MARK_MS - 50) kept[id] = m;
-                  }
-                  return kept;
-                });
-              }, PEEK_MARK_MS);
-            }
-          }
+      const prev = viewRef.current;
+      if (prev === v) return;
+      viewRef.current = v;
+      setView(v);
+      // All side effects run here in the socket handler — NEVER inside a
+      // state updater (StrictMode re-invokes updaters and drops nested
+      // updates, which silently killed the starting-peek flash).
+      if (prev) playSoundsFor(prev, v);
+      flashKnowledge(prev, v);
+      if (!prev) return;
+      const fresh = collectFlights(prev, v, myIdRef.current);
+      if (fresh.length > 0) {
+        setFlights((cur) => [...cur, ...fresh].slice(-8));
+      }
+      // Eye badges: which cards were just peeked (by whom).
+      const seen = new Set(prev.events.map((e) => e.seq));
+      const now = Date.now();
+      const marks: Array<[string, string]> = [];
+      for (const ev of v.events) {
+        if (seen.has(ev.seq)) continue;
+        const p = ev.payload as Record<string, unknown> | undefined;
+        if (ev.type === 'POWER_RESOLVED' && (p?.power === 'PEEK_OWN' || p?.power === 'PEEK_OTHER') && typeof p?.cardId === 'string') {
+          marks.push([p.cardId, String(ev.playerId ?? '')]);
         }
-        return v;
-      });
+      }
+      if (marks.length > 0) {
+        setPeekMarks((cur) => {
+          const nextMarks = { ...cur };
+          for (const [cardId, by] of marks) nextMarks[cardId] = { byPlayerId: by, at: now };
+          return nextMarks;
+        });
+        setTimeout(() => {
+          setPeekMarks((cur) => {
+            const kept: typeof cur = {};
+            for (const [id, m] of Object.entries(cur)) {
+              if (now - m.at < PEEK_MARK_MS - 50) kept[id] = m;
+            }
+            return kept;
+          });
+        }, PEEK_MARK_MS);
+      }
     };
     socket.on('room:state', onState);
     socket.on('room:chat', onChat);
@@ -468,6 +478,7 @@ export function useRoom(): RoomApi {
         socketRef.current?.emit('room:leave');
         setLobby(null);
         setView(null);
+        viewRef.current = null;
         setChat([]);
         setRoomId(null);
         setMyPlayerId(null);

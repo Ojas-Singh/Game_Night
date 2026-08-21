@@ -956,13 +956,12 @@
   pointer-events: none;
   perspective: 900px;
 }
-/* The movement path (curved SVG) — appears with the flight, flows while the
-   card travels, then decays away with the trail. */
+/* The movement path (curved SVG, measured pixels) — appears with the flight,
+   flows while the card travels, then decays away with the trail. */
 .flight-svg {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  left: 0;
+  top: 0;
   overflow: visible;
   pointer-events: none;
 }
@@ -987,6 +986,8 @@
 /* Landing pulse: a soft ring where the card/eye touches down. */
 .landing-pulse {
   position: absolute;
+  left: 0;
+  top: 0;
   width: 46px;
   height: 46px;
   margin: -23px 0 0 -23px;
@@ -1002,8 +1003,12 @@
 /* The peek orb: a glowing eye gliding to the peeked card. */
 .peek-orb {
   position: absolute;
+  left: 0;
+  top: 0;
   width: 44px;
   height: 44px;
+  margin: -22px 0 0 -22px;
+  will-change: transform;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -1035,11 +1040,16 @@
 }
 .flight-ghost {
   position: absolute;
+  left: 0;
+  top: 0;
   width: 60px;
   height: 86px;
-  border-radius: var(--radius-card);
+  /* x/y are animated to the measured pixel CENTRE; margins self-centre. */
+  margin-left: -30px;
+  margin-top: -43px;
   pointer-events: none;
   transform-style: preserve-3d;
+  will-change: transform;
 }
 /* The 3D card body inside a ghost: own shading + shadow so the tumble reads
    as a real card flipping through the air. */
@@ -1337,6 +1347,23 @@
   border-color: rgba(92, 214, 200, 0.6);
   color: #d9fff9;
 }
+.memorize-note {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: rgba(24, 42, 60, 0.92);
+  border: 1px solid rgba(140, 220, 255, 0.5);
+  color: #cdeaff;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
 .test-banner {
   position: fixed;
   top: 12px;
@@ -1548,5 +1575,22 @@
   .info-toggle { width: 36px; height: 36px; bottom: 184px; }
   .info-card { max-height: 90vh; }
   .test-toggle { left: 10px; bottom: 10px; width: 50px; height: 38px; font-size: 11px; }
-  .test-banner { font-size: 11px; padding: 5px 12px; }
+  .memorize-note {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: rgba(24, 42, 60, 0.92);
+  border: 1px solid rgba(140, 220, 255, 0.5);
+  color: #cdeaff;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+.test-banner { font-size: 11px; padding: 5px 12px; }
 }
