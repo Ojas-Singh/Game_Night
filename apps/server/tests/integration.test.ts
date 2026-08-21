@@ -335,4 +335,44 @@ describe('socket integration', () => {
     expect(res.error).toMatch(/not found/);
     sock.close();
   });
+
+  it('host can toggle Test Mode: all cards revealed to everyone', async () => {
+    const host = await connect();
+    const created = await createRoom(host, 'Host');
+    const guest = await connect();
+    const tracked = new ViewTracker(guest);
+    await joinRoom(guest, { roomId: created.roomId, name: 'Guest' });
+    expect((await startGame(host)).ok).toBe(true);
+
+    // Before Test Mode: the guest (who peeked nothing) should know nothing.
+    await tracked.waitFor((v) => v.knownCards !== undefined);
+    expect(Object.keys(tracked.latest!.knownCards)).toHaveLength(0);
+
+    // Host toggles Test Mode on.
+    const testModeOn = new Promise<boolean>((resolve) => {
+      const check = (st: { testMode?: boolean }) => {
+        if (st.testMode) {
+          host.off('room:state', check);
+          resolve(true);
+        }
+      };
+      host.on('room:state', check);
+    });
+    host.emit('room:set_test_mode', { enabled: true });
+    expect(await testModeOn).toBe(true);
+
+    // A fresh game:view reveals every dealt card (8 here).
+    const revealed = await tracked.waitFor(
+      (v) => Object.keys(v.knownCards).length >= 8,
+      5000,
+    );
+    expect(Object.keys(revealed.knownCards).length).toBeGreaterThanOrEqual(8);
+
+    // Turning it off stops the reveal again.
+    host.emit('room:set_test_mode', { enabled: false });
+    await tracked.waitFor((v) => Object.keys(v.knownCards).length === 0, 5000);
+
+    host.close();
+    guest.close();
+  });
 });

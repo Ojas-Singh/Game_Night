@@ -69,6 +69,9 @@ export class Room {
   scoreboard: Record<string, number> = {};
   /** Host-selectable house rule: enable the 5–6 "swap others" power. */
   swapOthersEnabled = true;
+  /** Test Mode: reveal every card's value to all players so anyone can watch
+   *  the full flow. Purely a debugging/test aid — off by default. */
+  testMode = false;
   debug: RoomDebug;
   private reconnectGraceMs: number;
   private chatSeq = 0;
@@ -89,6 +92,7 @@ export class Room {
     room.chat = snap.chat;
     room.scoreboard = snap.scoreboard;
     room.swapOthersEnabled = snap.swapOthersEnabled ?? true;
+    room.testMode = snap.testMode ?? false;
     room.debug = snap.debug ?? {};
     for (const sp of snap.players) {
       room.players.set(sp.id, {
@@ -254,6 +258,13 @@ export class Room {
     this.system(enabled ? 'Host turned ON the 5–6 swap rule' : 'Host turned OFF the 5–6 swap rule');
   }
 
+  /** Host toggles Test Mode: reveal every card to everyone (debug aid). */
+  setTestMode(playerId: string, enabled: boolean): void {
+    if (playerId !== this.hostId) throw new RoomError('only the host can toggle Test Mode');
+    this.testMode = enabled;
+    this.system(enabled ? 'TEST MODE ON — all cards revealed' : 'TEST MODE OFF');
+  }
+
   returnToLobby(playerId: string): void {
     if (playerId !== this.hostId) throw new RoomError('only the host can return to the lobby');
     this.engine = null;
@@ -319,13 +330,14 @@ export class Room {
       hostId: this.hostId ?? '',
       scoreboard: this.getScoreboard(),
       swapOthersEnabled: this.swapOthersEnabled,
+      testMode: this.testMode,
     };
   }
 
   gameView(playerId: string): CaboPlayerView | null {
     if (!this.engine) return null;
     if (!this.players.has(playerId)) return null; // spectators: public state only (later)
-    return this.engine.getPlayerState(playerId);
+    return this.engine.getPlayerState(playerId, this.testMode ? { revealAll: true } : undefined);
   }
 
   // -------------------------------------------------------------------

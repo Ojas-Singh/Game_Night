@@ -150,6 +150,9 @@ export interface RoomApi {
   setReady: (ready: boolean) => void;
   selectGame: (gameId: string) => void;
   setSwapOthers: (enabled: boolean) => void;
+  /** Test Mode: the server reveals every card to everyone (debug/test aid). */
+  testMode: boolean;
+  setTestMode: (enabled: boolean) => void;
   startGame: () => Promise<{ ok: boolean; error?: string }>;
   sendChat: (text: string) => void;
   sendAction: (action: ClientCaboAction) => Promise<{ ok: boolean; error?: string }>;
@@ -165,6 +168,7 @@ export function useRoom(): RoomApi {
   const [myPlayerId, setMyPlayerId] = useState<string | null>(null);
   const [roomId, setRoomId] = useState<string | null>(null);
   const [lobby, setLobby] = useState<RoomLobbyState | null>(null);
+  const [testMode, setTestMode] = useState(false);
   const [view, setView] = useState<CaboPlayerView | null>(null);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [unread, setUnread] = useState(0);
@@ -232,7 +236,10 @@ export function useRoom(): RoomApi {
 
   useEffect(() => {
     if (!socket) return;
-    const onState = (state: RoomLobbyState) => setLobby(state);
+    const onState = (state: RoomLobbyState) => {
+      setLobby(state);
+      setTestMode(!!state.testMode);
+    };
     const onChat = (msg: ChatMessage) => {
       setChat((prev) => {
         const next = prev.filter((m) => m.id !== msg.id);
@@ -349,6 +356,8 @@ export function useRoom(): RoomApi {
       setReady: (ready: boolean) => socketRef.current?.emit('room:set_ready', { ready }),
       selectGame: (gameId: string) => socketRef.current?.emit('room:select_game', { gameId }),
       setSwapOthers: (enabled: boolean) => socketRef.current?.emit('room:set_swap_others', { enabled }),
+      testMode,
+      setTestMode: (enabled: boolean) => socketRef.current?.emit('room:set_test_mode', { enabled }),
       startGame: () =>
         new Promise((resolve) => {
           socketRef.current?.emit('room:start_game', {}, resolve);
@@ -373,7 +382,7 @@ export function useRoom(): RoomApi {
         setMyPlayerId(null);
       },
     }),
-    [socket, status, roomId, myPlayerId, lobby, view, chat, peekFlash, emotes, flights, unread, joinError, createRoom, joinRoom],
+    [socket, status, roomId, myPlayerId, lobby, testMode, view, chat, peekFlash, emotes, flights, unread, joinError, createRoom, joinRoom],
   );
 
   return api;

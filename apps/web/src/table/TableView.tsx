@@ -123,9 +123,12 @@ export default function TableView({ room }: { room: RoomApi }) {
 
   const onMyCardClick = (cardId: string) => {
     if (mode === 'initial-peek') {
-      // 2x2 layout: only the BOTTOM row (indexes 2,3) is offered at the start.
+      // 2x2 (column-flow) layout: the BOTTOM ROW is indexes 1 and 3 — the two
+      // cards closest to the player. Only those are offered for the initial
+      // peek; the top row (0,2) stays locked.
       const idx = myHand.indexOf(cardId);
-      if (idx < 2) {
+      const isBottom = idx === 1 || idx === 3;
+      if (!isBottom) {
         guidance.setError('At the start you may only look at your bottom two cards');
         return;
       }
@@ -220,6 +223,18 @@ export default function TableView({ room }: { room: RoomApi }) {
       <div className={`status-banner ${guidance.urgent ? 'urgent' : ''}`}>
         {guidance.text}
       </div>
+      {/* Test Mode — reveals every card so you can verify the flow. */}
+      {room.testMode && <div className="test-banner">TEST MODE — all cards revealed</div>}
+      {room.lobby?.hostId === room.myPlayerId && (
+        <button
+          className={`test-toggle ${room.testMode ? 'on' : ''}`}
+          onClick={() => room.setTestMode(!room.testMode)}
+          title={room.testMode ? 'Turn off Test Mode' : 'Turn on Test Mode (see every card)'}
+          aria-label="Toggle Test Mode"
+        >
+          {room.testMode ? 'TEST ON' : 'TEST'}
+        </button>
+      )}
       <SoundToggle />
       <EmotePicker room={room} />
       <button
@@ -256,8 +271,10 @@ export default function TableView({ room }: { room: RoomApi }) {
                   const known = view.knownCards[cardId];
                   // A card is shown face-up only if we actually KNOW its value
                   // (during the reveal window, or round reveal). Unknown cards
-                  // always stay face-down — nothing leaks or "opens" on its own.
-                  const revealed = !!known && (flashActive(cardId) || mode === 'round-over');
+                  // always stay face-down. In Test Mode the server reveals
+                  // everything, so all cards render face-up for testing.
+                  const revealed =
+                    room.testMode || (!!known && (flashActive(cardId) || mode === 'round-over'));
                   return (
                     <Card
                       key={cardId}
@@ -267,6 +284,7 @@ export default function TableView({ room }: { room: RoomApi }) {
                       seenMarker={!!known && !revealed}
                       contentRotate={-seat.facing}
                       small
+                      test={room.testMode}
                       selectable={selectable}
                       onClick={() => onOpponentCardClick(p.id, cardId)}
                     />
@@ -311,13 +329,18 @@ export default function TableView({ room }: { room: RoomApi }) {
                 // Only cards you actually know render face-up — on your own
                 // turn, during the brief reveal window, or at round reveal.
                 // Cards you've never seen stay face-down (no "all open").
-                const revealed = !!known && (isMyTurn || flashActive(cardId) || mode === 'round-over');
+                // In Test Mode the server reveals everything, so all cards
+                // render face-up (with a see-through test tint) for testing.
+                const revealed =
+                  room.testMode ||
+                  (!!known && (isMyTurn || flashActive(cardId) || mode === 'round-over'));
                 const highlight =
                   (mode === 'initial-peek' && flushSel.includes(cardId)) ||
                   (mode === 'power-blind-swap' && selectedOwn === cardId) ||
                   (canFlushNow && known?.rank === view.discardTopRank);
                 // During the initial peek only the bottom row is reachable.
-                const dimmed = mode === 'initial-peek' && idx < 2;
+                const isBottomIdx = idx === 1 || idx === 3;
+                const dimmed = mode === 'initial-peek' && !isBottomIdx;
                 return (
                   <Card
                     key={cardId}
@@ -327,6 +350,7 @@ export default function TableView({ room }: { room: RoomApi }) {
                     seenMarker={!!known && !revealed}
                     highlight={!!highlight}
                     dimmed={dimmed}
+                    test={room.testMode}
                     lifted={mode === 'draw-decision' || mode === 'initial-peek' || mode === 'power-peek-own' || mode === 'transfer'}
                     onClick={() => onMyCardClick(cardId)}
                   />
@@ -347,6 +371,19 @@ export default function TableView({ room }: { room: RoomApi }) {
                 }
               />
               <span className="draw-slot-label">drawn</span>
+              {mode === 'draw-decision' && (
+                <>
+                  <span className="draw-slot-hint">
+                    keep: tap a hand card · discard: tap the drawn card
+                  </span>
+                  <button
+                    className="draw-discard-btn"
+                    onClick={() => act({ type: 'DISCARD_DRAWN' })}
+                  >
+                    Discard drawn card
+                  </button>
+                </>
+              )}
             </div>
           )}
           {mode === 'initial-peek' && flushSel.length === 2 && (

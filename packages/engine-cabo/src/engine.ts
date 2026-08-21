@@ -161,8 +161,8 @@ export class CaboEngine {
     };
   }
 
-  getPlayerState(viewerId: string): import('./views.js').CaboPlayerView {
-    return buildPlayerView(this.getState(), viewerId);
+  getPlayerState(viewerId: string, opts?: { revealAll?: boolean }): import('./views.js').CaboPlayerView {
+    return buildPlayerView(this.getState(), viewerId, opts);
   }
 
   // -------------------------------------------------------------------

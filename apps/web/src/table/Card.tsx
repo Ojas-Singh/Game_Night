@@ -21,6 +21,8 @@ export interface CardProps {
   dimmed?: boolean;
   lifted?: boolean;
   selectable?: boolean;
+  /** Test Mode: render with a see-through tint so the value is visible. */
+  test?: boolean;
   /** Counter-rotation (deg) so the value stays upright when the whole hand
    *  is rotated to face the player who sits there. */
   contentRotate?: number;
@@ -43,6 +45,7 @@ export default function Card({
   dimmed = false,
   lifted = false,
   selectable = false,
+  test = false,
   contentRotate = 0,
   onClick,
 }: CardProps) {
@@ -59,7 +62,7 @@ export default function Card({
         highlight ? 'highlight' : ''
       } ${dimmed ? 'dimmed' : ''} ${lifted ? 'lifted' : ''} ${selectable ? 'selectable' : ''} ${
         drawn ? 'drawn' : ''
-      } ${interactive ? 'clickable' : ''} ${seenMarker ? 'seen' : ''}`}
+      } ${interactive ? 'clickable' : ''} ${seenMarker ? 'seen' : ''} ${test ? 'test' : ''}`}
       onClick={onClick}
       disabled={!interactive}
       aria-label={faceDown ? (card ? `face-down card (you saw this one)` : 'face-down card') : card ? `${RANK_LABELS[card.rank]} of ${card.suit}` : 'card'}

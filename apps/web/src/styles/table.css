@@ -518,6 +518,27 @@
   color: var(--ink-dim);
   font-weight: 600;
 }
+.draw-slot-hint {
+  max-width: 150px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ink-dim);
+}
+.draw-discard-btn {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(232, 165, 75, 0.16);
+  border: 1px solid rgba(232, 165, 75, 0.4);
+  color: var(--accent-strong);
+  box-shadow: none;
+  white-space: nowrap;
+}
+.draw-discard-btn:hover {
+  background: rgba(232, 165, 75, 0.28);
+}
 
 /* Cards */
 .pcard {
@@ -628,6 +649,21 @@
   background: rgba(232, 165, 75, 0.85);
   box-shadow: 0 0 6px rgba(232, 165, 75, 0.6);
   z-index: 5;
+}
+/* Test Mode: cards are somewhat transparent so their values are visible
+   while still reading as a testing aid rather than a real game hand. */
+.pcard.test {
+  box-shadow: 0 0 0 1.5px rgba(92, 214, 200, 0.5), 0 8px 20px rgba(0, 0, 0, 0.4);
+}
+.pcard.test .pcard-front {
+  opacity: 0.92;
+}
+.pcard.test.facedown .pcard-front {
+  opacity: 1;
+}
+.pcard.test.facedown .pcard-face {
+  background: rgba(120, 220, 205, 0.35);
+  box-shadow: 0 0 0 1.5px rgba(92, 214, 200, 0.4);
 }
 .pcard.drawn {
   --card-w: 96px;
@@ -1063,6 +1099,48 @@
   box-shadow: var(--shadow-card);
 }
 
+/* Test Mode toggle (host-only) — bottom-left, clear of the control stack. */
+.test-toggle {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  z-index: 35;
+  width: 56px;
+  height: 42px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0;
+  background: rgba(23, 17, 12, 0.85);
+  color: var(--ink-dim);
+  border: 1px solid rgba(255, 220, 160, 0.12);
+  box-shadow: var(--shadow-card);
+}
+.test-toggle:hover {
+  color: var(--ink);
+}
+.test-toggle.on {
+  background: rgba(20, 120, 110, 0.85);
+  border-color: rgba(92, 214, 200, 0.6);
+  color: #d9fff9;
+}
+.test-banner {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 80;
+  padding: 7px 18px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #06201c;
+  background: rgba(92, 214, 200, 0.92);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
 /* Rules modal */
 .info-overlay {
   position: fixed;
@@ -1257,4 +1335,6 @@
   .sound-toggle { width: 36px; height: 36px; bottom: 84px; }
   .info-toggle { width: 36px; height: 36px; bottom: 184px; }
   .info-card { max-height: 90vh; }
+  .test-toggle { left: 10px; bottom: 10px; width: 50px; height: 38px; font-size: 11px; }
+  .test-banner { font-size: 11px; padding: 5px 12px; }
 }

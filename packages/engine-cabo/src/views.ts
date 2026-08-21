@@ -25,8 +25,12 @@ export interface CaboPlayerView extends PlayerView {
   discardTopRank: number | null;
 }
 
-export function buildPlayerView(state: CaboState, viewerId: string): CaboPlayerView {
+export function buildPlayerView(state: CaboState, viewerId: string, opts?: { revealAll?: boolean }): CaboPlayerView {
   const known: Record<string, Card> = {};
+  // Normal play: a viewer only receives card values for ids in their own
+  // knowledge set. revealAll (Test Mode) additionally exposes every card's
+  // value so a tester can watch the full flow.
+  const revealAll = opts?.revealAll === true;
   const knownIds = new Set(state.knowledge[viewerId] ?? []);
   const allCards: Card[] = [
     ...state.deck,
@@ -35,7 +39,7 @@ export function buildPlayerView(state: CaboState, viewerId: string): CaboPlayerV
     ...state.players.flatMap((p) => state.hands[p.id] ?? []),
   ];
   for (const card of allCards) {
-    if (knownIds.has(card.id)) known[card.id] = card;
+    if (revealAll || knownIds.has(card.id)) known[card.id] = card;
   }
 
   const handCardIds: Record<string, string[]> = {};

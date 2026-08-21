@@ -121,4 +121,21 @@ describe('hidden-information filtering', () => {
     e2.restoreState(json);
     expect(Object.keys(e2.getPlayerState('p1').knownCards).sort()).toEqual(['a1', 'a2']);
   });
+
+  it('Test Mode (revealAll) exposes every card, but is OFF by default', () => {
+    const e = setup(order(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    peekAll(e);
+    // No revealAll → only the viewer's own knowledge leaks (hidden-info safe).
+    const v1 = e.getPlayerState('p1');
+    expect(Object.keys(v1.knownCards)).toEqual(['a1', 'a2']);
+    // revealAll → every card on the table (hands, deck, discard) is exposed.
+    const vm = e.getPlayerState('p1', { revealAll: true });
+    const allIds = new Set<string>([
+      ...Object.values(vm.knownCards).map((c) => c.id),
+    ]);
+    // p1's own 4 + p2's 4 + p3's 4 in this setup.
+    expect(allIds.size).toBeGreaterThanOrEqual(12);
+    expect(vm.knownCards.d4).toBeDefined(); // an opponent's hidden card
+    expect(vm.knownCards.b3).toBeDefined(); // another opponent's hidden card
+  });
 });
