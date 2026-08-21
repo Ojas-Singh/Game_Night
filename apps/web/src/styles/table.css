@@ -820,7 +820,7 @@
   transform: translateY(-50%);
   z-index: 16;
 }
-/* CALL CABO: a cute little service bell — no text, just a shine and a ding. */
+/* CALL CABO: a cute little service bell — no text, static shine, ding on press. */
 .cabo-ring {
   width: 84px;
   height: 84px;
@@ -830,7 +830,6 @@
   background: transparent;
   position: relative;
   cursor: pointer;
-  animation: cabo-glow 2.4s ease-in-out infinite;
 }
 .cabo-ring:focus-visible {
   outline: 2px solid var(--accent-strong);
@@ -884,29 +883,6 @@
   border: 1px solid rgba(120, 80, 30, 0.5);
   box-shadow: inset 0 2px 3px rgba(255, 255, 255, 0.5);
 }
-/* Moving specular shine sweeping the dome */
-.cabo-bell .shine {
-  position: absolute;
-  left: 50%;
-  bottom: 16px;
-  width: 58px;
-  height: 40px;
-  transform: translateX(-50%);
-  border-radius: inherit;
-  overflow: hidden;
-  pointer-events: none;
-}
-.cabo-bell .shine::after {
-  content: '';
-  position: absolute;
-  top: -60%;
-  left: -80%;
-  width: 55%;
-  height: 220%;
-  transform: rotate(24deg);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
-  animation: bell-shine 2.8s ease-in-out infinite;
-}
 .cabo-ring:hover .cabo-bell {
   transform: translateY(-1px) scale(1.03);
 }
@@ -927,18 +903,6 @@
 @keyframes knob-press {
   0%, 100% { transform: translateX(-50%) translateY(0); }
   25% { transform: translateX(-50%) translateY(3px); }
-}
-@keyframes bell-shine {
-  0%, 12% { left: -80%; }
-  50%, 100% { left: 130%; }
-}
-@keyframes cabo-glow {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(232, 165, 75, 0);
-  }
-  50% {
-    box-shadow: 0 0 0 12px rgba(232, 165, 75, 0.2);
-  }
 }
 .cabo-called-note {
   font-size: 13px;

@@ -67,7 +67,6 @@ export default function TableCenter({
                 <span className="dome" />
                 <span className="base" />
                 <span className="knob" />
-                <span className="shine" />
               </span>
             </motion.button>
           </AnimatePresence>

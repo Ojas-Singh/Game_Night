@@ -17,6 +17,8 @@ export interface FlightAnchors {
   draw: FlightPos;
   /** playerId → centre of that player's actual hand grid (in px). */
   hands: Record<string, FlightPos>;
+  /** cardId → centre of that exact card element (data-card-id, in px). */
+  cards: Record<string, FlightPos>;
 }
 
 interface CardFlightsProps {
@@ -51,15 +53,20 @@ export default function CardFlights({ flights, anchors, myId, onDone }: CardFlig
   return (
     <AnimatePresence>
       {flights.map((f) => {
+        // Prefer the EXACT card element when we know it, so trajectories
+        // start/end in the centre of the specific card — not a hand average.
         const from: FlightPos =
-          f.fromPlayerId === 'deck'
+          (f.fromCardId && anchors.cards[f.fromCardId]) ||
+          (f.fromPlayerId === 'deck'
             ? anchors.deck
-            : (anchors.hands[f.fromPlayerId] ?? anchors.discard);
-        const to: FlightPos = f.toPlayerId
-          ? (anchors.hands[f.toPlayerId] ?? (f.toPlayerId === myId ? anchors.draw : anchors.discard))
-          : f.toDiscard
-            ? anchors.discard
-            : anchors.draw;
+            : (anchors.hands[f.fromPlayerId] ?? anchors.discard));
+        const to: FlightPos =
+          (f.toCardId && anchors.cards[f.toCardId]) ||
+          (f.toPlayerId
+            ? (anchors.hands[f.toPlayerId] ?? (f.toPlayerId === myId ? anchors.draw : anchors.discard))
+            : f.toDiscard
+              ? anchors.discard
+              : anchors.draw);
         return f.kind === 'peek' ? (
           <PeekGhost key={f.id} id={f.id} from={from} to={to} anchors={anchors} onDone={onDone} />
         ) : (

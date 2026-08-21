@@ -63,6 +63,7 @@ export function collectFlights(
         id: `${ev.type}-${ev.seq}`,
         seq: ev.seq,
         fromPlayerId: String(p?.sourcePlayerId ?? ev.playerId ?? ''),
+        fromCardId: typeof p?.cardId === 'string' ? p.cardId : undefined,
         toDiscard: true,
         rank,
       });
@@ -98,6 +99,7 @@ export function collectFlights(
           fromPlayerId: String(ev.playerId ?? ''),
           toDiscard: false,
           toPlayerId: String(p?.targetPlayerId ?? ev.playerId ?? ''),
+          toCardId: typeof p?.cardId === 'string' ? p.cardId : undefined,
           rank: 0,
         });
       } else if (pow === 'BLIND_SWAP') {
@@ -182,6 +184,10 @@ export interface CardFlight {
   rank: number;
   /** 'peek' renders a glowing eye instead of a card (a look, not a move). */
   kind?: 'card' | 'peek';
+  /** Exact source card element (measured by data-card-id) when known. */
+  fromCardId?: string;
+  /** Exact destination card element when known (e.g. the peeked card). */
+  toCardId?: string;
 }
 
 export interface RoomApi {
@@ -278,6 +284,27 @@ export function useRoom(): RoomApi {
     }, ms);
   }, []);
 
+  /** Re-flash cards you just peeked, EVEN IF you already knew them — the
+   *  7–8 / 9–10 powers are a revision aid, not just discovery. */
+  const touchFlash = useCallback((cardIds: string[]): void => {
+    if (cardIds.length === 0) return;
+    const at = Date.now();
+    setPeekFlash((cur) => {
+      const updated = { ...cur };
+      for (const id of cardIds) updated[id] = { at, ms: PEEK_FLASH_MS };
+      return updated;
+    });
+    setTimeout(() => {
+      setPeekFlash((cur) => {
+        const nextMap: Record<string, { at: number; ms: number }> = {};
+        for (const [id, f] of Object.entries(cur)) {
+          if (at - f.at < f.ms - 50) nextMap[id] = f;
+        }
+        return nextMap;
+      });
+    }, PEEK_FLASH_MS);
+  }, []);
+
   useEffect(() => {
     const s = io({ transports: ['websocket', 'polling'] });
     socketRef.current = s;
@@ -341,13 +368,17 @@ export function useRoom(): RoomApi {
       const seen = new Set(prev.events.map((e) => e.seq));
       const now = Date.now();
       const marks: Array<[string, string]> = [];
+      const revision: string[] = [];
       for (const ev of v.events) {
         if (seen.has(ev.seq)) continue;
         const p = ev.payload as Record<string, unknown> | undefined;
         if (ev.type === 'POWER_RESOLVED' && (p?.power === 'PEEK_OWN' || p?.power === 'PEEK_OTHER') && typeof p?.cardId === 'string') {
           marks.push([p.cardId, String(ev.playerId ?? '')]);
+          // My own peek re-flashes the card even when I already knew it.
+          if (String(p?.viewerId ?? '') === myIdRef.current) revision.push(p.cardId);
         }
       }
+      if (revision.length > 0) touchFlash(revision);
       if (marks.length > 0) {
         setPeekMarks((cur) => {
           const nextMarks = { ...cur };

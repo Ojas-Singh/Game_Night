@@ -48,27 +48,41 @@ export default function TableView({ room }: { room: RoomApi }) {
     discard: FlightPos;
     draw: FlightPos;
     hands: Record<string, FlightPos>;
+    cards: Record<string, FlightPos>;
   } | null>(null);
   const measureAnchors = useCallback(() => {
     const table = tableRef.current;
     if (!table) return;
     const rect = table.getBoundingClientRect();
-    const center = (el: Element | null): FlightPos => {
-      if (!el) return { x: rect.width / 2, y: rect.height / 2 };
+    const center = (el: Element | null): FlightPos | null => {
+      if (!el) return null;
       const r = el.getBoundingClientRect();
       return { x: r.left - rect.left + r.width / 2, y: r.top - rect.top + r.height / 2 };
     };
     const hands: Record<string, FlightPos> = {};
     table.querySelectorAll<HTMLElement>('[data-hand-for]').forEach((el) => {
       const pid = el.dataset.handFor;
-      if (pid) hands[pid] = center(el);
+      const pos = center(el);
+      if (pid && pos) hands[pid] = pos;
+    });
+    // Per-card anchors: trajectories land in the CENTRE of the exact card.
+    const cards: Record<string, FlightPos> = {};
+    table.querySelectorAll<HTMLElement>('[data-card-id]').forEach((el) => {
+      const cid = el.dataset.cardId;
+      const pos = center(el);
+      if (cid && pos) cards[cid] = pos;
     });
     setAnchors({
       size: { w: rect.width, h: rect.height },
-      deck: center(table.querySelector('.deck-pile')),
-      discard: center(table.querySelector('.discard-pile')),
-      draw: center(table.querySelector('.draw-slot')) ?? { x: rect.width * 0.62, y: rect.height * 0.5 },
+      // Pile faces (not the labelled container, whose text shifts the centre).
+      deck: center(table.querySelector('.deck-pile .deck-stack.s3')) ?? center(table.querySelector('.deck-pile')) ?? { x: rect.width * 0.46, y: rect.height * 0.46 },
+      discard: center(table.querySelector('.discard-pile .discard-card')) ??
+        center(table.querySelector('.discard-pile .discard-empty')) ??
+        center(table.querySelector('.discard-pile')) ?? { x: rect.width * 0.54, y: rect.height * 0.46 },
+      // The drawn card element itself when present, else the slot.
+      draw: center(table.querySelector('.draw-slot .pcard')) ?? center(table.querySelector('.draw-slot')) ?? { x: rect.width * 0.62, y: rect.height * 0.5 },
       hands,
+      cards,
     });
   }, []);
   useLayoutEffect(() => {
