@@ -380,7 +380,7 @@
 }
 .status-banner {
   position: fixed;
-  bottom: 12px;
+  bottom: 64px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 100;
@@ -441,7 +441,7 @@
   z-index: 10;
 }
 .seat-who {
-  position: absolute;
+  position: fixed;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -450,9 +450,9 @@
   box-shadow: none;
   padding: 0;
   cursor: pointer;
-  max-width: 200px;
+  max-width: 220px;
   white-space: nowrap;
-  z-index: 12;
+  z-index: 60;
 }
 .seat-who .seat-name {
   font-size: 13.5px;
@@ -466,30 +466,21 @@
 .seat.active .seat-who .seat-name {
   color: var(--accent-strong);
 }
-/* POV placement: opposite player's pill ABOVE their cards (they sit beyond
-   them); left/right players' pills BESIDE their cards (their seats). */
-.seat-who.who-above {
-  left: 50%;
-  bottom: calc(100% + 10px);
-  transform: translateX(-50%);
-}
+/* Pills live OUTSIDE the felt. who-above = opposite player, up at the top
+   edge; who-left/right = side players hugging the left/right screen edges. */
 .seat-who.who-right {
-  left: calc(100% + 12px);
-  top: 50%;
-  transform: translateY(-50%);
   flex-direction: row;
 }
 .seat-who.who-left {
-  right: calc(100% + 12px);
-  top: 50%;
-  transform: translateY(-50%);
   flex-direction: row-reverse;
 }
-/* My pill: below my hand (I sit on the near side of my cards). */
-.seat-me .seat-who.me-who {
-  position: static;
-  margin-top: 10px;
-  transform: none;
+/* My pill: pinned to the very bottom edge of the screen, below my deck —
+   the status banner floats ABOVE it so they never collide. */
+.seat-who.me-who {
+  position: fixed;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 .seat-label {
   display: flex;
@@ -748,14 +739,14 @@
   background: none;
   box-shadow: none;
 }
-/* An emptied hand slot: a flushed card leaves this dashed outline behind so
-   the remaining cards keep their exact position (positions are memory). */
+/* An emptied hand slot: a flushed card leaves this invisible placeholder so
+   the remaining cards keep their exact position (positions are memory). It
+   MUST NOT render like a card — the user reads a card-shaped box as "one more
+   card in my deck that isn't clickable". The gap itself still shows plainly. */
 .card-slot-empty {
   width: var(--card-w, 84px);
   height: calc(var(--card-w, 84px) * 1.42);
-  border-radius: var(--radius-card);
-  border: 1.5px dashed rgba(120, 80, 30, 0.28);
-  background: rgba(0, 0, 0, 0.05);
+  visibility: hidden;
 }
 .card-slot-empty.small {
   --card-w: 52px;

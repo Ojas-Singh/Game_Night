@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { RoomApi, CardFlight } from '../useRoom.js';
 import type { FlightPos } from './CardFlights.js';
@@ -45,6 +46,9 @@ export default function TableView({ room }: { room: RoomApi }) {
   const tableRef = useRef<HTMLDivElement>(null);
   const [anchors, setAnchors] = useState<{
     size: { w: number; h: number };
+    // The table container's viewport rect — used to place the avatar/name
+    // pills OUTSIDE the felt, offset toward the screen edges.
+    ellipse: { left: number; top: number; width: number; height: number } | null;
     deck: FlightPos;
     discard: FlightPos;
     draw: FlightPos;
@@ -75,6 +79,7 @@ export default function TableView({ room }: { room: RoomApi }) {
     });
     setAnchors({
       size: { w: rect.width, h: rect.height },
+      ellipse: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
       // Pile faces (not the labelled container, whose text shifts the centre).
       deck: center(table.querySelector('.deck-pile .deck-stack.s3')) ?? center(table.querySelector('.deck-pile')) ?? { x: rect.width * 0.46, y: rect.height * 0.46 },
       discard: center(table.querySelector('.discard-pile .discard-card')) ??
@@ -289,6 +294,32 @@ export default function TableView({ room }: { room: RoomApi }) {
     return false;
   };
 
+  // Avatar/name pills live OUTSIDE the felt — at the screen edges, away from
+  // the deck — each still aligned toward its owner's seat so it reads clearly.
+  // Positions are computed from the measured table rectangle + the seat's
+  // percentage location (seat.style.left / top carry the "%"x / "%"y).
+  const pillStyle = (seat: (typeof seats)[number] | undefined): CSSProperties | undefined => {
+    const ell = anchors?.ellipse;
+    if (!ell || !seat) return undefined;
+    const lx = parseFloat(String(seat.style.left));
+    const ty = parseFloat(String(seat.style.top));
+    const sx = ell.left + (lx / 100) * ell.width; // seat's screen x
+    const sy = ell.top + (ty / 100) * ell.height; // seat's screen y
+    switch (seat.whoSide) {
+      // Opposite players: their pill sits beyond their cards, up at the top
+      // edge of the screen, horizontally aligned with their seat.
+      case 'above':
+        return { left: sx, top: Math.max(10, ell.top - 66), transform: 'translateX(-50%)' as const };
+      // Side players: their pill hugs the near edge at the seat's height.
+      case 'left':
+        return { right: 18, top: sy, transform: 'translateY(-50%)' as const };
+      case 'right':
+        return { left: 18, top: sy, transform: 'translateY(-50%)' as const };
+      default:
+        return undefined;
+    }
+  };
+
   return (
     <div className="table-room">
       {/* status banner */}
@@ -407,20 +438,48 @@ export default function TableView({ room }: { room: RoomApi }) {
                   ),
                 )}
               </div>
-              <button className={`seat-who who-${seat.whoSide}`} onClick={() => onOpponentClick(p.id)}>
-                <Avatar
-                  avatar={avatarOf(p.id)}
-                  size={42}
-                  crown={isTurn}
-                  ring={isTurn}
-                  cabo={view.cabo?.callerId === p.id}
-                />
-                <span className="seat-name">{p.name}</span>
-                <span className="seat-count">{p.cardCount}</span>
-              </button>
             </div>
           );
         })}
+
+        {/* opponents' avatar/name pills — OUTSIDE the felt, at the screen
+            edges (above for the opposite player, beside for side players). */}
+        {others.map((p, i) => {
+          const seat = seats[i]!;
+          const style = pillStyle(seat);
+          if (!style) return null;
+          const isTurn = view.players.find((x) => x.isCurrentTurn)?.id === p.id;
+          return (
+            <button
+              key={`pill-${p.id}`}
+              className={`seat-who who-${seat.whoSide}`}
+              style={style}
+              onClick={() => onOpponentClick(p.id)}
+            >
+              <Avatar
+                avatar={avatarOf(p.id)}
+                size={42}
+                crown={isTurn}
+                ring={isTurn}
+                cabo={view.cabo?.callerId === p.id}
+              />
+              <span className="seat-name">{p.name}</span>
+            </button>
+          );
+        })}
+
+        {/* my avatar/name — pinned below my deck, outside the felt at the bottom
+            edge of the screen */}
+        <div className="seat-who me-who">
+          <Avatar
+            avatar={avatarOf(me.id)}
+            size={42}
+            crown={isMyTurn}
+            ring={isMyTurn}
+            cabo={view.cabo?.callerId === me.id}
+          />
+          <span className="seat-name">{me.name} (you)</span>
+        </div>
 
         {/* centre: deck + discard */}
         <TableCenter
@@ -522,17 +581,6 @@ export default function TableView({ room }: { room: RoomApi }) {
               )}
             </div>
           )}
-          <div className="seat-who me-who">
-            <Avatar
-              avatar={avatarOf(me.id)}
-              size={42}
-              crown={isMyTurn}
-              ring={isMyTurn}
-              cabo={view.cabo?.callerId === me.id}
-            />
-            <span className="seat-name">{me.name} (you)</span>
-            <span className="seat-count">{myLiveCount}</span>
-          </div>
         </div>
       </div>
 
