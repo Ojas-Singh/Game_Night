@@ -11,19 +11,27 @@ export default function Avatar({
   size = 44,
   crown = false,
   ring = false,
+  cabo = false,
 }: {
   avatar: AvatarModel;
   size?: number;
   crown?: boolean;
   ring?: boolean;
+  /** This player called Cabo — golden frame + bell badge until round end. */
+  cabo?: boolean;
 }) {
   const color = AVATAR_COLORS[avatar.color] ?? AVATAR_COLORS[0]!;
   const eyes = EYE_STYLES[avatar.eyes] ?? 'round';
   const mouth = MOUTH_STYLES[avatar.mouth] ?? 'smile';
   const hat = HAT_STYLES[avatar.hat] ?? 'none';
   return (
-    <span className={`avatar ${ring ? 'ring' : ''} ${crown ? 'has-crown' : ''}`} style={{ width: size, height: size }}>
+    <span
+      className={`avatar ${ring ? 'ring' : ''} ${crown ? 'has-crown' : ''} ${cabo ? 'cabo' : ''}`}
+      style={{ width: size, height: size }}
+      title={cabo ? 'Called Cabo!' : undefined}
+    >
       {crown && <span className="avatar-crown">👑</span>}
+      {cabo && <span className="avatar-cabo-badge">🔔</span>}
       <svg viewBox="0 0 100 100" width={size} height={size} aria-hidden="true">
         {/* head */}
         <circle cx="50" cy="54" r="38" fill={color} stroke="rgba(36,20,9,0.35)" strokeWidth="3" />

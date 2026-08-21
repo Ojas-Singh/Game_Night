@@ -56,12 +56,26 @@ describe('room persistence', () => {
     expect(after.hands[p1.id]!.length).toBe(before.hands[p1.id]!.length);
     expect(after.deck.length).toBe(before.deck.length);
 
-    // The restored game keeps accepting actions (KEEP_DRAWN → TURN_END, then
-    // END_TURN passes the turn on).
+    // The restored game keeps accepting actions (KEEP_DRAWN, then resolve
+    // any pending power / end the turn as the state requires).
     expect(() =>
       restored.handleGameAction(p1.id, { type: 'KEEP_DRAWN', playerId: p1.id, handIndex: 0 }),
     ).not.toThrow();
-    restored.handleGameAction(p1.id, { type: 'END_TURN', playerId: p1.id });
+    const st = restored.engine!.getState();
+    if (st.phase === 'POWER_PENDING') {
+      // The replaced card carried a power — perform it (peek own first card).
+      const own = st.hands[p1.id]!.find((c): c is NonNullable<typeof c> => !!c);
+      if (st.pendingPower!.power === 'PEEK_OWN' && own) {
+        restored.handleGameAction(p1.id, {
+          type: 'POWER_APPLY',
+          playerId: p1.id,
+          payload: { power: 'PEEK_OWN', cardId: own.id },
+        });
+      }
+    }
+    if (restored.engine!.getState().phase === 'TURN_END') {
+      restored.handleGameAction(p1.id, { type: 'END_TURN', playerId: p1.id });
+    }
     const afterState = restored.engine!.getState();
     const currentId = afterState.players[afterState.currentTurn]!.id;
     // Either the turn advanced, or the discarded card legitimately triggered

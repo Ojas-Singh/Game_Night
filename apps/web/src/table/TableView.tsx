@@ -298,6 +298,15 @@ export default function TableView({ room }: { room: RoomApi }) {
       </div>
       {/* Test Mode — reveals every card so you can verify the flow. */}
       {room.testMode && <div className="test-banner">TEST MODE — all cards revealed</div>}
+      {/* CABO! — full-screen announcement with page flash + shake. */}
+      {room.caboAnnounce && Date.now() - room.caboAnnounce.at < 3000 && (
+        <div className="cabo-announce" key={room.caboAnnounce.at}>
+          <span className="cabo-announce-bell">🔔</span>
+          <span className="cabo-announce-text">CABO!</span>
+          <span className="cabo-announce-by">{room.caboAnnounce.name} called it — final round!</span>
+        </div>
+      )}
+      {room.caboAnnounce && Date.now() - room.caboAnnounce.at < 1400 && <div className="cabo-flash" />}
       {/* The starting peek: a sticky reminder while your cards are flashed. */}
       {myHand.some((id) => {
         const f = room.peekFlash[id];
@@ -352,9 +361,6 @@ export default function TableView({ room }: { room: RoomApi }) {
               style={seat.style}
             >
               <FloatingEmote emote={room.emotes[p.id]} />
-              <div className="seat-avatar">
-                <Avatar avatar={avatarOf(p.id)} size={46} crown={isTurn} ring={isTurn} />
-              </div>
               <div
                 className="seat-cards hand-grid"
                 data-hand-for={p.id}
@@ -392,7 +398,14 @@ export default function TableView({ room }: { room: RoomApi }) {
                   ),
                 )}
               </div>
-              <button className="seat-label" onClick={() => onOpponentClick(p.id)}>
+              <button className="seat-who" onClick={() => onOpponentClick(p.id)}>
+                <Avatar
+                  avatar={avatarOf(p.id)}
+                  size={42}
+                  crown={isTurn}
+                  ring={isTurn}
+                  cabo={view.cabo?.callerId === p.id}
+                />
                 <span className="seat-name">{p.name}</span>
                 <span className="seat-count">{p.cardCount}</span>
               </button>
@@ -438,9 +451,6 @@ export default function TableView({ room }: { room: RoomApi }) {
         {/* my hand */}
         <div className={`seat seat-me ${isMyTurn ? 'active' : ''}`}>
           <FloatingEmote emote={room.emotes[me.id]} />
-          <div className="seat-avatar">
-            <Avatar avatar={avatarOf(me.id)} size={46} crown={isMyTurn} ring={isMyTurn} />
-          </div>
           <div className="my-hand hand-grid" data-hand-for={me.id}>
             <AnimatePresence>
               {myHand.map((cardId) =>
@@ -504,7 +514,14 @@ export default function TableView({ room }: { room: RoomApi }) {
               )}
             </div>
           )}
-          <div className="seat-label me-label">
+          <div className="seat-who me-who">
+            <Avatar
+              avatar={avatarOf(me.id)}
+              size={42}
+              crown={isMyTurn}
+              ring={isMyTurn}
+              cabo={view.cabo?.callerId === me.id}
+            />
             <span className="seat-name">{me.name} (you)</span>
             <span className="seat-count">{myLiveCount}</span>
           </div>

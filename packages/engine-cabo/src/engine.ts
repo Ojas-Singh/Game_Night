@@ -482,6 +482,12 @@ export class CaboEngine {
         return;
       }
       case 'END_TURN': {
+        // Ending the turn with zero cards = automatic Cabo (score 0), same
+        // as finishing an action with an empty hand.
+        if (liveCount(s.hands[a.playerId]!) === 0 && this.rules.cabo.enabled && !s.cabo) {
+          s.cabo = { callerId: a.playerId, takenFinalTurn: [] };
+          this.emit('CABO_CALLED', { playerId: a.playerId, auto: true });
+        }
         this.advanceTurn();
         return;
       }
@@ -536,6 +542,21 @@ export class CaboEngine {
     let power = powerForRank(card.rank, this.rules);
     // 5–6 swap-others is a host-selectable optional power in our house rules.
     if (power === 'SWAP_OTHERS' && !this.rules.swapOthersEnabled) power = null;
+    // A swap power is SKIPPED when it cannot apply: e.g. after a cabo call
+    // the caller may have no cards left on the table — there is nothing to
+    // swap with, so the turn simply ends instead of dead-locking.
+    if (power === 'SWAP_OTHERS') {
+      const liveOthers = this.getState().players.filter(
+        (p) => p.id !== playerId && liveCount(this.getState().hands[p.id]!) > 0,
+      ).length;
+      if (liveOthers < 1 || liveCount(this.getState().hands[playerId]!) + liveOthers < 2) power = null;
+    }
+    if (power === 'BLIND_SWAP') {
+      const anyOther = this.getState().players.some(
+        (p) => p.id !== playerId && liveCount(this.getState().hands[p.id]!) > 0,
+      );
+      if (!anyOther || liveCount(this.getState().hands[playerId]!) === 0) power = null;
+    }
     if (power) {
       this.getState().pendingPower = { playerId, power, sourceCardId: card.id };
       this.getState().phase = 'POWER_PENDING';
@@ -773,7 +794,11 @@ export class CaboEngine {
     const scores = this.calculateScore();
     s.scores = scores;
     const best = Math.min(...Object.values(scores));
-    const winners = s.players.filter((p) => scores[p.id] === best).map((p) => p.id);
+    let winners = s.players.filter((p) => scores[p.id] === best).map((p) => p.id);
+    // House rule: on a tie the CALLER wins — they had the nerve to call first.
+    if (winners.length > 1 && s.cabo && winners.includes(s.cabo.callerId)) {
+      winners = [s.cabo.callerId];
+    }
     s.roundWinnerId = winners.length === 1 ? winners[0]! : null;
     s.tiedWinnerIds = winners;
     this.emit('ROUND_REVEALED', {

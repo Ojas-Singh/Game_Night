@@ -70,9 +70,7 @@ export default function TableCenter({
               </span>
             </motion.button>
           </AnimatePresence>
-        ) : (
-          view.cabo && <div className="cabo-called-note">🚨 Cabo called — final turns!</div>
-        )}
+        ) : null}
       </div>
     </div>
   );

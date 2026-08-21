@@ -189,6 +189,8 @@ export interface RoomApi {
   swapMarks: Record<string, number>;
   /** Recent swaps: the two card ids that exchanged places (for the ⇄ connector). */
   swapPairs: Array<{ id: string; cardA: string; cardB: string; at: number }>;
+  /** Fresh Cabo call: callerId + client time — drives the big announcement. */
+  caboAnnounce: { callerId: string; at: number; name: string } | null;
   sendEmote: (emote: string) => void;
   markChatRead: () => void;
   joinError: string | null;
@@ -242,6 +244,8 @@ export function useRoom(): RoomApi {
   const [swapMarks, setSwapMarks] = useState<Record<string, number>>({});
   /** Recent swap pairs (⇄ connectors between the two slots). */
   const [swapPairs, setSwapPairs] = useState<Array<{ id: string; cardA: string; cardB: string; at: number }>>([]);
+  /** Fresh Cabo call → full-screen announcement + page effect. */
+  const [caboAnnounce, setCaboAnnounce] = useState<{ callerId: string; at: number; name: string } | null>(null);
   const myIdRef = useRef<string | null>(null);
   myIdRef.current = myPlayerId;
 
@@ -505,6 +509,7 @@ export function useRoom(): RoomApi {
       peekMarks,
       swapMarks,
       swapPairs,
+      caboAnnounce,
       flights,
       sendEmote: (emote: string) => socketRef.current?.emit('room:emote', { emote }),
       unreadChat: unread,
@@ -553,7 +558,7 @@ export function useRoom(): RoomApi {
         setMyPlayerId(null);
       },
     }),
-    [socket, status, roomId, myPlayerId, lobby, testMode, view, chat, peekFlash, emotes, peekMarks, swapMarks, swapPairs, flights, unread, joinError, createRoom, joinRoom],
+    [socket, status, roomId, myPlayerId, lobby, testMode, view, chat, peekFlash, emotes, peekMarks, swapMarks, swapPairs, caboAnnounce, flights, unread, joinError, createRoom, joinRoom],
   );
 
   return api;

@@ -505,20 +505,10 @@ describe('flushing own cards', () => {
     // After the action the turn pauses at TURN_END (call cabo or pass).
     expect(e.getState().phase).toBe('TURN_END');
     mustOk(e, { type: 'FLUSH_OWN', playerId: P1, cardIds: ['a1', 'a2', 'a3', 'a4'] });
+    // Ending the turn with zero cards auto-calls Cabo IMMEDIATELY (score 0);
+    // everyone else then plays exactly ONE fresh round.
     mustOk(e, { type: 'END_TURN', playerId: P1 });
-    // Round continues: p2 and p3 still play normal turns (then end them).
     let s = e.getState();
-    expect(s.phase).toBe('TURN_DRAW');
-    expect(s.players[s.currentTurn]!.id).toBe(P2);
-    mustOk(e, { type: 'DRAW', playerId: P2 });
-    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P2 });
-    mustOk(e, { type: 'END_TURN', playerId: P2 });
-    mustOk(e, { type: 'DRAW', playerId: P3 });
-    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P3 });
-    mustOk(e, { type: 'END_TURN', playerId: P3 });
-    // p1's next turn arrives → Cabo auto-called for them (score 0), NOT a
-    // turn — then everyone else plays exactly ONE fresh round.
-    s = e.getState();
     expect(s.cabo).toMatchObject({ callerId: P1 });
     expect(s.events.some((ev) => ev.type === 'CABO_CALLED' && (ev.payload as { auto?: boolean })?.auto)).toBe(true);
     const fresh1 = s.players[s.currentTurn]!.id;
@@ -738,6 +728,78 @@ describe('cabo call & final turns', () => {
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
     mustOk(e, { type: 'CALL_CABO', playerId: P1 });
     mustFail(e, { type: 'CALL_CABO', playerId: P2 }); // already called
+  });
+
+  it('a tie is broken in favour of the cabo caller', () => {
+    const order = baseOrder();
+    // Everyone keeps equal-value hands: p1 and p2 both all-4s (score 16),
+    // p3 all-4s too — a three-way tie, but p1 called cabo.
+    for (let i = 0; i < 12; i++) order[i] = c(`card${i}`, i % 2 ? H : S, 4);
+    order[12] = c('draw4', D, 4);
+    const e = setup(order);
+    peekAll(e);
+    mustOk(e, { type: 'DRAW', playerId: P1 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
+    mustOk(e, { type: 'CALL_CABO', playerId: P1 });
+    mustOk(e, { type: 'DRAW', playerId: P2 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P2 });
+    mustOk(e, { type: 'END_TURN', playerId: P2 });
+    mustOk(e, { type: 'DRAW', playerId: P3 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P3 });
+    mustOk(e, { type: 'END_TURN', playerId: P3 });
+    const done = e.getState();
+    expect(done.phase).toBe('ROUND_COMPLETE');
+    const vals = Object.values(done.scores!);
+    expect(new Set(vals).size).toBe(1); // genuinely tied scores
+    expect(done.roundWinnerId).toBe(P1); // caller takes the tie
+  });
+
+  it('swap powers are skipped when the target has no cards (post-cabo)', () => {
+    const order = baseOrder();
+    // p1 empties their hand with 4s, then calls cabo via auto (zero cards).
+    order[0] = c('a1', S, 4);
+    order[3] = c('a2', H, 4);
+    order[6] = c('a3', CL, 4);
+    order[9] = c('a4', D, 4);
+    order[12] = c('draw4', H, 4);
+    const e = setup(order);
+    peekAll(e);
+    mustOk(e, { type: 'DRAW', playerId: P1 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
+    mustOk(e, { type: 'FLUSH_OWN', playerId: P1, cardIds: ['a1', 'a2', 'a3', 'a4'] });
+    mustOk(e, { type: 'END_TURN', playerId: P1 }); // auto-cabo (zero cards)
+    expect(e.getState().cabo).toMatchObject({ callerId: P1 });
+    // p2's final action: discard a J (BLIND_SWAP) — but the caller (p1) has
+    // no cards and p3 is the only possible target... force the impossible
+    // case with SWAP_OTHERS instead when only ONE other player has cards:
+    // here p2+p3 both have cards so a normal swap works; instead verify via
+    // a 2-player construction below.
+    const order2 = baseOrder();
+    for (let i = 0; i < 12; i++) order2[i] = c(`k${i}`, i % 2 ? H : S, 4);
+    order2[12] = c('drawJ', H, 11);
+    const e2 = setup(order2, { players: 2 });
+    const ids = e2.getState().players.map((p) => p.id);
+    const [q1, q2] = ids;
+    for (const pid of ids) mustOk(e2, { type: 'PEEK_STARTING', playerId: pid, cardIndexes: [1, 3] });
+    mustOk(e2, { type: 'DRAW', playerId: q1 });
+    mustOk(e2, { type: 'KEEP_DRAWN', playerId: q1, handIndex: 0 });
+    mustOk(e2, { type: 'END_TURN', playerId: q1 });
+    // q2 empties their hand → auto-cabo.
+    mustOk(e2, { type: 'DRAW', playerId: q2 });
+    mustOk(e2, { type: 'KEEP_DRAWN', playerId: q2, handIndex: 0 });
+    const q2Hand = e2.getState().hands[q2]!.filter((c): c is NonNullable<typeof c> => !!c);
+    mustOk(e2, { type: 'FLUSH_OWN', playerId: q2, cardIds: q2Hand.map((c) => c.id).slice(0, 4) });
+    mustOk(e2, { type: 'END_TURN', playerId: q2 });
+    expect(e2.getState().cabo).toMatchObject({ callerId: q2 });
+    // q1's final action: draw the J — a BLIND_SWAP with the only other
+    // player holding zero cards → the power is SKIPPED, no dead-lock.
+    mustOk(e2, { type: 'DRAW', playerId: q1 });
+    mustOk(e2, { type: 'DISCARD_DRAWN', playerId: q1 });
+    const s2 = e2.getState();
+    expect(s2.pendingPower).toBeNull(); // skipped, not pending
+    expect(s2.phase).toBe('TURN_END'); // q1 can simply end the round
+    mustOk(e2, { type: 'END_TURN', playerId: q1 });
+    expect(e2.getState().phase).toBe('ROUND_COMPLETE');
   });
 
   it('cabo can be disabled by rules', () => {
