@@ -313,61 +313,43 @@ function FlightPath({
   );
 }
 
-/** A visible trail for a swapped card: dashed path from its OLD position to
- *  its new slot plus a small face-down ghost gliding along it — makes it
- *  unmistakable WHICH card went WHERE (positions are public info). */
-export function SwapTrails({
-  trails,
+/** ONE clear swap visual: a double-arrowed connector between the two slots
+ *  that exchanged cards, with a ⇄ badge at its middle. The real cards glide
+ *  under it with their amber glow — no confusing per-card trails. */
+export function SwapConnector({
+  id,
+  a,
+  b,
   size,
 }: {
-  trails: Array<{ id: string; from: FlightPos; to: FlightPos }>;
+  id: string;
+  a: FlightPos;
+  b: FlightPos;
   size: { w: number; h: number };
 }) {
+  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - Math.min(26, Math.hypot(b.x - a.x, b.y - a.y) * 0.1) };
+  const d = `M ${a.x} ${a.y} Q ${mid.x} ${mid.y} ${b.x} ${b.y}`;
   return (
-    <div className="flight-group">
-      {trails.map((t) => {
-        const mid = arcMid(t.from, t.to);
-        const d = `M ${t.from.x} ${t.from.y} Q ${mid.x} ${mid.y} ${t.to.x} ${t.to.y}`;
-        return (
-          <div key={t.id}>
-            <svg className="flight-svg swap" width={size.w} height={size.h} viewBox={`0 0 ${size.w} ${size.h}`}>
-              <motion.path
-                className="flight-path-line swap"
-                d={d}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: [0, 0.95, 0.95, 0] }}
-                transition={{ duration: 1.5, times: [0, 0.1, 0.55, 1], ease: 'easeOut' }}
-              />
-            </svg>
-            <LandingPulse to={t.to} delay={0.62} />
-            <motion.div
-              className="flight-ghost leader back swap-mini"
-              style={{ width: 48, height: 70, marginLeft: -24, marginTop: -35, transformPerspective: 900 }}
-              initial={{ x: t.from.x, y: t.from.y, opacity: 0, scale: 0.55, rotate: -10 }}
-              animate={{
-                x: [t.from.x, mid.x, t.to.x],
-                y: [t.from.y, mid.y, t.to.y],
-                opacity: [0, 1, 1, 0],
-                scale: [0.55, 1.08, 1, 0.8],
-                rotate: [-10, 4, 0],
-              }}
-              transition={{
-                x: { duration: 0.62, ease: [0.3, 0.75, 0.25, 1] },
-                y: { duration: 0.62, ease: [0.35, 0.7, 0.3, 1] },
-                opacity: { duration: 1.5, times: [0, 0.15, 0.45, 1], ease: 'linear' },
-                scale: { duration: 1.5, times: [0, 0.3, 0.45, 1] },
-                rotate: { duration: 0.62 },
-              }}
-            >
-              <div className="flight-card3d">
-                <div className="flight-back" />
-                <div className="swap-tag">⇄</div>
-              </div>
-            </motion.div>
-          </div>
-        );
-      })}
-    </div>
+    <motion.div key={id} className="flight-group" initial={{ opacity: 1 }} animate={{ opacity: [1, 1, 0] }} transition={{ duration: 2.4, times: [0, 0.7, 1] }}>
+      <svg className="flight-svg swap" width={size.w} height={size.h} viewBox={`0 0 ${size.w} ${size.h}`}>
+        <motion.path
+          className="flight-path-line swap"
+          d={d}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: [0, 0.95, 0.95, 0] }}
+          transition={{ duration: 2.4, times: [0, 0.08, 0.7, 1], ease: 'easeOut' }}
+        />
+      </svg>
+      <motion.span
+        className="swap-badge"
+        style={{ left: mid.x, top: mid.y }}
+        initial={{ opacity: 0, scale: 0.4 }}
+        animate={{ opacity: [0, 1, 1, 0], scale: [0.4, 1.2, 1, 0.9] }}
+        transition={{ duration: 2.4, times: [0, 0.12, 0.7, 1] }}
+      >
+        ⇄
+      </motion.span>
+    </motion.div>
   );
 }
 

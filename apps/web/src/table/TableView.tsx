@@ -7,7 +7,7 @@ import Card from './Card.js';
 import TableCenter from './TableCenter.js';
 import SeatPlanner from './SeatPlanner.js';
 import ScoreBoard from './ScoreBoard.js';
-import CardFlights, { SwapTrails } from './CardFlights.js';
+import CardFlights, { SwapConnector } from './CardFlights.js';
 import { useGuidance } from './guidance.js';
 import ChatPanel from '../chat/ChatPanel.js';
 import SoundToggle from '../SoundToggle.js';
@@ -92,43 +92,44 @@ export default function TableView({ room }: { room: RoomApi }) {
     return () => window.removeEventListener('resize', measureAnchors);
   }, [measureAnchors, room.flights, others.length]);
 
-  // ---- Swap trails ------------------------------------------------------
-  // When two cards exchange places, draw a dashed trail from each card's OLD
-  // position (captured on the previous commit) to its NEW slot so it's clear
-  // which card went where. Runs BEFORE prevCardPos updates below.
-  const prevCardPos = useRef<Record<string, FlightPos>>({});
-  const handledSwaps = useRef<Set<string>>(new Set());
-  const [swapTrails, setSwapTrails] = useState<Array<{ id: string; from: FlightPos; to: FlightPos }>>([]);
-  useLayoutEffect(() => {
+  // ---- Swap connector ---------------------------------------------------
+  // ONE double-arrowed ⇄ between the two slots that exchanged cards. The
+  // endpoints are measured AFTER the glide settles (~0.6s) so they mark the
+  // final resting slots, and the connector fades after ~2.4s.
+  const handledSwapPairs = useRef<Set<string>>(new Set());
+  const [swapConnectors, setSwapConnectors] = useState<Array<{ id: string; a: FlightPos; b: FlightPos }>>([]);
+  useEffect(() => {
     const table = tableRef.current;
-    if (!table) return;
-    const rect = table.getBoundingClientRect();
-    const now: Record<string, FlightPos> = {};
-    table.querySelectorAll<HTMLElement>('[data-card-id]').forEach((el) => {
-      const r = el.getBoundingClientRect();
-      now[el.dataset.cardId!] = { x: r.left - rect.left + r.width / 2, y: r.top - rect.top + r.height / 2 };
-    });
-    const trails: Array<{ id: string; from: FlightPos; to: FlightPos }> = [];
-    const cutoff = Date.now() - 2500;
-    for (const [cardId, at] of Object.entries(room.swapMarks)) {
-      if (at < cutoff) continue;
-      const key = `${cardId}:${at}`;
-      if (handledSwaps.current.has(key)) continue;
-      handledSwaps.current.add(key);
-      const from = prevCardPos.current[cardId];
-      const to = now[cardId];
-      if (from && to && (Math.abs(from.x - to.x) > 4 || Math.abs(from.y - to.y) > 4)) {
-        trails.push({ id: key, from, to });
+    if (!table || room.swapPairs.length === 0) return;
+    const fresh = room.swapPairs.filter((p) => !handledSwapPairs.current.has(p.id));
+    if (fresh.length === 0) return;
+    fresh.forEach((p) => handledSwapPairs.current.add(p.id));
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const t1 = setTimeout(() => {
+      const rect = table.getBoundingClientRect();
+      const centerOf = (cid: string): FlightPos | null => {
+        const el = table.querySelector<HTMLElement>(`[data-card-id="${cid}"]`);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: r.left - rect.left + r.width / 2, y: r.top - rect.top + r.height / 2 };
+      };
+      const conns: Array<{ id: string; a: FlightPos; b: FlightPos }> = [];
+      for (const pair of fresh) {
+        const a = centerOf(pair.cardA);
+        const b = centerOf(pair.cardB);
+        if (a && b) conns.push({ id: pair.id, a, b });
       }
-    }
-    if (trails.length > 0) {
-      setSwapTrails((cur) => [...cur, ...trails].slice(-6));
-      setTimeout(() => {
-        setSwapTrails((cur) => cur.filter((t) => !trails.some((x) => x.id === t.id)));
-      }, 1900);
-    }
-    prevCardPos.current = now;
-  }, [room.swapMarks, room.view]);
+      if (conns.length > 0) {
+        setSwapConnectors((cur) => [...cur, ...conns].slice(-3));
+        const t2 = setTimeout(() => {
+          setSwapConnectors((cur) => cur.filter((c) => !conns.some((x) => x.id === c.id)));
+        }, 2500);
+        timers.push(t2);
+      }
+    }, 620);
+    timers.push(t1);
+    return () => timers.forEach(clearTimeout);
+  }, [room.swapPairs]);
 
   const myHand = view.handCardIds[me.id] ?? [];
   const isMyTurn = view.players.find((p) => p.isCurrentTurn)?.id === me.id;
@@ -414,10 +415,11 @@ export default function TableView({ room }: { room: RoomApi }) {
           }
         />
 
-        {/* End of action: pass the turn (the bell beside it calls Cabo). */}
-        {mode === 'turn-end' && !view.cabo && (
+        {/* End of action: pass the turn. Always available at TURN_END — also
+            during the final round after a cabo call (that was the stall). */}
+        {mode === 'turn-end' && (
           <button className="end-turn-btn" onClick={() => act({ type: 'END_TURN' })}>
-            End turn ▸
+            {view.cabo ? 'Finish round ▸' : 'End turn ▸'}
           </button>
         )}
 
@@ -430,7 +432,8 @@ export default function TableView({ room }: { room: RoomApi }) {
             onDone={dropFlight}
           />
         )}
-        {anchors && <SwapTrails trails={swapTrails} size={anchors.size} />}
+        {anchors &&
+          swapConnectors.map((c) => <SwapConnector key={c.id} id={c.id} a={c.a} b={c.b} size={anchors.size} />)}
 
         {/* my hand */}
         <div className={`seat seat-me ${isMyTurn ? 'active' : ''}`}>

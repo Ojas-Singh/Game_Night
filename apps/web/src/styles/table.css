@@ -806,16 +806,22 @@
   stroke-width: 4.5;
   filter: drop-shadow(0 0 7px rgba(255, 178, 88, 0.85));
 }
-.swap-mini .flight-card3d {
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(255, 178, 88, 0.5);
-}
-.swap-tag {
+.swap-badge {
   position: absolute;
-  top: -12px;
-  right: -10px;
-  font-size: 16px;
-  line-height: 1;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  font-size: 18px;
+  font-weight: 700;
+  color: #2a1a08;
+  background: radial-gradient(circle at 40% 30%, #ffe9bd, #f0b95f 70%, #d99a3d);
+  border: 1.5px solid rgba(120, 80, 30, 0.5);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45), 0 0 14px rgba(255, 178, 88, 0.55);
+  pointer-events: none;
 }
 /* End-of-action pass button */
 .end-turn-btn {

@@ -47,7 +47,9 @@ export function useGuidance(view: CaboPlayerView, myId: string) {
       : `${currentName} is deciding…`;
   } else if (view.phase === 'TURN_END') {
     if (view.cabo) {
-      text = amCurrent ? 'Finish your final action, then end your turn' : `${currentName} is wrapping up…`;
+      text = amCurrent
+        ? 'Final round — end your turn when ready'
+        : `${currentName} is finishing the round…`;
     } else {
       text = amCurrent
         ? 'Action done — ring the bell to call Cabo, or end your turn'

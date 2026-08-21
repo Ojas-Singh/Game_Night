@@ -187,6 +187,8 @@ export interface RoomApi {
   peekMarks: Record<string, { byPlayerId: string; at: number }>;
   /** Just-swapped cards: cardId → at (brief glow while gliding). */
   swapMarks: Record<string, number>;
+  /** Recent swaps: the two card ids that exchanged places (for the ⇄ connector). */
+  swapPairs: Array<{ id: string; cardA: string; cardB: string; at: number }>;
   sendEmote: (emote: string) => void;
   markChatRead: () => void;
   joinError: string | null;
@@ -238,6 +240,8 @@ export function useRoom(): RoomApi {
   const [peekMarks, setPeekMarks] = useState<Record<string, { byPlayerId: string; at: number }>>({});
   /** Just-swapped cards (brief glow, cleared after the glide). */
   const [swapMarks, setSwapMarks] = useState<Record<string, number>>({});
+  /** Recent swap pairs (⇄ connectors between the two slots). */
+  const [swapPairs, setSwapPairs] = useState<Array<{ id: string; cardA: string; cardB: string; at: number }>>([]);
   const myIdRef = useRef<string | null>(null);
   myIdRef.current = myPlayerId;
 
@@ -362,18 +366,31 @@ export function useRoom(): RoomApi {
         }
       }
       if (revision.length > 0) touchFlash(revision);
-      // Swaps: glow the two cards that just exchanged places.
+      // Swaps: glow the two cards that just exchanged places + pair them.
       const swappedIds: string[] = [];
+      const newPairs: Array<{ id: string; cardA: string; cardB: string; at: number }> = [];
       for (const ev of v.events) {
         if (seen.has(ev.seq)) continue;
         const p = ev.payload as Record<string, unknown> | undefined;
         if (ev.type === 'POWER_RESOLVED' && p?.power === 'BLIND_SWAP') {
           if (typeof p.ownCardId === 'string') swappedIds.push(p.ownCardId);
           if (typeof p.targetCardId === 'string') swappedIds.push(p.targetCardId);
+          if (typeof p.ownCardId === 'string' && typeof p.targetCardId === 'string') {
+            newPairs.push({ id: `swap-${ev.seq}`, cardA: p.ownCardId, cardB: p.targetCardId, at: Date.now() });
+          }
         } else if (ev.type === 'POWER_RESOLVED' && p?.power === 'SWAP_OTHERS') {
           if (typeof p.cardIdA === 'string') swappedIds.push(p.cardIdA);
           if (typeof p.cardIdB === 'string') swappedIds.push(p.cardIdB);
+          if (typeof p.cardIdA === 'string' && typeof p.cardIdB === 'string') {
+            newPairs.push({ id: `swap-${ev.seq}`, cardA: p.cardIdA, cardB: p.cardIdB, at: Date.now() });
+          }
         }
+      }
+      if (newPairs.length > 0) {
+        setSwapPairs((cur) => [...cur, ...newPairs].slice(-4));
+        setTimeout(() => {
+          setSwapPairs((cur) => cur.filter((x) => !newPairs.some((n) => n.id === x.id)));
+        }, 3200);
       }
       if (swappedIds.length > 0) {
         const at = Date.now();
@@ -487,6 +504,7 @@ export function useRoom(): RoomApi {
       emotes,
       peekMarks,
       swapMarks,
+      swapPairs,
       flights,
       sendEmote: (emote: string) => socketRef.current?.emit('room:emote', { emote }),
       unreadChat: unread,
@@ -535,7 +553,7 @@ export function useRoom(): RoomApi {
         setMyPlayerId(null);
       },
     }),
-    [socket, status, roomId, myPlayerId, lobby, testMode, view, chat, peekFlash, emotes, peekMarks, swapMarks, flights, unread, joinError, createRoom, joinRoom],
+    [socket, status, roomId, myPlayerId, lobby, testMode, view, chat, peekFlash, emotes, peekMarks, swapMarks, swapPairs, flights, unread, joinError, createRoom, joinRoom],
   );
 
   return api;
