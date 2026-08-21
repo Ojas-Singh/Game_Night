@@ -55,6 +55,16 @@ export default function LobbyView({ room }: { room: RoomApi }) {
             Room <span className="room-code">{lobby.roomId}</span>
           </h1>
           <div className="invite-row">
+            <button
+              className="ghost"
+              onClick={() => {
+                room.leaveRoom();
+                window.location.hash = '#/';
+              }}
+              title="Leave this room and start fresh"
+            >
+              🏠 Leave room
+            </button>
             <button className="ghost" onClick={copyLink}>
               {copied ? '✓ Copied!' : '🔗 Copy invite link'}
             </button>

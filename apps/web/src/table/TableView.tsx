@@ -7,7 +7,7 @@ import Card from './Card.js';
 import TableCenter from './TableCenter.js';
 import SeatPlanner from './SeatPlanner.js';
 import ScoreBoard from './ScoreBoard.js';
-import CardFlights from './CardFlights.js';
+import CardFlights, { SwapTrails } from './CardFlights.js';
 import { useGuidance } from './guidance.js';
 import ChatPanel from '../chat/ChatPanel.js';
 import SoundToggle from '../SoundToggle.js';
@@ -92,6 +92,44 @@ export default function TableView({ room }: { room: RoomApi }) {
     return () => window.removeEventListener('resize', measureAnchors);
   }, [measureAnchors, room.flights, others.length]);
 
+  // ---- Swap trails ------------------------------------------------------
+  // When two cards exchange places, draw a dashed trail from each card's OLD
+  // position (captured on the previous commit) to its NEW slot so it's clear
+  // which card went where. Runs BEFORE prevCardPos updates below.
+  const prevCardPos = useRef<Record<string, FlightPos>>({});
+  const handledSwaps = useRef<Set<string>>(new Set());
+  const [swapTrails, setSwapTrails] = useState<Array<{ id: string; from: FlightPos; to: FlightPos }>>([]);
+  useLayoutEffect(() => {
+    const table = tableRef.current;
+    if (!table) return;
+    const rect = table.getBoundingClientRect();
+    const now: Record<string, FlightPos> = {};
+    table.querySelectorAll<HTMLElement>('[data-card-id]').forEach((el) => {
+      const r = el.getBoundingClientRect();
+      now[el.dataset.cardId!] = { x: r.left - rect.left + r.width / 2, y: r.top - rect.top + r.height / 2 };
+    });
+    const trails: Array<{ id: string; from: FlightPos; to: FlightPos }> = [];
+    const cutoff = Date.now() - 2500;
+    for (const [cardId, at] of Object.entries(room.swapMarks)) {
+      if (at < cutoff) continue;
+      const key = `${cardId}:${at}`;
+      if (handledSwaps.current.has(key)) continue;
+      handledSwaps.current.add(key);
+      const from = prevCardPos.current[cardId];
+      const to = now[cardId];
+      if (from && to && (Math.abs(from.x - to.x) > 4 || Math.abs(from.y - to.y) > 4)) {
+        trails.push({ id: key, from, to });
+      }
+    }
+    if (trails.length > 0) {
+      setSwapTrails((cur) => [...cur, ...trails].slice(-6));
+      setTimeout(() => {
+        setSwapTrails((cur) => cur.filter((t) => !trails.some((x) => x.id === t.id)));
+      }, 1900);
+    }
+    prevCardPos.current = now;
+  }, [room.swapMarks, room.view]);
+
   const myHand = view.handCardIds[me.id] ?? [];
   const isMyTurn = view.players.find((p) => p.isCurrentTurn)?.id === me.id;
   // Avatar looks come from the lobby roster (customizable, skribbl-style).
@@ -149,6 +187,7 @@ export default function TableView({ room }: { room: RoomApi }) {
 
   const mode:
     | 'draw-decision'
+    | 'turn-end'
     | 'power-peek-own'
     | 'power-peek-other'
     | 'power-blind-swap'
@@ -160,6 +199,7 @@ export default function TableView({ room }: { room: RoomApi }) {
     if (phase === 'ROUND_COMPLETE') return 'round-over';
     if (phase === 'TRANSFER_PENDING' && view.pendingTransfer) return 'transfer';
     if (phase === 'DRAW_DECISION' && isMyTurn) return 'draw-decision';
+    if (phase === 'TURN_END' && isMyTurn) return 'turn-end';
     if (pendingPower) {
       return {
         PEEK_OWN: 'power-peek-own',
@@ -170,10 +210,11 @@ export default function TableView({ room }: { room: RoomApi }) {
     }
     return 'idle';
   }, [phase, pendingPower, isMyTurn, view.pendingTransfer]);
+  // Flushing stays possible while deciding AND at end of action.
 
   // Flush: clicking own cards while not mid-decision, when rank matches discard.
   const canFlushNow =
-    (mode === 'idle' || mode === 'draw-decision') &&
+    (mode === 'idle' || mode === 'draw-decision' || mode === 'turn-end') &&
     view.discardTopRank !== null &&
     phase !== 'ROUND_COMPLETE';
 
@@ -224,16 +265,11 @@ export default function TableView({ room }: { room: RoomApi }) {
       } else {
         act({ type: 'POWER_APPLY', payload: { power: 'SWAP_OTHERS', cardIdA: selectedOwn, cardIdB: cardId } });
       }
-    } else if (mode === 'idle' && view.discardTopRank !== null) {
-      // Flush another player's known card.
-      const known = view.knownCards[cardId];
-      if (known && known.rank === view.discardTopRank) {
-        act({ type: 'FLUSH_OTHER', targetPlayerId: playerId, cardId });
-      } else if (known) {
-        guidance.setError(`That's a ${known.rank} — doesn't match ${view.discardTopRank}`);
-      } else {
-        guidance.setError('You can only flush cards you have seen');
-      }
+    } else if ((mode === 'idle' || mode === 'turn-end') && view.discardTopRank !== null) {
+      // Blind guess allowed on ANY card — the server checks the match. If
+      // you're wrong you simply draw a penalty; nobody ever learns the card
+      // (the UI never tells you its rank either — it's a memory game).
+      act({ type: 'FLUSH_OTHER', targetPlayerId: playerId, cardId });
     }
   };
 
@@ -248,6 +284,8 @@ export default function TableView({ room }: { room: RoomApi }) {
     if (mode === 'power-peek-other') return targetPlayer === playerId;
     if (mode === 'power-blind-swap') return !!selectedOwn && (targetPlayer === playerId || targetPlayer === null);
     if (mode === 'power-swap-others') return true;
+    // Blind flushes: every card is clickable (you remember it or you don't).
+    if ((mode === 'idle' || mode === 'turn-end') && view.discardTopRank !== null) return true;
     return false;
   };
 
@@ -262,7 +300,7 @@ export default function TableView({ room }: { room: RoomApi }) {
       {/* The starting peek: a sticky reminder while your cards are flashed. */}
       {myHand.some((id) => {
         const f = room.peekFlash[id];
-        return f && f.ms >= 6000 && Date.now() - f.at < f.ms;
+        return f && f.ms >= 9000 && Date.now() - f.at < f.ms;
       }) && <div className="memorize-note">👁 Remember your bottom two cards!</div>}
       {room.lobby?.hostId === room.myPlayerId && (
         <button
@@ -274,6 +312,17 @@ export default function TableView({ room }: { room: RoomApi }) {
           {room.testMode ? 'TEST ON' : 'TEST'}
         </button>
       )}
+      <button
+        className="leave-toggle"
+        onClick={() => {
+          room.leaveRoom();
+          window.location.hash = '#/';
+        }}
+        aria-label="Leave the game"
+        title="Leave the game and go home"
+      >
+        🚪
+      </button>
       <SoundToggle />
       <EmotePicker room={room} />
       <button
@@ -353,13 +402,24 @@ export default function TableView({ room }: { room: RoomApi }) {
         {/* centre: deck + discard */}
         <TableCenter
           view={view}
-          onDraw={isMyTurn && phase === 'TURN_DRAW' ? () => act({ type: 'DRAW' }) : null}
+          onDraw={
+            isMyTurn && phase === 'TURN_DRAW' && myLiveCount > 0
+              ? () => act({ type: 'DRAW' })
+              : null
+          }
           onCallCabo={
-            isMyTurn && phase === 'TURN_DRAW' && !view.cabo
+            isMyTurn && phase === 'TURN_END' && !view.cabo
               ? () => act({ type: 'CALL_CABO' })
               : null
           }
         />
+
+        {/* End of action: pass the turn (the bell beside it calls Cabo). */}
+        {mode === 'turn-end' && !view.cabo && (
+          <button className="end-turn-btn" onClick={() => act({ type: 'END_TURN' })}>
+            End turn ▸
+          </button>
+        )}
 
         {/* flying-card overlay: every player sees where each card went */}
         {anchors && (
@@ -370,6 +430,7 @@ export default function TableView({ room }: { room: RoomApi }) {
             onDone={dropFlight}
           />
         )}
+        {anchors && <SwapTrails trails={swapTrails} size={anchors.size} />}
 
         {/* my hand */}
         <div className={`seat seat-me ${isMyTurn ? 'active' : ''}`}>

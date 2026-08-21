@@ -153,10 +153,13 @@ describe('socket integration', () => {
         const ownCards = myView.handCardIds[myId] ?? [];
 
         if (myView.phase === 'TURN_DRAW') {
+          res = await gameAction(sock, { type: 'DRAW', playerId: myId });
+        } else if (myView.phase === 'TURN_END') {
+          // End of action: call cabo (after a while) or pass the turn on.
           res =
             guard > 12 && !myView.cabo
               ? await gameAction(sock, { type: 'CALL_CABO', playerId: myId })
-              : await gameAction(sock, { type: 'DRAW', playerId: myId });
+              : await gameAction(sock, { type: 'END_TURN', playerId: myId });
         } else if (myView.phase === 'DRAW_DECISION') {
           res = await gameAction(sock, { type: 'DISCARD_DRAWN', playerId: myId });
         } else if (myView.phase === 'POWER_PENDING') {

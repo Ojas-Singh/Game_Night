@@ -111,6 +111,10 @@ function FlightGhost({
 }) {
   useFlightLifetime(flight.id, onDone);
   const mid = arcMid(from, to);
+  // Cards landing on the discard pile must NOT linger: the real card is
+  // already face-up beneath, and a lingering ghost (black label) made the
+  // pile look like it "turns black first". Only hand-bound cards linger.
+  const linger = !flight.toDiscard;
 
   return (
     <motion.div
@@ -118,7 +122,7 @@ function FlightGhost({
       initial={{ opacity: 1 }}
       exit={{ opacity: 0, transition: { duration: 0.18 } }}
     >
-      <FlightPath from={from} to={to} mid={mid} anchors={anchors} />
+      <FlightPath from={from} to={to} mid={mid} anchors={anchors} linger={linger} />
       <LandingPulse to={to} delay={DURATION} />
       {Array.from({ length: TRAIL }).map((_, i) => (
         <GhostCopy
@@ -131,6 +135,7 @@ function FlightGhost({
           scale={0.62 - i * 0.08}
           faceDown={!flight.toDiscard}
           rank={flight.rank}
+          linger={linger}
         />
       ))}
       <GhostCopy
@@ -142,6 +147,7 @@ function FlightGhost({
         scale={1}
         faceDown={!flight.toDiscard}
         rank={flight.rank}
+        linger={linger}
         leader
       />
     </motion.div>
@@ -158,6 +164,7 @@ function GhostCopy({
   faceDown,
   rank,
   leader = false,
+  linger = true,
 }: {
   from: FlightPos;
   to: FlightPos;
@@ -168,10 +175,11 @@ function GhostCopy({
   faceDown: boolean;
   rank: number;
   leader?: boolean;
+  linger?: boolean;
 }) {
-  // Travel finishes at DURATION; the copy then lingers at the destination and
-  // decays to nothing across DECAY seconds.
-  const total = TOTAL;
+  // Travel finishes at DURATION; lingering copies then decay across DECAY
+  // seconds — or fade almost immediately when landing on the discard pile.
+  const total = linger ? TOTAL : DURATION + 0.12;
   const times = [0, 0.5 * (DURATION / total), DURATION / total, 1];
   const spin = leader ? 540 : 180;
   return (
@@ -276,13 +284,16 @@ function FlightPath({
   mid,
   anchors,
   peek = false,
+  linger = true,
 }: {
   from: FlightPos;
   to: FlightPos;
   mid: FlightPos;
   anchors: FlightAnchors;
   peek?: boolean;
+  linger?: boolean;
 }) {
+  const total = linger ? TOTAL : DURATION + 0.12;
   const d = `M ${from.x} ${from.y} Q ${mid.x} ${mid.y} ${to.x} ${to.y}`;
   return (
     <motion.svg
@@ -296,9 +307,67 @@ function FlightPath({
         d={d}
         initial={{ opacity: 0 }}
         animate={{ opacity: [0, 0.85, 0.85, 0] }}
-        transition={{ duration: TOTAL, times: [0, 0.12, DURATION / TOTAL, 1], ease: 'easeOut' }}
+        transition={{ duration: total, times: [0, 0.12, DURATION / total, 1], ease: 'easeOut' }}
       />
     </motion.svg>
+  );
+}
+
+/** A visible trail for a swapped card: dashed path from its OLD position to
+ *  its new slot plus a small face-down ghost gliding along it — makes it
+ *  unmistakable WHICH card went WHERE (positions are public info). */
+export function SwapTrails({
+  trails,
+  size,
+}: {
+  trails: Array<{ id: string; from: FlightPos; to: FlightPos }>;
+  size: { w: number; h: number };
+}) {
+  return (
+    <div className="flight-group">
+      {trails.map((t) => {
+        const mid = arcMid(t.from, t.to);
+        const d = `M ${t.from.x} ${t.from.y} Q ${mid.x} ${mid.y} ${t.to.x} ${t.to.y}`;
+        return (
+          <div key={t.id}>
+            <svg className="flight-svg swap" width={size.w} height={size.h} viewBox={`0 0 ${size.w} ${size.h}`}>
+              <motion.path
+                className="flight-path-line swap"
+                d={d}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: [0, 0.95, 0.95, 0] }}
+                transition={{ duration: 1.5, times: [0, 0.1, 0.55, 1], ease: 'easeOut' }}
+              />
+            </svg>
+            <LandingPulse to={t.to} delay={0.62} />
+            <motion.div
+              className="flight-ghost leader back swap-mini"
+              style={{ width: 48, height: 70, marginLeft: -24, marginTop: -35, transformPerspective: 900 }}
+              initial={{ x: t.from.x, y: t.from.y, opacity: 0, scale: 0.55, rotate: -10 }}
+              animate={{
+                x: [t.from.x, mid.x, t.to.x],
+                y: [t.from.y, mid.y, t.to.y],
+                opacity: [0, 1, 1, 0],
+                scale: [0.55, 1.08, 1, 0.8],
+                rotate: [-10, 4, 0],
+              }}
+              transition={{
+                x: { duration: 0.62, ease: [0.3, 0.75, 0.25, 1] },
+                y: { duration: 0.62, ease: [0.35, 0.7, 0.3, 1] },
+                opacity: { duration: 1.5, times: [0, 0.15, 0.45, 1], ease: 'linear' },
+                scale: { duration: 1.5, times: [0, 0.3, 0.45, 1] },
+                rotate: { duration: 0.62 },
+              }}
+            >
+              <div className="flight-card3d">
+                <div className="flight-back" />
+                <div className="swap-tag">⇄</div>
+              </div>
+            </motion.div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

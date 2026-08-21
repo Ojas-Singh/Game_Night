@@ -139,7 +139,7 @@ export type ConnStatus = 'connecting' | 'connected' | 'reconnecting' | 'error';
 const PEEK_FLASH_MS = 3200;
 /** The STARTING peek (your bottom two cards) stays up much longer — that's
  *  the memorize-your-hand moment of the whole game. */
-const START_FLASH_MS = 6500;
+const START_FLASH_MS = 10_000;
 /** How long the "someone peeked here" eye badge stays visible. */
 const PEEK_MARK_MS = 6000;
 

@@ -89,22 +89,29 @@ describe('hidden-information filtering', () => {
     // to everyone (embarrassing, like real life), then penalty applied.
     const res = e.handleAction({ type: 'FLUSH_OTHER', playerId: 'p2', targetPlayerId: 'p3', cardId: 'd1' });
     expect(res.ok).toBe(true);
+    // A wrong flush of another player is PRIVATE: no rank in the event and
+    // nobody's view (not even the guesser's) learns the card.
     const failEvent = e.getState().events.find((ev) => ev.type === 'FAILED_FLUSH_OTHER')!;
-    expect(failEvent.payload).toMatchObject({ playerId: 'p2', cardId: 'd1', rank: 6 });
+    expect(failEvent.payload).toMatchObject({ playerId: 'p2', cardId: 'd1' });
+    expect((failEvent.payload as Record<string, unknown>).rank).toBeUndefined();
     const v2b = e.getPlayerState('p2');
-    expect(v2b.knownCards.d1).toMatchObject({ id: 'd1', rank: 6 });
+    expect(v2b.knownCards.d1).toBeUndefined();
     const v1 = e.getPlayerState('p1');
-    expect(v1.knownCards.d1).toMatchObject({ id: 'd1', rank: 6 });
+    expect(v1.knownCards.d1).toBeUndefined();
   });
 
   it('reveal at round end grants everyone full knowledge', () => {
     const e = setup(order(), { rules: { endRoundWhenPlayerHasNoCards: false } });
     peekAll(e);
+    mustOk(e, { type: 'DRAW', playerId: 'p1' });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: 'p1' });
     mustOk(e, { type: 'CALL_CABO', playerId: 'p1' });
     mustOk(e, { type: 'DRAW', playerId: 'p2' });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: 'p2' });
+    mustOk(e, { type: 'END_TURN', playerId: 'p2' });
     mustOk(e, { type: 'DRAW', playerId: 'p3' });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: 'p3' });
+    mustOk(e, { type: 'END_TURN', playerId: 'p3' });
     const v1 = e.getPlayerState('p1');
     const remaining = Object.values(v1.handCardIds).flat();
     for (const id of remaining) {

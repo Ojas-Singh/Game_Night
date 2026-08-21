@@ -45,6 +45,14 @@ export function useGuidance(view: CaboPlayerView, myId: string) {
     text = amCurrent
       ? 'Keep the drawn card (tap a hand slot) or discard it (tap the drawn card)'
       : `${currentName} is deciding…`;
+  } else if (view.phase === 'TURN_END') {
+    if (view.cabo) {
+      text = amCurrent ? 'Finish your final action, then end your turn' : `${currentName} is wrapping up…`;
+    } else {
+      text = amCurrent
+        ? 'Action done — ring the bell to call Cabo, or end your turn'
+        : `${currentName} may call Cabo…`;
+    }
   } else if (view.phase === 'TURN_DRAW') {
     if (view.cabo) {
       text = amCurrent

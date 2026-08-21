@@ -11,9 +11,12 @@ import type { CaboPower, CaboRules } from './rules.js';
 /**
  * Explicit phase machine:
  *
- * INITIAL_PEEK → TURN_DRAW → DRAW_DECISION → (POWER_PENDING) → TURN_DRAW → ...
+ * INITIAL_PEEK → TURN_DRAW → DRAW_DECISION → (POWER_PENDING) → TURN_END →
+ * (CALL_CABO | END_TURN) → next TURN_DRAW → ...
  * Any gameplay phase can be interrupted by FLUSH actions (validated server-side).
- * After CALL_CABO the remaining players take final turns, then ROUND_REVEAL.
+ * CABO is called at the END of your action (TURN_END), never before playing;
+ * afterwards the remaining players take one final round, then ROUND_REVEAL.
+ * A player who finishes their action with zero cards gets Cabo auto-called.
  */
 export type CaboPhase =
   | 'INITIAL_PEEK'
@@ -21,6 +24,7 @@ export type CaboPhase =
   | 'DRAW_DECISION'
   | 'POWER_PENDING'
   | 'TRANSFER_PENDING'
+  | 'TURN_END'
   | 'ROUND_REVEAL'
   | 'ROUND_COMPLETE';
 
@@ -113,4 +117,6 @@ export type CaboAction =
   | { type: 'FLUSH_OWN'; playerId: string; cardIds: string[] }
   | { type: 'FLUSH_OTHER'; playerId: string; targetPlayerId: string; cardId: string }
   | { type: 'TRANSFER_CARD'; playerId: string; cardId: string }
-  | { type: 'CALL_CABO'; playerId: string };
+  | { type: 'CALL_CABO'; playerId: string }
+  /** Finish my action at TURN_END without calling Cabo. */
+  | { type: 'END_TURN'; playerId: string };

@@ -112,8 +112,10 @@ describe('power triggering rules', () => {
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
+    // The action ends at TURN_END; passing moves the turn on.
+    expect(e.getState().phase).toBe('TURN_END');
+    mustOk(e, { type: 'END_TURN', playerId: P1 });
     const s = e.getState();
-    // No power pending, and the turn advanced normally.
     expect(s.pendingPower).toBeNull();
     expect(s.phase).toBe('TURN_DRAW');
     expect(s.players[s.currentTurn]!.id).toBe(P2);
@@ -166,6 +168,7 @@ describe('turn flow', () => {
     expect(s.phase).toBe('DRAW_DECISION');
     expect(s.drawnCard).not.toBeNull();
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
+    mustOk(e, { type: 'END_TURN', playerId: P1 });
     expect(s.phase).toBe('TURN_DRAW');
     expect(s.players[s.currentTurn]!.id).toBe(P2);
     expect(s.discard[s.discard.length - 1]!.rank).toBe(s.drawnCard?.rank ?? s.discard[s.discard.length - 1]!.rank);
@@ -178,6 +181,7 @@ describe('turn flow', () => {
     mustOk(e, { type: 'DRAW', playerId: P1 });
     const drawn = e.getState().drawnCard!;
     mustOk(e, { type: 'KEEP_DRAWN', playerId: P1, handIndex: 2 });
+    mustOk(e, { type: 'END_TURN', playerId: P1 });
     const s = e.getState();
     expect(s.hands.p1![2]!.id).toBe(drawn.id);
     expect(s.hands.p1!.length).toBe(4);
@@ -251,6 +255,7 @@ describe('house rule: the discarded card triggers its power', () => {
       playerId: P1,
       payload: { power: 'BLIND_SWAP', ownCardId: 'a1', targetPlayerId: P2, targetCardId: 'b1' },
     });
+    mustOk(e, { type: 'END_TURN', playerId: P1 });
     expect(e.getState().phase).toBe('TURN_DRAW');
     expect(e.getState().players[e.getState().currentTurn]!.id).toBe(P2);
   });
@@ -374,6 +379,7 @@ describe('flushing own cards', () => {
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
+    mustOk(e, { type: 'END_TURN', playerId: P1 });
     return e;
   }
 
@@ -496,30 +502,55 @@ describe('flushing own cards', () => {
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
+    // After the action the turn pauses at TURN_END (call cabo or pass).
+    expect(e.getState().phase).toBe('TURN_END');
     mustOk(e, { type: 'FLUSH_OWN', playerId: P1, cardIds: ['a1', 'a2', 'a3', 'a4'] });
-    // Round continues: p2 and p3 still play normal turns.
+    mustOk(e, { type: 'END_TURN', playerId: P1 });
+    // Round continues: p2 and p3 still play normal turns (then end them).
     let s = e.getState();
     expect(s.phase).toBe('TURN_DRAW');
     expect(s.players[s.currentTurn]!.id).toBe(P2);
     mustOk(e, { type: 'DRAW', playerId: P2 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P2 });
+    mustOk(e, { type: 'END_TURN', playerId: P2 });
     mustOk(e, { type: 'DRAW', playerId: P3 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P3 });
-    // p1's turn arrives → Cabo auto-called for them (score 0), NOT a turn.
+    mustOk(e, { type: 'END_TURN', playerId: P3 });
+    // p1's next turn arrives → Cabo auto-called for them (score 0), NOT a
+    // turn — then everyone else plays exactly ONE fresh round.
     s = e.getState();
     expect(s.cabo).toMatchObject({ callerId: P1 });
     expect(s.events.some((ev) => ev.type === 'CABO_CALLED' && (ev.payload as { auto?: boolean })?.auto)).toBe(true);
-    // Everyone else takes a final turn, then reveal & scoring.
-    const finalPid = s.players[s.currentTurn]!.id;
-    mustOk(e, { type: 'DRAW', playerId: finalPid });
-    mustOk(e, { type: 'DISCARD_DRAWN', playerId: finalPid });
-    const other = s.players.find((p) => p.id !== P1 && p.id !== finalPid)!.id;
-    mustOk(e, { type: 'DRAW', playerId: other });
-    mustOk(e, { type: 'DISCARD_DRAWN', playerId: other });
+    const fresh1 = s.players[s.currentTurn]!.id;
+    expect(fresh1).not.toBe(P1);
+    mustOk(e, { type: 'DRAW', playerId: fresh1 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: fresh1 });
+    mustOk(e, { type: 'END_TURN', playerId: fresh1 });
+    const fresh2 = e.getState().players[e.getState().currentTurn]!.id;
+    expect(fresh2).not.toBe(P1);
+    mustOk(e, { type: 'DRAW', playerId: fresh2 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: fresh2 });
+    mustOk(e, { type: 'END_TURN', playerId: fresh2 });
     const done = e.getState();
     expect(done.phase).toBe('ROUND_COMPLETE');
     expect(done.scores!.p1).toBe(0);
     expect(done.roundWinnerId).toBe(P1);
+  });
+
+  it('cabo is called at the END of an action: calling before drawing is rejected', () => {
+    const e = setup(baseOrder());
+    peekAll(e);
+    // At TURN_DRAW (before playing) calling is rejected.
+    mustFail(e, { type: 'CALL_CABO', playerId: P1 });
+    // Play the turn first…
+    mustOk(e, { type: 'DRAW', playerId: P1 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
+    expect(e.getState().phase).toBe('TURN_END');
+    // …then the call goes through and everyone else gets one fresh round.
+    mustOk(e, { type: 'CALL_CABO', playerId: P1 });
+    const s = e.getState();
+    expect(s.cabo).toMatchObject({ callerId: P1 });
+    mustFail(e, { type: 'END_TURN', playerId: P2 }); // not p2's turn end
   });
 
   it('a penalty card fills the gap a flush left (positions never shuffle)', () => {
@@ -550,6 +581,7 @@ describe('flushing another player\u2019s card', () => {
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
+    mustOk(e, { type: 'END_TURN', playerId: P1 });
     return e;
   }
 
@@ -579,7 +611,7 @@ describe('flushing another player\u2019s card', () => {
     expect(after.hands.p1!.find((card) => card?.id === 'a1')).toBeUndefined();
   });
 
-  it('incorrect flush of another player: card stays with owner, revealed to everyone, penalty drawn', () => {
+  it('incorrect flush of another player: PRIVATE — nobody learns the card, penalty drawn', () => {
     const e = setupTop(3);
     const s = e.getState();
     const p3Hand = s.hands.p3!.slice();
@@ -590,14 +622,16 @@ describe('flushing another player\u2019s card', () => {
     const after = e.getState();
     // The invalid card stays with its owner (nothing removed).
     expect(after.hands.p3).toEqual(p3Hand);
-    // The failed guess reveals the card's identity to EVERYONE (visible mistake).
+    // The failed guess reveals NOTHING (fully private mistake).
     const last = after.events.at(-1)!;
     expect(last.type).toBe('PENALTY_DRAWN');
     const failEvent = after.events.filter((ev) => ev.type === 'FAILED_FLUSH_OTHER').at(-1)!;
-    expect(failEvent.payload).toMatchObject({ playerId: P2, targetPlayerId: P3, cardId: 'd1', rank: 2 });
-    for (const pid of after.players.map((p) => p.id)) {
-      expect(after.knowledge[pid]).toContain('d1');
-    }
+    expect(failEvent.payload).toMatchObject({ playerId: P2, targetPlayerId: P3, cardId: 'd1' });
+    expect((failEvent.payload as Record<string, unknown>).rank).toBeUndefined();
+    // (p3 peeked d1 at the start so legitimately knows it — but the guesser
+    // p2 and bystander p1 must NOT have learned anything.)
+    expect(after.knowledge.p2).not.toContain('d1');
+    expect(after.knowledge.p1).not.toContain('d1');
     // Penalty draw applied (default draw_one).
     expect(live(after.hands.p2!).length).toBe(5);
     expect(after.deck.length).toBe(deckCount - 1);
@@ -671,6 +705,9 @@ describe('cabo call & final turns', () => {
   it('caller is skipped, every other player gets one final turn, then reveal+score', () => {
     const e = setup(baseOrder(), { rules: { endRoundWhenPlayerHasNoCards: false } });
     peekAll(e);
+    // Play a full action first, then call at TURN_END.
+    mustOk(e, { type: 'DRAW', playerId: P1 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
     mustOk(e, { type: 'CALL_CABO', playerId: P1 });
     const s = e.getState();
     expect(s.cabo).toMatchObject({ callerId: P1 });
@@ -679,10 +716,12 @@ describe('cabo call & final turns', () => {
     // p2 final turn
     mustOk(e, { type: 'DRAW', playerId: P2 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P2 });
+    mustOk(e, { type: 'END_TURN', playerId: P2 });
     expect(e.getState().players[e.getState().currentTurn]!.id).toBe(P3);
     // p3 final turn
     mustOk(e, { type: 'DRAW', playerId: P3 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P3 });
+    mustOk(e, { type: 'END_TURN', playerId: P3 });
     // p1 (caller) gets no further turn — round ends.
     const done = e.getState();
     expect(done.phase).toBe('ROUND_COMPLETE');
@@ -695,6 +734,8 @@ describe('cabo call & final turns', () => {
     const e = setup(baseOrder());
     peekAll(e);
     mustFail(e, { type: 'CALL_CABO', playerId: P2 });
+    mustOk(e, { type: 'DRAW', playerId: P1 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
     mustOk(e, { type: 'CALL_CABO', playerId: P1 });
     mustFail(e, { type: 'CALL_CABO', playerId: P2 }); // already called
   });
@@ -717,6 +758,7 @@ describe('deck exhaustion', () => {
       const pid = e.getState().players[e.getState().currentTurn]!.id;
       mustOk(e, { type: 'DRAW', playerId: pid });
       mustOk(e, { type: 'DISCARD_DRAWN', playerId: pid });
+      mustOk(e, { type: 'END_TURN', playerId: pid });
     }
     const s = e.getState();
     expect(s.deck.length).toBe(0);
@@ -744,6 +786,7 @@ describe('restore / reconnect', () => {
     expect(e2.getState().revision).toBe(e.getState().revision);
     expect(e2.getPlayerState(P1).drawnCard!.id).toBe('draw0');
     mustOk(e2, { type: 'KEEP_DRAWN', playerId: P1, handIndex: 0 });
+    mustOk(e2, { type: 'END_TURN', playerId: P1 });
     expect(e2.getState().players[e2.getState().currentTurn]!.id).toBe(P2);
   });
 });
@@ -758,16 +801,23 @@ describe('full game playthrough', () => {
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 }); // 7 → PEEK_OWN
     mustOk(e, { type: 'POWER_APPLY', playerId: P1, payload: { power: 'PEEK_OWN', cardId: 'a4' } });
+    mustOk(e, { type: 'END_TURN', playerId: P1 });
     mustOk(e, { type: 'DRAW', playerId: P2 });
     mustOk(e, { type: 'KEEP_DRAWN', playerId: P2, handIndex: 3 }); // replaces a 2 → no power
+    mustOk(e, { type: 'END_TURN', playerId: P2 });
     mustOk(e, { type: 'DRAW', playerId: P3 });
     mustOk(e, { type: 'KEEP_DRAWN', playerId: P3, handIndex: 0 }); // replaces a 2 → no power
-    // p1 calls cabo; p2 and p3 take final turns.
+    mustOk(e, { type: 'END_TURN', playerId: P3 });
+    // p1 plays their action then calls cabo; p2 and p3 take final turns.
+    mustOk(e, { type: 'DRAW', playerId: P1 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
     mustOk(e, { type: 'CALL_CABO', playerId: P1 });
     mustOk(e, { type: 'DRAW', playerId: P2 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P2 });
+    mustOk(e, { type: 'END_TURN', playerId: P2 });
     mustOk(e, { type: 'DRAW', playerId: P3 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P3 });
+    mustOk(e, { type: 'END_TURN', playerId: P3 });
     const s = e.getState();
     expect(s.phase).toBe('ROUND_COMPLETE');
     expect(e.isGameFinished()).toBe(true);

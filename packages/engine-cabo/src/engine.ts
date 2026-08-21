@@ -291,9 +291,14 @@ export class CaboEngine {
       }
       case 'CALL_CABO': {
         if (!this.rules.cabo.enabled) INVALID('cabo calling disabled');
-        if (s.phase !== 'TURN_DRAW') INVALID('cabo can only be called at the start of your turn');
+        if (s.phase !== 'TURN_END') INVALID('play your turn first — cabo is called at the end of your action');
         if (a.playerId !== this.currentPlayerId()) INVALID('not your turn');
         if (s.cabo) INVALID('cabo already called');
+        return;
+      }
+      case 'END_TURN': {
+        if (s.phase !== 'TURN_END') INVALID('nothing to end');
+        if (a.playerId !== this.currentPlayerId()) INVALID('not your turn');
         return;
       }
       default:
@@ -441,15 +446,13 @@ export class CaboEngine {
           this.emit('TRANSFER_REQUIRED', { fromPlayerId: a.playerId, toPlayerId: a.targetPlayerId });
           this.checkPlayerOut(a.targetPlayerId);
         } else {
-          // Wrong guess at another player's card: a visible, embarrassing
-          // mistake. The invalid card stays with its owner, but everyone sees
-          // its identity, and the guesser draws a penalty card.
-          this.revealToAll(card);
+          // Wrong guess at another player's card: completely PRIVATE. The
+          // card stays with its owner, its identity is shown to NO ONE (not
+          // even the guesser), and the guesser silently draws a penalty card.
           this.emit('FAILED_FLUSH_OTHER', {
             playerId: a.playerId,
             targetPlayerId: a.targetPlayerId,
             cardId: card.id,
-            rank: card.rank,
           });
           this.applyWrongFlushPenalty(a.playerId);
         }
@@ -475,6 +478,10 @@ export class CaboEngine {
       case 'CALL_CABO': {
         s.cabo = { callerId: a.playerId, takenFinalTurn: [] };
         this.emit('CABO_CALLED', { playerId: a.playerId });
+        this.advanceTurn();
+        return;
+      }
+      case 'END_TURN': {
         this.advanceTurn();
         return;
       }
@@ -665,12 +672,22 @@ export class CaboEngine {
   // Turn / round progression
   // -------------------------------------------------------------------
 
-  /** If the acting player is the current player, advance the turn. */
+  /** If the acting player is the current player, their action is complete:
+   *  they land in TURN_END where they may call Cabo or pass. A player who
+   *  finishes with ZERO cards gets Cabo auto-called (score 0, game wraps up)
+   *  and the turn passes straight on. */
   private endTurnIfActive(playerId: string): void {
     const s = this.getState();
-    if (s.players[s.currentTurn]?.id === playerId) {
+    if (s.players[s.currentTurn]?.id !== playerId) return;
+    if (liveCount(s.hands[playerId]!) === 0 && this.rules.cabo.enabled && !s.cabo) {
+      s.cabo = { callerId: playerId, takenFinalTurn: [] };
+      this.emit('CABO_CALLED', { playerId, auto: true });
       this.advanceTurn();
+      return;
     }
+    s.phase = 'TURN_END';
+    s.drawnCard = null;
+    this.emit('TURN_ENDED', { playerId });
   }
 
   /** After a flush: nothing to do by default. Reaching zero cards does NOT
