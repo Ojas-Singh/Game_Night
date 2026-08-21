@@ -851,6 +851,7 @@
 /* Avatar editor (lobby) */
 .avatar-editor {
   display: flex;
+  flex-wrap: wrap;
   gap: 14px;
   align-items: flex-start;
 }
@@ -1870,11 +1871,13 @@
        scroll container (body is overflow:hidden for the fixed table view). */
     overflow-y: auto;
   }
-  .lobby-side {
-    flex-direction: row;
-  }
-  .lobby-side .chat-panel.open {
-    flex: 1;
+  /* Side panels stack vertically too. (A row here squeezed the avatar panel
+     to a sliver — its fixed-size preview spilled over the game panel and
+     Start button.) The wrap scrolls, so a tall column is fine. */
+  .lobby-side,
+  .lobby-main {
+    flex-direction: column;
+    min-width: 0;
   }
   .lobby-body {
     grid-template-columns: 1fr;
