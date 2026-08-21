@@ -10,6 +10,8 @@ import type { CaboPlayerView } from '@cabo/views.js';
 import type { ChatMessage, JoinResult, RoomLobbyState } from './server-protocol.js';
 import type { CaboAction } from '@cabo/types.js';
 import { playSound } from './sound.js';
+import { loadAvatar, saveAvatar } from './avatar.js';
+import type { Avatar } from './server-protocol.js';
 
 /** Derive sound cues from view transitions by comparing event logs. */
 function playSoundsFor(prev: CaboPlayerView, next: CaboPlayerView): void {
@@ -243,6 +245,8 @@ export interface RoomApi {
   createRoom: (name: string) => Promise<JoinResult>;
   joinRoom: (roomId: string, name?: string) => Promise<JoinResult>;
   setName: (name: string) => void;
+  /** Customize my avatar (persisted locally; broadcast to the room). */
+  setAvatar: (avatar: Avatar) => void;
   setReady: (ready: boolean) => void;
   selectGame: (gameId: string) => void;
   setSwapOthers: (enabled: boolean) => void;
@@ -453,6 +457,8 @@ export function useRoom(): RoomApi {
       });
       setRoomId(res.roomId);
       setMyPlayerId(res.playerId);
+      // Apply my saved look to the (possibly random) seat avatar right away.
+      socketRef.current?.emit('room:set_avatar', { avatar: loadAvatar() });
     }
     return res;
   }, []);
@@ -513,6 +519,10 @@ export function useRoom(): RoomApi {
       setName: (name: string) => {
         saveName(name);
         socketRef.current?.emit('room:set_name', { name });
+      },
+      setAvatar: (avatar: Avatar) => {
+        saveAvatar(avatar);
+        socketRef.current?.emit('room:set_avatar', { avatar });
       },
       setReady: (ready: boolean) => socketRef.current?.emit('room:set_ready', { ready }),
       selectGame: (gameId: string) => socketRef.current?.emit('room:select_game', { gameId }),

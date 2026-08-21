@@ -11,10 +11,47 @@ import type { CaboPlayerView } from '@game-night/engine-cabo';
 // Client → Server
 // ---------------------------------------------------------------------------
 
+/** A customizable player avatar (skribbl-style): indices into the client's
+ *  option lists; the server only validates the ranges. */
+export interface Avatar {
+  color: number;
+  eyes: number;
+  mouth: number;
+  hat: number;
+}
+
+export const AVATAR_LIMITS = {
+  color: 12,
+  eyes: 6,
+  mouth: 6,
+  hat: 6,
+} as const;
+
+export function isValidAvatar(a: unknown): a is Avatar {
+  if (typeof a !== 'object' || a === null) return false;
+  const v = a as Record<string, unknown>;
+  return (
+    typeof v.color === 'number' && typeof v.eyes === 'number' &&
+    typeof v.mouth === 'number' && typeof v.hat === 'number' &&
+    Number.isInteger(v.color) && Number.isInteger(v.eyes) &&
+    Number.isInteger(v.mouth) && Number.isInteger(v.hat) &&
+    v.color >= 0 && v.color < AVATAR_LIMITS.color &&
+    v.eyes >= 0 && v.eyes < AVATAR_LIMITS.eyes &&
+    v.mouth >= 0 && v.mouth < AVATAR_LIMITS.mouth &&
+    v.hat >= 0 && v.hat < AVATAR_LIMITS.hat
+  );
+}
+
+export function randomAvatar(): Avatar {
+  const r = (n: number) => Math.floor(Math.random() * n);
+  return { color: r(AVATAR_LIMITS.color), eyes: r(AVATAR_LIMITS.eyes), mouth: r(AVATAR_LIMITS.mouth), hat: r(AVATAR_LIMITS.hat) };
+}
+
 export interface ClientEvents {
   'room:create': (payload: { name: string }, ack: (res: JoinResult) => void) => void;
   'room:join': (payload: { roomId: string; name?: string; playerToken?: string }, ack: (res: JoinResult) => void) => void;
   'room:set_name': (payload: { name: string }) => void;
+  'room:set_avatar': (payload: { avatar: Avatar }) => void;
   'room:set_ready': (payload: { ready: boolean }) => void;
   'room:select_game': (payload: { gameId: string }) => void;
   'room:set_swap_others': (payload: { enabled: boolean }) => void;
@@ -46,6 +83,7 @@ export interface LobbyPlayer {
   ready: boolean;
   connected: boolean;
   isYou: boolean;
+  avatar: Avatar;
 }
 
 export interface RoomLobbyState {

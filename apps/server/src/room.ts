@@ -9,6 +9,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { GameAction } from '@game-night/shared';
 import { CaboEngine, type CaboPlayerView } from '@game-night/engine-cabo';
 import type { ChatMessage, LobbyPlayer, RoomLobbyState } from './protocol.js';
+import { isValidAvatar, randomAvatar, type Avatar } from './protocol.js';
 import { log } from './log.js';
 
 /** Available games on the platform. Adding one here lights it up everywhere. */
@@ -27,6 +28,8 @@ export type GameId = keyof typeof GAME_REGISTRY;
 export interface RoomPlayer {
   id: string;
   name: string;
+  /** Customizable avatar (skribbl-style), shown around the table. */
+  avatar: Avatar;
   /** Secret token stored in the player's browser; never broadcast. */
   token: string;
   ready: boolean;
@@ -98,6 +101,7 @@ export class Room {
       room.players.set(sp.id, {
         id: sp.id,
         name: sp.name,
+        avatar: isValidAvatar(sp.avatar) ? sp.avatar : randomAvatar(),
         token: sp.token,
         ready: sp.ready,
         connected: false,
@@ -143,6 +147,7 @@ export class Room {
     const player: RoomPlayer = {
       id: randomUUID(),
       name: sanitizeName(name) ?? randomName(),
+      avatar: randomAvatar(),
       token: randomBytes(24).toString('base64url'),
       ready: false,
       connected: true,
@@ -207,6 +212,14 @@ export class Room {
   // -------------------------------------------------------------------
   // Lobby
   // -------------------------------------------------------------------
+
+  /** A player customizes their own avatar (validated server-side). */
+  setAvatar(playerId: string, avatar: Avatar): void {
+    const p = this.players.get(playerId);
+    if (!p) throw new RoomError('not in room');
+    if (!isValidAvatar(avatar)) throw new RoomError('invalid avatar');
+    p.avatar = avatar;
+  }
 
   setName(playerId: string, name: string): void {
     const p = this.players.get(playerId);
@@ -336,6 +349,7 @@ export class Room {
         .map((p): LobbyPlayer => ({
           id: p.id,
           name: p.name,
+          avatar: p.avatar,
           isHost: p.id === this.hostId,
           ready: p.ready,
           connected: p.connected,

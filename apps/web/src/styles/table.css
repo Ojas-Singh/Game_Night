@@ -696,6 +696,98 @@
 .card-slot-empty.small {
   --card-w: 52px;
 }
+/* Avatars (skribbl-style) */
+.avatar {
+  position: relative;
+  display: inline-block;
+  flex: none;
+}
+.avatar.ring svg {
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(232, 165, 75, 0.85), 0 0 14px rgba(232, 165, 75, 0.45);
+}
+.avatar-crown {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%) rotate(-8deg);
+  font-size: 19px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
+  pointer-events: none;
+  z-index: 2;
+}
+.seat-avatar {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+.seat-me .seat-avatar {
+  position: absolute;
+  top: -58px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 0;
+}
+/* Avatar editor (lobby) */
+.avatar-editor {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.avatar-options {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+.swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, 0.25);
+  padding: 0;
+  cursor: pointer;
+}
+.swatch.sel {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(232, 165, 75, 0.9);
+}
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.picker-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  width: 44px;
+  flex: none;
+}
+.picker-opt {
+  font-size: 10.5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 80, 30, 0.35);
+  background: rgba(255, 250, 235, 0.6);
+  cursor: pointer;
+  text-transform: capitalize;
+}
+.picker-opt.sel {
+  background: rgba(232, 165, 75, 0.35);
+  border-color: var(--accent-strong);
+  font-weight: 700;
+}
 /* Eye badge: shown for a few seconds on whichever card someone peeked at —
    everyone sees WHICH card was looked at (never its value). */
 .eye-badge {

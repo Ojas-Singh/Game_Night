@@ -27,9 +27,12 @@ export default function SeatPlanner(opponentCount: number): Seat[] {
     // Ellipse: a bit wider than tall so 6 players still fit.
     const xPct = 50 + 44 * Math.cos(Math.PI - rad);
     const yPct = 46 - 34 * Math.sin(rad);
-    // The hand faces toward the table for top players (0°) and tilts in for
-    // the left (−) and right (+) sides so each player reads their own hand.
-    const facing = angle - 90;
+    // Cards face their OWNER: the card's top edge points from the player's
+    // seat toward the table centre (like a real table). The opposite player
+    // ends up 180° — upside down from my view, so the cards they know (their
+    // bottom row) appear at the TOP of their hand from my perspective.
+    // R = atan2(50 - xPct, yPct - 46) evaluated on the ellipse offsets:
+    const facing = (Math.atan2(44 * Math.cos(rad), -34 * Math.sin(rad)) * 180) / Math.PI;
     seats.push({
       angle,
       facing,

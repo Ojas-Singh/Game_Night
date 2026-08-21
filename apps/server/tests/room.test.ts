@@ -126,6 +126,24 @@ describe('Room', () => {
     expect(() => room.playAgain(p1.id)).toThrow(/in progress/);
   });
 
+  it('players can customize their avatar; it is validated and broadcast in lobby state', () => {
+    const room = new Room({ roomId: 'AVATAR1' });
+    const { player: p1 } = room.addPlayer('A');
+    const { player: p2 } = room.addPlayer('B');
+    // Invalid choices are rejected.
+    expect(() => room.setAvatar(p1.id, { color: 99, eyes: 0, mouth: 0, hat: 0 })).toThrow(/invalid/);
+    expect(() => room.setAvatar(p2.id, { color: 0.5, eyes: 0, mouth: 0, hat: 0 })).toThrow(/invalid/);
+    // A valid look is stored and surfaces in the lobby roster.
+    const look = { color: 7, eyes: 3, mouth: 1, hat: 2 };
+    room.setAvatar(p1.id, look);
+    const roster = room.lobbyState().players;
+    expect(roster.find((p) => p.id === p1.id)!.avatar).toEqual(look);
+    // New players get a random (valid) avatar.
+    const other = roster.find((p) => p.id === p2.id)!.avatar;
+    expect(other.color).toBeGreaterThanOrEqual(0);
+    expect(other.color).toBeLessThan(12);
+  });
+
   it('only the host can toggle the 5-6 swap optional power; it flows into the engine', () => {
     const room = new Room({ roomId: 'TEST11' });
     const { player: p1 } = room.addPlayer('A');

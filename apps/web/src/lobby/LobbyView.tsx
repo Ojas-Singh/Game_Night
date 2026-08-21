@@ -3,13 +3,25 @@ import type { RoomApi } from '../useRoom.js';
 import ChatPanel from '../chat/ChatPanel.js';
 import DebugPanel from '../DebugPanel.js';
 import { loadName } from '../session.js';
+import Avatar from '../table/Avatar.js';
+import { loadAvatar, saveAvatar } from '../avatar.js';
+import { AVATAR_COLORS, EYE_STYLES, MOUTH_STYLES, HAT_STYLES } from '../avatar.js';
+import type { Avatar as AvatarModel } from '../server-protocol.js';
 
 export default function LobbyView({ room }: { room: RoomApi }) {
   const lobby = room.lobby!;
   const me = lobby.players.find((p) => p.isYou);
   const isHost = me?.isHost ?? false;
   const [name, setName] = useState(me?.name ?? loadName());
+  const [avatar, setAvatar] = useState<AvatarModel>(me?.avatar ?? loadAvatar());
   const [copied, setCopied] = useState(false);
+
+  const customize = (patch: Partial<AvatarModel>) => {
+    const next = { ...avatar, ...patch };
+    setAvatar(next);
+    saveAvatar(next);
+    room.setAvatar(next);
+  };
   const nameRef = useRef(name);
 
   useEffect(() => {
@@ -56,7 +68,7 @@ export default function LobbyView({ room }: { room: RoomApi }) {
             <ul className="player-list">
               {lobby.players.map((p) => (
                 <li key={p.id} className={`player-row ${p.connected ? '' : 'disconnected'}`}>
-                  <span className="avatar-bubble">{initials(p.name)}</span>
+                  <Avatar avatar={p.avatar ?? { color: 0, eyes: 0, mouth: 0, hat: 0 }} size={38} />
                   <span className="player-name">{p.name}</span>
                   {p.isHost && <span className="badge host">Host</span>}
                   {p.isYou && <span className="badge you">You</span>}
@@ -114,6 +126,28 @@ export default function LobbyView({ room }: { room: RoomApi }) {
 
       <aside className="lobby-side">
         <DebugPanel room={room} />
+        <div className="lobby-panel avatar-panel">
+          <h2 className="lobby-section-title">Your avatar</h2>
+          <div className="avatar-editor">
+            <Avatar avatar={avatar} size={84} ring />
+            <div className="avatar-options">
+              <div className="swatch-row">
+                {AVATAR_COLORS.map((hex, i) => (
+                  <button
+                    key={hex}
+                    className={`swatch ${avatar.color === i ? 'sel' : ''}`}
+                    style={{ background: hex }}
+                    onClick={() => customize({ color: i })}
+                    aria-label={`Color ${i + 1}`}
+                  />
+                ))}
+              </div>
+              <PickerRow label="Eyes" options={EYE_STYLES} sel={avatar.eyes} onPick={(i) => customize({ eyes: i })} />
+              <PickerRow label="Mouth" options={MOUTH_STYLES} sel={avatar.mouth} onPick={(i) => customize({ mouth: i })} />
+              <PickerRow label="Hat" options={HAT_STYLES} sel={avatar.hat} onPick={(i) => customize({ hat: i })} />
+            </div>
+          </div>
+        </div>
         <div className="lobby-panel name-panel">
           <h2 className="lobby-section-title">Your name</h2>
           <div className="name-row">
@@ -138,12 +172,31 @@ export default function LobbyView({ room }: { room: RoomApi }) {
   );
 }
 
-function initials(name: string): string {
-  return name
-    .split(' ')
-    .map((w) => w[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
+
+function PickerRow({
+  label,
+  options,
+  sel,
+  onPick,
+}: {
+  label: string;
+  options: readonly string[];
+  sel: number;
+  onPick: (i: number) => void;
+}) {
+  return (
+    <div className="picker-row">
+      <span className="picker-label">{label}</span>
+      {options.map((opt, i) => (
+        <button
+          key={opt}
+          className={`picker-opt ${sel === i ? 'sel' : ''}`}
+          onClick={() => onPick(i)}
+          title={opt}
+        >
+          {opt}
+        </button>
+      ))}
+    </div>
+  );
 }

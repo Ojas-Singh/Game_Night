@@ -14,6 +14,14 @@ export interface JoinResult {
   playerToken?: string;
 }
 
+/** Customizable player avatar (skribbl-style). */
+export interface Avatar {
+  color: number;
+  eyes: number;
+  mouth: number;
+  hat: number;
+}
+
 export interface LobbyPlayer {
   id: string;
   name: string;
@@ -21,6 +29,7 @@ export interface LobbyPlayer {
   ready: boolean;
   connected: boolean;
   isYou: boolean;
+  avatar: Avatar;
 }
 
 export interface RoomLobbyState {
@@ -50,6 +59,7 @@ export type ClientToServerEvents = {
     ack: (res: JoinResult) => void,
   ) => void;
   'room:set_name': (payload: { name: string }) => void;
+  'room:set_avatar': (payload: { avatar: Avatar }) => void;
   'room:set_ready': (payload: { ready: boolean }) => void;
   'room:select_game': (payload: { gameId: string }) => void;
   'room:set_swap_others': (payload: { enabled: boolean }) => void;

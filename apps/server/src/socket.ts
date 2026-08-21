@@ -145,6 +145,17 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
       }
     });
 
+    socket.on('room:set_avatar', ({ avatar }) => {
+      try {
+        const { room, playerId } = requireRoom();
+        room.setAvatar(playerId, avatar);
+        broadcastLobby(room);
+        persistRoom(room);
+      } catch {
+        /* invalid avatar — ignored */
+      }
+    });
+
     socket.on('room:set_ready', ({ ready }) => {
       try {
         const { room, playerId } = requireRoom();

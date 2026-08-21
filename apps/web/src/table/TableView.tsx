@@ -14,6 +14,7 @@ import SoundToggle from '../SoundToggle.js';
 import EmotePicker from '../EmotePicker.js';
 import FloatingEmote from './FloatingEmote.js';
 import InfoModal from './InfoModal.js';
+import Avatar from './Avatar.js';
 
 /**
  * The round-table experience. The local player always sits at the bottom;
@@ -93,6 +94,10 @@ export default function TableView({ room }: { room: RoomApi }) {
 
   const myHand = view.handCardIds[me.id] ?? [];
   const isMyTurn = view.players.find((p) => p.isCurrentTurn)?.id === me.id;
+  // Avatar looks come from the lobby roster (customizable, skribbl-style).
+  const fallbackAvatar = { color: 0, eyes: 0, mouth: 0, hat: 0 };
+  const avatarOf = (pid: string) =>
+    room.lobby?.players.find((p) => p.id === pid)?.avatar ?? fallbackAvatar;
   // A flushed card leaves an empty slot so positions never shuffle.
   const isEmptySlot = (cardId: string) => cardId.startsWith('__slot__');
   // Which player recently peeked at a card (eye badge) — everyone sees it.
@@ -294,6 +299,9 @@ export default function TableView({ room }: { room: RoomApi }) {
               style={seat.style}
             >
               <FloatingEmote emote={room.emotes[p.id]} />
+              <div className="seat-avatar">
+                <Avatar avatar={avatarOf(p.id)} size={46} crown={isTurn} ring={isTurn} />
+              </div>
               <div
                 className="seat-cards hand-grid"
                 data-hand-for={p.id}
@@ -362,6 +370,9 @@ export default function TableView({ room }: { room: RoomApi }) {
         {/* my hand */}
         <div className={`seat seat-me ${isMyTurn ? 'active' : ''}`}>
           <FloatingEmote emote={room.emotes[me.id]} />
+          <div className="seat-avatar">
+            <Avatar avatar={avatarOf(me.id)} size={46} crown={isMyTurn} ring={isMyTurn} />
+          </div>
           <div className="my-hand hand-grid" data-hand-for={me.id}>
             <AnimatePresence>
               {myHand.map((cardId) =>
