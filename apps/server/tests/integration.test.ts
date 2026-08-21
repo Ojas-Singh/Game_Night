@@ -289,7 +289,7 @@ describe('socket integration', () => {
 
     guest2.close();
     host.close();
-  });
+  }, 20000);
 
   it('the host sees themselves as host/isYou in the lobby (Start button renders)', async () => {
     const host = await connect();

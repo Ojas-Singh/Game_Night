@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { RoomApi } from '../useRoom.js';
+import type { RoomApi, CardFlight } from '../useRoom.js';
 import type { CaboPlayerView } from '@cabo/views.js';
 import Card from './Card.js';
 import TableCenter from './TableCenter.js';
 import SeatPlanner from './SeatPlanner.js';
 import ScoreBoard from './ScoreBoard.js';
+import CardFlights from './CardFlights.js';
 import { useGuidance } from './guidance.js';
 import ChatPanel from '../chat/ChatPanel.js';
 import SoundToggle from '../SoundToggle.js';
@@ -32,6 +33,34 @@ export default function TableView({ room }: { room: RoomApi }) {
 
   const myHand = view.handCardIds[me.id] ?? [];
   const isMyTurn = view.players.find((p) => p.isCurrentTurn)?.id === me.id;
+
+  // ----- Card-flights overlay ---------------------------------------------
+  const [flights, setFlights] = useState<CardFlight[]>([]);
+  const seenFlightIds = useRef<Set<string>>(new Set());
+  // Adopt new flights from the room, dropping the ones we've already shown.
+  useEffect(() => {
+    setFlights((cur) => {
+      const existing = new Set(cur.map((f) => f.id));
+      const fresh = room.flights.filter((f) => !existing.has(f.id) && !seenFlightIds.current.has(f.id));
+      fresh.forEach((f) => seenFlightIds.current.add(f.id));
+      return fresh.length ? [...cur, ...fresh] : cur;
+    });
+  }, [room.flights]);
+  const dropFlight = useMemo(
+    () => (id: string) => setFlights((cur) => cur.filter((f) => f.id !== id)),
+    [],
+  );
+  // Map playerId → desktop percent coords for the ghost-card source.
+  const seatPos = useMemo((): Record<string, { x: number; y: number }> => {
+    const map: Record<string, { x: number; y: number }> = {};
+    others.forEach((p, i) => {
+      const s = seats[i]!;
+      map[p.id] = { x: parseFloat(s.style.left as string), y: parseFloat(s.style.top as string) };
+    });
+    // The local player sits bottom-centre.
+    map[me.id] = { x: 50, y: 96 };
+    return map;
+  }, [others, seats, me.id]);
 
   // Interaction state for powers / decisions.
   const [selectedOwn, setSelectedOwn] = useState<string | null>(null);
@@ -124,20 +153,10 @@ export default function TableView({ room }: { room: RoomApi }) {
       return;
     }
     if (canFlushNow) {
-      // Flush mode: toggle selection of matching own cards.
-      const known = view.knownCards[cardId];
-      if (known && known.rank === view.discardTopRank) {
-        const next = flushSel.includes(cardId)
-          ? flushSel.filter((c) => c !== cardId)
-          : [...flushSel, cardId];
-        setFlushSel(next);
-        // Single-tap rapid flush: fire immediately on selection.
-        act({ type: 'FLUSH_OWN', cardIds: next });
-      } else if (known) {
-        guidance.setError(`That's a ${known.rank} — the pile wants ${view.discardTopRank}`);
-      } else {
-        guidance.setError('You can only flush cards you know match the pile');
-      }
+      // Flush mode: you may attempt to discard ANY card you think matches the
+      // pile (even a blind guess). If it doesn't match, the server charges the
+      // misflush penalty. Rapid single-tap flush.
+      act({ type: 'FLUSH_OWN', cardIds: [cardId] });
       return;
     }
     if (mode === 'transfer') {
@@ -259,6 +278,15 @@ export default function TableView({ room }: { room: RoomApi }) {
           }
         />
 
+        {/* flying-card overlay: every player sees where each card went */}
+        <CardFlights
+          flights={flights}
+          seatPos={seatPos}
+          discardPos={{ x: 50, y: 46 }}
+          drawPos={{ x: 88, y: 78 }}
+          onDone={dropFlight}
+        />
+
         {/* my hand */}
         <div className={`seat seat-me ${isMyTurn ? 'active' : ''}`}>
           <FloatingEmote emote={room.emotes[me.id]} />
@@ -266,7 +294,10 @@ export default function TableView({ room }: { room: RoomApi }) {
             <AnimatePresence>
               {myHand.map((cardId, idx) => {
                 const known = view.knownCards[cardId];
-                const revealed = flashActive(cardId) || mode === 'round-over';
+                // Only show your card values on your own turn (or the brief
+                // peek flash, or round reveal). Otherwise keep them hidden
+                // with just the seen-light dot — no click-to-reveal.
+                const revealed = isMyTurn || flashActive(cardId) || mode === 'round-over';
                 const highlight =
                   (mode === 'initial-peek' && flushSel.includes(cardId)) ||
                   (mode === 'power-blind-swap' && selectedOwn === cardId) ||
@@ -288,7 +319,9 @@ export default function TableView({ room }: { room: RoomApi }) {
                 );
               })}
             </AnimatePresence>
-            {view.drawnCard && (
+          </div>
+          {view.drawnCard && (
+            <div className="draw-slot">
               <Card
                 cardId={view.drawnCard.id}
                 card={view.drawnCard}
@@ -299,8 +332,9 @@ export default function TableView({ room }: { room: RoomApi }) {
                     : undefined
                 }
               />
-            )}
-          </div>
+              <span className="draw-slot-label">drawn</span>
+            </div>
+          )}
           {mode === 'initial-peek' && flushSel.length === 2 && (
             <button className="peek-confirm" onClick={() => act({ type: 'PEEK_STARTING', cardIndexes: flushSel.map((c) => myHand.indexOf(c)) })}>
               Peek these two

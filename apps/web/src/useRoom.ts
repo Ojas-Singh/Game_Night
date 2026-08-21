@@ -45,6 +45,43 @@ function playSoundsFor(prev: CaboPlayerView, next: CaboPlayerView): void {
     }
   }
 }
+
+/** Derive card-flight events from the event log delta between two views. */
+export function collectFlights(prev: CaboPlayerView, next: CaboPlayerView): CardFlight[] {
+  const seen = new Set(prev.events.map((e) => e.seq));
+  const out: CardFlight[] = [];
+  for (const ev of next.events) {
+    if (seen.has(ev.seq)) continue;
+    const p = ev.payload as Record<string, unknown> | undefined;
+    const rank = typeof p?.rank === 'number' ? p.rank : 0;
+    if (ev.type === 'CARD_FLUSHED') {
+      out.push({
+        id: `${ev.type}-${ev.seq}`,
+        seq: ev.seq,
+        fromPlayerId: String(p?.sourcePlayerId ?? ev.playerId ?? ''),
+        toDiscard: true,
+        rank,
+      });
+    } else if (ev.type === 'CARD_DISCARDED' || ev.type === 'CARD_REPLACED') {
+      out.push({
+        id: `${ev.type}-${ev.seq}`,
+        seq: ev.seq,
+        fromPlayerId: ev.playerId ?? '',
+        toDiscard: true,
+        rank,
+      });
+    } else if (ev.type === 'CARD_DRAWN') {
+      out.push({
+        id: `${ev.type}-${ev.seq}`,
+        seq: ev.seq,
+        fromPlayerId: 'deck',
+        toDiscard: false,
+        rank,
+      });
+    }
+  }
+  return out;
+}
 import {
   loadSession,
   saveSession,
@@ -63,6 +100,17 @@ type ClientCaboAction = {
   [K in CaboAction['type']]: Omit<Extract<CaboAction, { type: K }>, 'playerId'>;
 }[CaboAction['type']];
 
+/** A card visually flying across the table so everyone sees where it went. */
+export interface CardFlight {
+  id: string;
+  seq: number;
+  /** Source seat: a player id, or 'deck'. */
+  fromPlayerId: string | 'deck';
+  /** Destination: the discard pile, or the player's own slot (draw). */
+  toDiscard: boolean;
+  rank: number;
+}
+
 export interface RoomApi {
   socket: Socket | null;
   status: ConnStatus;
@@ -74,6 +122,8 @@ export interface RoomApi {
   unreadChat: number;
   /** Card ids currently in their brief reveal window (face-up). */
   peekFlash: Record<string, number>;
+  /** Recent card movements to animate as flying cards (source → destination). */
+  flights: CardFlight[];
   /** Most recent emote per player: playerId → { emote, at }. */
   emotes: Record<string, { emote: string; at: number }>;
   sendEmote: (emote: string) => void;
@@ -111,6 +161,8 @@ export function useRoom(): RoomApi {
   const [peekFlash, setPeekFlash] = useState<Record<string, number>>({});
   /** Emote reactions: playerId → latest { emote, at } (at = client receive time). */
   const [emotes, setEmotes] = useState<Record<string, { emote: string; at: number }>>({});
+  /** Recent card movements to animate (pruned automatically over time). */
+  const [flights, setFlights] = useState<CardFlight[]>([]);
 
   const flashKnowledge = useCallback((prev: CaboPlayerView, next: CaboPlayerView) => {
     const before = new Set(Object.keys(prev.knownCards));
@@ -180,6 +232,13 @@ export function useRoom(): RoomApi {
         if (prev && prev !== v) {
           playSoundsFor(prev, v);
           flashKnowledge(prev, v);
+          const fresh = collectFlights(prev, v);
+          if (fresh.length > 0) {
+            setFlights((cur) => {
+              const merged = [...cur, ...fresh].slice(-8);
+              return merged;
+            });
+          }
         }
         return v;
       });
@@ -258,6 +317,7 @@ export function useRoom(): RoomApi {
       chat,
       peekFlash,
       emotes,
+      flights,
       sendEmote: (emote: string) => socketRef.current?.emit('room:emote', { emote }),
       unreadChat: unread,
       markChatRead: () => {
@@ -298,7 +358,7 @@ export function useRoom(): RoomApi {
         setMyPlayerId(null);
       },
     }),
-    [socket, status, roomId, myPlayerId, lobby, view, chat, peekFlash, emotes, unread, joinError, createRoom, joinRoom],
+    [socket, status, roomId, myPlayerId, lobby, view, chat, peekFlash, emotes, flights, unread, joinError, createRoom, joinRoom],
   );
 
   return api;
