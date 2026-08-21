@@ -26,6 +26,8 @@ export interface CardProps {
   /** Name of the player who just peeked at this card — shows a decaying eye
    *  badge so everyone knows which card was looked at (not its value). */
   peekedBy?: string | null;
+  /** Just swapped (5–6 / J–Q): glows briefly while it glides to its slot. */
+  swapped?: boolean;
   /** Counter-rotation (deg) so the value stays upright when the whole hand
    *  is rotated to face the player who sits there. */
   contentRotate?: number;
@@ -50,6 +52,7 @@ export default function Card({
   selectable = false,
   test = false,
   peekedBy = null,
+  swapped = false,
   contentRotate = 0,
   onClick,
 }: CardProps) {
@@ -61,8 +64,11 @@ export default function Card({
     <motion.button
       initial={{ opacity: 0, scale: 0.7 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ type: 'spring', stiffness: 320, damping: 26 }}
-      className={`pcard ${small ? 'small' : ''} ${faceDown ? 'facedown' : 'faceup'} ${
+      // POSITION layout animation: when a swap re-slots this card, it GLIDES
+      // to its new position instead of teleporting (framer tracks the DOM).
+      layout="position"
+      transition={{ type: 'spring', stiffness: 320, damping: 26, duration: 0.55 }}
+      className={`pcard ${small ? 'small' : ''} ${faceDown ? 'facedown' : 'faceup'} ${swapped ? 'swapped' : ''} ${
         highlight ? 'highlight' : ''
       } ${dimmed ? 'dimmed' : ''} ${lifted ? 'lifted' : ''} ${selectable ? 'selectable' : ''} ${
         drawn ? 'drawn' : ''

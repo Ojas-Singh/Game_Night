@@ -788,6 +788,16 @@
   border-color: var(--accent-strong);
   font-weight: 700;
 }
+/* A just-swapped card: brief amber glow while it glides to its new slot. */
+.pcard.swapped {
+  animation: swap-note 2s ease-out;
+}
+@keyframes swap-note {
+  0% { box-shadow: 0 0 0 0 rgba(255, 214, 122, 0); }
+  15% { box-shadow: 0 0 0 4px rgba(255, 214, 122, 0.85), 0 0 18px rgba(255, 214, 122, 0.6); }
+  70% { box-shadow: 0 0 0 4px rgba(255, 214, 122, 0.5), 0 0 12px rgba(255, 214, 122, 0.35); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 214, 122, 0); }
+}
 /* Eye badge: shown for a few seconds on whichever card someone peeked at —
    everyone sees WHICH card was looked at (never its value). */
 .eye-badge {

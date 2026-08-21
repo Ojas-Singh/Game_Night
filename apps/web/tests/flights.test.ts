@@ -96,19 +96,12 @@ describe('collectFlights', () => {
     expect(flights[1]).toMatchObject({ kind: 'peek', fromPlayerId: 'B', toPlayerId: 'B' });
   });
 
-  it('maps blind and others swaps to two crossing face-down flights', () => {
+  it('swaps produce NO ghost flights — the real cards glide via layout animation', () => {
     const next = view([
       { seq: 12, type: 'POWER_RESOLVED', playerId: 'A', payload: { power: 'BLIND_SWAP', ownCardId: 'x', targetPlayerId: 'B', targetCardId: 'y' } },
       { seq: 13, type: 'POWER_RESOLVED', playerId: 'A', payload: { power: 'SWAP_OTHERS', cardIdA: 'p', cardIdB: 'q', ownerA: 'B', ownerB: 'C' } },
     ]);
-    const flights = collectFlights(view([]), next);
-    expect(flights).toHaveLength(4);
-    // Blind swap: each ghost runs card-to-card along the true exchange path.
-    expect(flights[0]).toMatchObject({ fromPlayerId: 'A', fromCardId: 'y', toPlayerId: 'B', toCardId: 'x', rank: 0 });
-    expect(flights[1]).toMatchObject({ fromPlayerId: 'B', fromCardId: 'x', toPlayerId: 'A', toCardId: 'y', rank: 0 });
-    // Others swap: card A now sits where card B was (and vice versa).
-    expect(flights[2]).toMatchObject({ fromPlayerId: 'B', fromCardId: 'q', toPlayerId: 'C', toCardId: 'p', rank: 0 });
-    expect(flights[3]).toMatchObject({ fromPlayerId: 'C', fromCardId: 'p', toPlayerId: 'B', toCardId: 'q', rank: 0 });
+    expect(collectFlights(view([]), next)).toHaveLength(0);
   });
 
   it('only reports events newer than the previous view (delta)', () => {

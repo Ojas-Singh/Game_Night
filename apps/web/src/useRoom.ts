@@ -104,64 +104,10 @@ export function collectFlights(
           toCardId: typeof p?.cardId === 'string' ? p.cardId : undefined,
           rank: 0,
         });
-      } else if (pow === 'BLIND_SWAP') {
-        // Two cards EXCHANGE PLACES: after the swap each card's element sits
-        // where the other used to be, so ghost A flies from card B's element
-        // to card A's element (and vice versa) — card-to-card, hand-agnostic.
-        // Face-down: values must not leak through the shared event log.
-        const meId = String(ev.playerId ?? '');
-        const target = String(p?.targetPlayerId ?? '');
-        const own = typeof p?.ownCardId === 'string' ? p.ownCardId : undefined;
-        const tgt = typeof p?.targetCardId === 'string' ? p.targetCardId : undefined;
-        out.push({
-          id: `${ev.type}-${ev.seq}-a`,
-          seq: ev.seq,
-          fromPlayerId: meId,
-          fromCardId: tgt,
-          toDiscard: false,
-          toPlayerId: target,
-          toCardId: own,
-          rank: 0,
-        });
-        out.push({
-          id: `${ev.type}-${ev.seq}-b`,
-          seq: ev.seq,
-          fromPlayerId: target,
-          fromCardId: own,
-          toDiscard: false,
-          toPlayerId: meId,
-          toCardId: tgt,
-          rank: 0,
-        });
-      } else if (pow === 'SWAP_OTHERS' && typeof p?.ownerA === 'string' && typeof p?.ownerB === 'string') {
-        const a = String(p.ownerA);
-        const b = String(p.ownerB);
-        if (a && b && a !== b) {
-          const cardA = typeof p?.cardIdA === 'string' ? p.cardIdA : undefined;
-          const cardB = typeof p?.cardIdB === 'string' ? p.cardIdB : undefined;
-          // Same exchange trick: card A now sits in card B's old slot.
-          out.push({
-            id: `${ev.type}-${ev.seq}-a`,
-            seq: ev.seq,
-            fromPlayerId: a,
-            fromCardId: cardB,
-            toDiscard: false,
-            toPlayerId: b,
-            toCardId: cardA,
-            rank: 0,
-          });
-          out.push({
-            id: `${ev.type}-${ev.seq}-b`,
-            seq: ev.seq,
-            fromPlayerId: b,
-            fromCardId: cardA,
-            toDiscard: false,
-            toPlayerId: a,
-            toCardId: cardB,
-            rank: 0,
-          });
-        }
       }
+      // Swaps (BLIND_SWAP / SWAP_OTHERS) produce NO ghost flights: the REAL
+      // cards glide to their new slots via framer layout animation, and both
+      // get a brief glow (swapMarks) — one clear movement, no overlay noise.
     } else if (ev.type === 'PENALTY_DRAWN') {
       // A secret penalty card flies from the deck to the penalized player's
       // hand — face-down (no rank in the shared log), so everyone sees the
@@ -239,6 +185,8 @@ export interface RoomApi {
   /** Recently peeked cards: cardId → { byPlayerId, at } — everyone sees
    *  WHICH card was peeked (a decaying eye badge), never its value. */
   peekMarks: Record<string, { byPlayerId: string; at: number }>;
+  /** Just-swapped cards: cardId → at (brief glow while gliding). */
+  swapMarks: Record<string, number>;
   sendEmote: (emote: string) => void;
   markChatRead: () => void;
   joinError: string | null;
@@ -288,6 +236,8 @@ export function useRoom(): RoomApi {
   const [flights, setFlights] = useState<CardFlight[]>([]);
   /** Recently peeked cards (eye badges that decay). */
   const [peekMarks, setPeekMarks] = useState<Record<string, { byPlayerId: string; at: number }>>({});
+  /** Just-swapped cards (brief glow, cleared after the glide). */
+  const [swapMarks, setSwapMarks] = useState<Record<string, number>>({});
   const myIdRef = useRef<string | null>(null);
   myIdRef.current = myPlayerId;
 
@@ -412,6 +362,36 @@ export function useRoom(): RoomApi {
         }
       }
       if (revision.length > 0) touchFlash(revision);
+      // Swaps: glow the two cards that just exchanged places.
+      const swappedIds: string[] = [];
+      for (const ev of v.events) {
+        if (seen.has(ev.seq)) continue;
+        const p = ev.payload as Record<string, unknown> | undefined;
+        if (ev.type === 'POWER_RESOLVED' && p?.power === 'BLIND_SWAP') {
+          if (typeof p.ownCardId === 'string') swappedIds.push(p.ownCardId);
+          if (typeof p.targetCardId === 'string') swappedIds.push(p.targetCardId);
+        } else if (ev.type === 'POWER_RESOLVED' && p?.power === 'SWAP_OTHERS') {
+          if (typeof p.cardIdA === 'string') swappedIds.push(p.cardIdA);
+          if (typeof p.cardIdB === 'string') swappedIds.push(p.cardIdB);
+        }
+      }
+      if (swappedIds.length > 0) {
+        const at = Date.now();
+        setSwapMarks((cur) => {
+          const next = { ...cur };
+          for (const id of swappedIds) next[id] = at;
+          return next;
+        });
+        setTimeout(() => {
+          setSwapMarks((cur) => {
+            const kept: typeof cur = {};
+            for (const [id, t] of Object.entries(cur)) {
+              if (at - t < 2000 - 50) kept[id] = t;
+            }
+            return kept;
+          });
+        }, 2000);
+      }
       if (marks.length > 0) {
         setPeekMarks((cur) => {
           const nextMarks = { ...cur };
@@ -506,6 +486,7 @@ export function useRoom(): RoomApi {
       peekFlash,
       emotes,
       peekMarks,
+      swapMarks,
       flights,
       sendEmote: (emote: string) => socketRef.current?.emit('room:emote', { emote }),
       unreadChat: unread,
@@ -554,7 +535,7 @@ export function useRoom(): RoomApi {
         setMyPlayerId(null);
       },
     }),
-    [socket, status, roomId, myPlayerId, lobby, testMode, view, chat, peekFlash, emotes, peekMarks, flights, unread, joinError, createRoom, joinRoom],
+    [socket, status, roomId, myPlayerId, lobby, testMode, view, chat, peekFlash, emotes, peekMarks, swapMarks, flights, unread, joinError, createRoom, joinRoom],
   );
 
   return api;

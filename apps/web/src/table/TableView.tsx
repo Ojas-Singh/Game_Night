@@ -106,6 +106,9 @@ export default function TableView({ room }: { room: RoomApi }) {
     if (!m) return null;
     return view.players.find((p) => p.id === m.byPlayerId)?.name ?? null;
   };
+  // Cards that just swapped glow while gliding to their new slots.
+  const wasSwapped = (cardId: string): boolean =>
+    !!room.swapMarks[cardId] && Date.now() - room.swapMarks[cardId] < 2000;
   const myLiveCount = myHand.filter((id) => !isEmptySlot(id)).length;
 
   // ----- Card-flights overlay ---------------------------------------------
@@ -330,6 +333,7 @@ export default function TableView({ room }: { room: RoomApi }) {
                           small
                           test={room.testMode}
                           peekedBy={peekedBy(cardId)}
+                          swapped={wasSwapped(cardId)}
                           selectable={selectable}
                           onClick={() => onOpponentCardClick(p.id, cardId)}
                         />
@@ -398,6 +402,7 @@ export default function TableView({ room }: { room: RoomApi }) {
                         highlight={!!highlight}
                         test={room.testMode}
                         peekedBy={peekedBy(cardId)}
+                        swapped={wasSwapped(cardId)}
                         lifted={mode === 'draw-decision' || mode === 'power-peek-own' || mode === 'transfer'}
                         onClick={() => onMyCardClick(cardId)}
                       />
