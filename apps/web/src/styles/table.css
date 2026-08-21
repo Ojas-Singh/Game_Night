@@ -1866,6 +1866,9 @@
 @media (max-width: 900px) {
   .lobby-wrap {
     grid-template-columns: 1fr;
+    /* Stacked layout overflows a phone screen — make the lobby itself the
+       scroll container (body is overflow:hidden for the fixed table view). */
+    overflow-y: auto;
   }
   .lobby-side {
     flex-direction: row;
@@ -1881,6 +1884,50 @@
   }
 }
 @media (max-width: 640px) {
+  /* ---- Lobby on phones: single scrollable column, compact panels. ---- */
+  .lobby-wrap {
+    padding: 14px 12px 28px;
+    gap: 12px;
+  }
+  .lobby-head {
+    margin-bottom: 4px;
+  }
+  .lobby-title {
+    font-size: 20px;
+  }
+  .room-code {
+    font-size: 24px;
+  }
+  /* The long invite URL is useless on a phone — the Copy link button is the
+     sharing path (native share sheet handles the rest). */
+  .room-url {
+    display: none;
+  }
+  .invite-row {
+    width: 100%;
+  }
+  .invite-row .ghost {
+    flex: 1;
+  }
+  .lobby-side {
+    flex-direction: column;
+  }
+  .lobby-side .chat-panel.open {
+    flex: none;
+    max-height: 300px;
+  }
+  .lobby-panel {
+    padding: 14px;
+  }
+  .lobby-section-title {
+    font-size: 17px;
+    margin-bottom: 8px;
+  }
+  .start-btn {
+    padding: 13px;
+    font-size: 16px;
+  }
+
   /* Mobile portrait/landscape: keep OWN cards large and tappable; compress
      opponent hands so the table still reads as a table. */
   .pcard { --card-w: 62px; }
@@ -1931,7 +1978,7 @@
     max-width: 94vw;
   }
   .home-form { flex-direction: column; }
-  .lobby-wrap { padding: 12px; }
+  .home-join { flex-direction: column; }
   .home-title { font-size: 36px; }
   .seat-me { bottom: 0%; }
   .draw-slot { left: calc(50% + 64px); }
