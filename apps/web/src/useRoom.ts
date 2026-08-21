@@ -391,6 +391,7 @@ export function useRoom(): RoomApi {
         }
       }
       if (newPairs.length > 0) {
+        playSound('swap');
         setSwapPairs((cur) => [...cur, ...newPairs].slice(-4));
         setTimeout(() => {
           setSwapPairs((cur) => cur.filter((x) => !newPairs.some((n) => n.id === x.id)));

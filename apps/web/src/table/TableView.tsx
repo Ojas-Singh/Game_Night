@@ -398,7 +398,7 @@ export default function TableView({ room }: { room: RoomApi }) {
                   ),
                 )}
               </div>
-              <button className="seat-who" onClick={() => onOpponentClick(p.id)}>
+              <button className={`seat-who who-${seat.whoSide}`} onClick={() => onOpponentClick(p.id)}>
                 <Avatar
                   avatar={avatarOf(p.id)}
                   size={42}

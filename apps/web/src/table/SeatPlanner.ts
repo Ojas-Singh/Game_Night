@@ -11,6 +11,10 @@ export interface Seat {
   /** Degrees to rotate a player's hand so it "faces" their seat (0 = toward
    *  the viewer/bottom; square cards keep values upright via counter-rotation). */
   facing: number;
+  /** Where the avatar+name pill sits relative to that player's hand, from MY
+   *  point of view — like people seated around a real table: opposite players
+   *  sit BEYOND their cards (above them), side players sit beside them. */
+  whoSide: 'above' | 'left' | 'right';
 }
 
 export default function SeatPlanner(opponentCount: number): Seat[] {
@@ -33,9 +37,13 @@ export default function SeatPlanner(opponentCount: number): Seat[] {
     // bottom row) appear at the TOP of their hand from my perspective.
     // R = atan2(50 - xPct, yPct - 46) evaluated on the ellipse offsets:
     const facing = (Math.atan2(44 * Math.cos(rad), -34 * Math.sin(rad)) * 180) / Math.PI;
+    // POV band for the pill: angle 20..70 = right side of the table (from
+    // my view), 70..110 = opposite (above their cards), 110..160 = left.
+    const whoSide: Seat['whoSide'] = angle < 70 ? 'right' : angle > 110 ? 'left' : 'above';
     seats.push({
       angle,
       facing,
+      whoSide,
       style: {
         left: `${xPct}%`,
         top: `${yPct}%`,

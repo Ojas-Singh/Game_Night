@@ -441,24 +441,55 @@
   z-index: 10;
 }
 .seat-who {
+  position: absolute;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: rgba(13, 10, 8, 0.75);
-  border: 1px solid rgba(232, 165, 75, 0.25);
+  gap: 7px;
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
   cursor: pointer;
-  max-width: 220px;
+  max-width: 200px;
+  white-space: nowrap;
+  z-index: 12;
 }
 .seat-who .seat-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
 }
-.seat.active .seat-who {
-  border-color: rgba(232, 165, 75, 0.7);
-  box-shadow: 0 0 12px rgba(232, 165, 75, 0.35);
+.seat.active .seat-who .seat-name {
+  color: var(--accent-strong);
+}
+/* POV placement: opposite player's pill ABOVE their cards (they sit beyond
+   them); left/right players' pills BESIDE their cards (their seats). */
+.seat-who.who-above {
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+}
+.seat-who.who-right {
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: row;
+}
+.seat-who.who-left {
+  right: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: row-reverse;
+}
+/* My pill: below my hand (I sit on the near side of my cards). */
+.seat-me .seat-who.me-who {
+  position: static;
+  margin-top: 10px;
+  transform: none;
 }
 .seat-label {
   display: flex;
@@ -474,63 +505,36 @@
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
-.seat.active .seat-who {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: rgba(13, 10, 8, 0.75);
-  border: 1px solid rgba(232, 165, 75, 0.25);
-  cursor: pointer;
-  max-width: 220px;
-}
-.seat-who .seat-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.seat.active .seat-who {
-  border-color: rgba(232, 165, 75, 0.7);
-  box-shadow: 0 0 12px rgba(232, 165, 75, 0.35);
-}
-.seat-label {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(232, 165, 75, 0.3), 0 6px 18px rgba(232, 165, 75, 0.18);
-}
-.seat.glow .seat-who {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: rgba(13, 10, 8, 0.75);
-  border: 1px solid rgba(232, 165, 75, 0.25);
-  cursor: pointer;
-  max-width: 220px;
-}
-.seat-who .seat-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.seat.active .seat-who {
-  border-color: rgba(232, 165, 75, 0.7);
-  box-shadow: 0 0 12px rgba(232, 165, 75, 0.35);
-}
-.seat-label {
-  animation: glow-pulse 1.6s ease-in-out infinite;
-}
 @keyframes glow-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(232, 165, 75, 0.0); }
   50% { box-shadow: 0 0 0 5px rgba(232, 165, 75, 0.22); }
 }
-.seat-count {
-  background: rgba(255, 255, 255, 0.08);
+.seat-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(13, 10, 8, 0.75);
+  border: 1px solid rgba(232, 165, 75, 0.22);
   border-radius: 999px;
-  padding: 1px 8px;
-  font-size: 11.5px;
+  padding: 5px 14px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.seat.active .seat-label {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(232, 165, 75, 0.3), 0 6px 18px rgba(232, 165, 75, 0.18);
+}
+.seat.glow .seat-label {
+  animation: glow-pulse 1.6s ease-in-out infinite;
+}
+.seat-count {
+  font-size: 12px;
+  font-weight: 700;
   color: var(--ink-dim);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
 }
 .seat-me {
   left: 50%;
@@ -856,16 +860,20 @@
   border-color: var(--accent-strong);
   font-weight: 700;
 }
-/* A just-swapped card: lifts + amber glow while gliding to its new slot. */
+/* A just-swapped card: a suspense beat (charge up + trembling glow) and
+   then the dart across with a trail-like glow, settling back down. */
 .pcard.swapped {
-  animation: swap-note 1.9s ease-out;
+  animation: swap-note 1.5s cubic-bezier(0.3, 0.8, 0.3, 1);
   z-index: 30;
 }
 @keyframes swap-note {
-  0% { box-shadow: 0 0 0 0 rgba(255, 214, 122, 0); transform: scale(1); }
-  15% { box-shadow: 0 0 0 5px rgba(255, 214, 122, 0.9), 0 0 24px rgba(255, 214, 122, 0.7); transform: scale(1.14); }
-  55% { box-shadow: 0 0 0 5px rgba(255, 214, 122, 0.55), 0 0 14px rgba(255, 214, 122, 0.4); transform: scale(1.08); }
-  100% { box-shadow: 0 0 0 0 rgba(255, 214, 122, 0); transform: scale(1); }
+  0% { box-shadow: 0 0 0 0 rgba(255, 178, 88, 0); transform: scale(1) rotate(0deg); }
+  20% { box-shadow: 0 0 0 4px rgba(255, 178, 88, 0.75), 0 0 16px rgba(255, 178, 88, 0.55); transform: scale(1.06) rotate(-2deg); }
+  35% { box-shadow: 0 0 0 7px rgba(255, 178, 88, 0.95), 0 0 30px rgba(255, 178, 88, 0.8); transform: scale(1.22) rotate(2.5deg); }
+  45% { transform: scale(1.2) rotate(-2deg); }
+  55% { transform: scale(1.2) rotate(1.5deg); }
+  70% { box-shadow: 0 0 0 5px rgba(255, 178, 88, 0.5), 0 0 18px rgba(255, 178, 88, 0.45); transform: scale(1.06) rotate(0deg); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 178, 88, 0); transform: scale(1) rotate(0deg); }
 }
 /* Swap trail path: warmer + thicker than regular flight paths. */
 .flight-svg.swap .flight-path-line,
@@ -1805,27 +1813,7 @@
     grid-template-columns: none;
     gap: 3px;
   }
-  .seat-who {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: rgba(13, 10, 8, 0.75);
-  border: 1px solid rgba(232, 165, 75, 0.25);
-  cursor: pointer;
-  max-width: 220px;
-}
-.seat-who .seat-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.seat.active .seat-who {
-  border-color: rgba(232, 165, 75, 0.7);
-  box-shadow: 0 0 12px rgba(232, 165, 75, 0.35);
-}
-.seat-label {
+  .seat-label {
     font-size: 11px;
     padding: 4px 10px;
   }

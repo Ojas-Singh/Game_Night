@@ -329,23 +329,29 @@ export function SwapConnector({
 }) {
   const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - Math.min(26, Math.hypot(b.x - a.x, b.y - a.y) * 0.1) };
   const d = `M ${a.x} ${a.y} Q ${mid.x} ${mid.y} ${b.x} ${b.y}`;
+  // Dramatic beat: charge (0→0.45s), DART (0.45→0.75s), settle & fade.
+  const T = 2.1;
   return (
-    <motion.div key={id} className="flight-group" initial={{ opacity: 1 }} animate={{ opacity: [1, 1, 0] }} transition={{ duration: 2.4, times: [0, 0.7, 1] }}>
+    <motion.div key={id} className="flight-group" initial={{ opacity: 1 }} animate={{ opacity: [1, 1, 0] }} transition={{ duration: T, times: [0, 0.75, 1] }}>
       <svg className="flight-svg swap" width={size.w} height={size.h} viewBox={`0 0 ${size.w} ${size.h}`}>
         <motion.path
           className="flight-path-line swap"
           d={d}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: [0, 0.95, 0.95, 0] }}
-          transition={{ duration: 2.4, times: [0, 0.08, 0.7, 1], ease: 'easeOut' }}
+          initial={{ opacity: 0, pathLength: 0 }}
+          animate={{ opacity: [0, 0.4, 1, 1, 0], pathLength: [0, 0, 1, 1, 1] }}
+          transition={{ duration: T, times: [0, 0.2, 0.36, 0.75, 1], ease: 'easeOut' }}
         />
       </svg>
       <motion.span
         className="swap-badge"
         style={{ left: mid.x, top: mid.y }}
-        initial={{ opacity: 0, scale: 0.4 }}
-        animate={{ opacity: [0, 1, 1, 0], scale: [0.4, 1.2, 1, 0.9] }}
-        transition={{ duration: 2.4, times: [0, 0.12, 0.7, 1] }}
+        initial={{ opacity: 0, scale: 0.3, rotate: -30 }}
+        animate={{
+          opacity: [0, 1, 1, 0],
+          scale: [0.3, 0.7, 1.35, 1],
+          rotate: [-30, -12, 8, 0],
+        }}
+        transition={{ duration: T, times: [0, 0.18, 0.4, 0.75] }}
       >
         ⇄
       </motion.span>

@@ -64,10 +64,11 @@ export default function Card({
     <motion.button
       initial={{ opacity: 0, scale: 0.7 }}
       animate={{ opacity: 1, scale: 1 }}
-      // POSITION layout animation: when a swap re-slots this card, it GLIDES
-      // to its new position instead of teleporting (framer tracks the DOM).
-      layout="position"
-      transition={{ type: 'spring', stiffness: 320, damping: 26, duration: 0.55 }}
+      // POSITION layout animation ONLY for cards actually re-slotted by a
+      // swap (the `swapped` flag). Applying it to every card made the whole
+      // hand shiver on unrelated re-renders.
+      layout={swapped ? 'position' : false}
+      transition={{ type: 'spring', stiffness: 300, damping: 24 }}
       className={`pcard ${small ? 'small' : ''} ${faceDown ? 'facedown' : 'faceup'} ${swapped ? 'swapped' : ''} ${
         highlight ? 'highlight' : ''
       } ${dimmed ? 'dimmed' : ''} ${lifted ? 'lifted' : ''} ${selectable ? 'selectable' : ''} ${

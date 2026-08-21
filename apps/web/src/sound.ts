@@ -14,6 +14,7 @@ export type SoundName =
   | 'flush'
   | 'join'
   | 'cabo'
+  | 'swap'
   | 'reveal'
   | 'error';
 
@@ -128,6 +129,18 @@ export function playSound(name: SoundName): void {
       tone(523, 0.16, 0.08, 0.12);
       tone(659, 0.22, 0.08, 0.24);
       break;
+    case 'swap': {
+      // Thrilling swap: a suspenseful rise, then two cards DARTING past
+      // each other, ending in a settle tick.
+      tone(220, 0.28, 0.045, 0, 'sawtooth');          // low rise
+      tone(330, 0.26, 0.04, 0.06, 'sawtooth');
+      tone(494, 0.2, 0.05, 0.24, 'triangle');          // leap
+      noise(0.22, 1700, 0.06, 0.3);                    // dart whoosh 1
+      noise(0.2, 1100, 0.05, 0.36);                    // dart whoosh 2
+      tone(1319, 0.09, 0.04, 0.5, 'sine');             // sparkle landing
+      noise(0.05, 2800, 0.09, 0.56);                   // settle tick
+      break;
+    }
     case 'reveal':
       for (let i = 0; i < 4; i++) tone(440 + i * 110, 0.1, 0.05, i * 0.09);
       break;
