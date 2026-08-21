@@ -43,8 +43,22 @@ function logWarn(msg: string, fields?: Record<string, unknown>): void {
   console.warn(JSON.stringify({ ts: new Date().toISOString(), level: 'warn', msg, ...fields }));
 }
 
-function findCard(hand: Card[], cardId: string): number {
-  return hand.findIndex((c) => c.id === cardId);
+function findCard(hand: (Card | null)[], cardId: string): number {
+  return hand.findIndex((c) => c?.id === cardId);
+}
+
+/** Number of actual cards in a (possibly gap-riddled) hand. */
+function liveCount(hand: (Card | null)[]): number {
+  let n = 0;
+  for (const c of hand) if (c) n += 1;
+  return n;
+}
+
+/** Place a card into the first empty slot, or append when there is none. */
+function placeCard(hand: (Card | null)[], card: Card): void {
+  const gap = hand.findIndex((c) => c === null);
+  if (gap >= 0) hand[gap] = card;
+  else hand.push(card);
 }
 
 export class CaboEngine {
@@ -143,7 +157,7 @@ export class CaboEngine {
     const s = this.getState();
     const out: Record<string, number> = {};
     for (const p of s.players) {
-      out[p.id] = s.hands[p.id]!.reduce((sum, c) => sum + cardValue(c, this.rules), 0);
+      out[p.id] = s.hands[p.id]!.reduce((sum, c) => sum + (c ? cardValue(c, this.rules) : 0), 0);
     }
     return out;
   }
@@ -155,7 +169,7 @@ export class CaboEngine {
       currentTurnPlayerId: s.players[s.currentTurn]?.id ?? null,
       deckCount: s.deck.length,
       discardTop: s.discard[s.discard.length - 1] ?? null,
-      playerCardCounts: Object.fromEntries(s.players.map((p) => [p.id, s.hands[p.id]!.length])),
+      playerCardCounts: Object.fromEntries(s.players.map((p) => [p.id, liveCount(s.hands[p.id]!)])),
       caboCallerId: s.cabo?.callerId ?? null,
       revision: s.revision,
     };
@@ -216,6 +230,7 @@ export class CaboEngine {
         }
         for (const i of a.cardIndexes) {
           if (i < 0 || i >= hand.length) INVALID('peek index out of range');
+          if (!hand[i]) INVALID('peek index points at an empty slot');
         }
         return;
       }
@@ -230,6 +245,7 @@ export class CaboEngine {
         if (a.handIndex < 0 || a.handIndex >= s.hands[a.playerId]!.length) {
           INVALID('hand index out of range');
         }
+        if (!s.hands[a.playerId]![a.handIndex]) INVALID('hand index points at an empty slot');
         return;
       }
       case 'DISCARD_DRAWN': {
@@ -373,7 +389,7 @@ export class CaboEngine {
         const sNow = s;
         const hand = sNow.hands[a.playerId]!;
         const cards = a.cardIds
-          .map((id) => hand.find((c) => c.id === id)!)
+          .map((id) => hand.find((c) => c?.id === id)!)
           .sort((x, y) => findCard(hand, x.id) - findCard(hand, y.id));
         const top = sNow.discard[sNow.discard.length - 1];
         const mismatches = top ? cards.filter((c) => c.rank !== top.rank) : [];
@@ -390,7 +406,8 @@ export class CaboEngine {
           return;
         }
         for (const card of cards) {
-          hand.splice(findCard(hand, card.id), 1);
+          // Leave a gap: every other card keeps its exact position.
+          hand[findCard(hand, card.id)] = null;
           this.forgetAll(card.id);
           sNow.discard.push(card);
           this.emit('CARD_FLUSHED', { playerId: a.playerId, sourcePlayerId: a.playerId, cardId: card.id, rank: card.rank });
@@ -404,7 +421,9 @@ export class CaboEngine {
         const card = targetHand[idx]!;
         const top = s.discard[s.discard.length - 1];
         if (top && card.rank === top.rank) {
-          targetHand.splice(idx, 1);
+          // Leave a gap at the flushed position — the target's remaining cards
+          // do NOT slide around (positions are memory information).
+          targetHand[idx] = null;
           this.forgetAll(card.id);
           s.discard.push(card);
           this.emit('CARD_FLUSHED', {
@@ -441,8 +460,8 @@ export class CaboEngine {
         const hand = s.hands[t.fromPlayerId]!;
         const idx = findCard(hand, a.cardId);
         const card = hand[idx]!;
-        hand.splice(idx, 1);
-        s.hands[t.toPlayerId]!.push(card);
+        hand[idx] = null;
+        placeCard(s.hands[t.toPlayerId]!, card);
         s.pendingTransfer = null;
         s.phase = t.phaseBefore;
         this.emit('CARD_TRANSFERRED', {
@@ -614,7 +633,7 @@ export class CaboEngine {
     for (let n = 0; n < drawCount; n++) {
       if (s.deck.length === 0) break;
       const card = s.deck.pop()!;
-      s.hands[playerId]!.push(card);
+      placeCard(s.hands[playerId]!, card);
       // Deliberately NOT learned: the extra penalty card is placed face-down
       // and is a secret to everyone, including the player who drew it.
     }
@@ -635,26 +654,27 @@ export class CaboEngine {
     }
   }
 
-  /** After a flush: possibly end the round (player out of cards), otherwise
-   *  keep the turn where it is — flushing never changes whose turn it is. */
+  /** After a flush: nothing to do by default. Reaching zero cards does NOT
+   *  end the round — the player simply scores 0, and Cabo is auto-called
+   *  when their next turn arrives (see advanceTurn). Flushing never changes
+   *  whose turn it is. */
   private checkPlayerOutOrAdvance(playerId: string): void {
-    const s = this.getState();
     if (this.rules.endRoundWhenPlayerHasNoCards) {
+      const s = this.getState();
       for (const p of s.players) {
-        if (s.hands[p.id]!.length === 0) {
+        if (liveCount(s.hands[p.id]!) === 0) {
           this.endRound('PLAYER_OUT');
           return;
         }
       }
     }
-    // Non-current players flushing mid- someone-else's turn keep flow intact.
     void playerId;
   }
 
   private checkPlayerOut(playerId: string): void {
     if (!this.rules.endRoundWhenPlayerHasNoCards) return;
     const s = this.getState();
-    if (s.hands[playerId]!.length === 0) {
+    if (liveCount(s.hands[playerId]!) === 0) {
       this.endRound('PLAYER_OUT');
     }
   }
@@ -662,24 +682,30 @@ export class CaboEngine {
   private advanceTurn(): void {
     const s = this.getState();
     const n = s.players.length;
-    const cabo = s.cabo;
+    let cabo = s.cabo;
 
     const isEligible = (idx: number): boolean => {
       const p = s.players[idx]!;
-      if (s.hands[p.id]!.length === 0) return false; // out of cards — no turn
+      if (liveCount(s.hands[p.id]!) === 0) return false; // out of cards — no turn
       if (!cabo) return true;
       if (p.id === cabo.callerId && !this.rules.cabo.callerGetsFinalTurn) return false;
       const taken = cabo.takenFinalTurn.filter((id) => id === p.id).length;
       return taken < this.rules.cabo.othersFinalTurns;
     };
 
-    let idx = s.currentTurn;
     for (let step = 1; step <= n; step++) {
       const candidate = (s.currentTurn + step) % n;
       const p = s.players[candidate]!;
+      // A player with zero cards scores 0 — their "turn" is an automatic Cabo
+      // call, ending the round after everyone else takes a final turn.
+      if (!cabo && liveCount(s.hands[p.id]!) === 0 && this.rules.cabo.enabled) {
+        cabo = { callerId: p.id, takenFinalTurn: [] };
+        s.cabo = cabo;
+        this.emit('CABO_CALLED', { playerId: p.id, auto: true });
+        continue; // they take no turn themselves; keep scanning
+      }
       if (isEligible(candidate)) {
-        idx = candidate;
-        s.currentTurn = idx;
+        s.currentTurn = candidate;
         s.phase = 'TURN_DRAW';
         s.drawnCard = null;
         if (cabo) cabo.takenFinalTurn.push(p.id);
@@ -705,7 +731,7 @@ export class CaboEngine {
     // Full reveal: everyone learns every remaining card on the table.
     for (const p of s.players) {
       for (const other of s.players) {
-        for (const card of s.hands[other.id]!) this.learn(p.id, card.id);
+        for (const card of s.hands[other.id]!) if (card) this.learn(p.id, card.id);
       }
     }
     const scores = this.calculateScore();
@@ -718,7 +744,7 @@ export class CaboEngine {
       reason,
       hands: s.players.map((p) => ({
         playerId: p.id,
-        cards: s.hands[p.id]!,
+        cards: s.hands[p.id]!.filter((c): c is Card => !!c),
       })),
     });
     this.emit('ROUND_SCORED', { scores, winners });

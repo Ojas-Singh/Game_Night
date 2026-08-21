@@ -684,8 +684,17 @@
   background: none;
   box-shadow: none;
 }
-.peek-confirm {
-  margin-top: 6px;
+/* An emptied hand slot: a flushed card leaves this dashed outline behind so
+   the remaining cards keep their exact position (positions are memory). */
+.card-slot-empty {
+  width: var(--card-w, 84px);
+  height: calc(var(--card-w, 84px) * 1.42);
+  border-radius: var(--radius-card);
+  border: 1.5px dashed rgba(120, 80, 30, 0.28);
+  background: rgba(0, 0, 0, 0.05);
+}
+.card-slot-empty.small {
+  --card-w: 52px;
 }
 
 /* Table centre piles */
@@ -826,12 +835,31 @@
 
 /* Flying-card overlay: ghost cards mark where each card came from and where
    it landed. Positioned in % so they track seats exactly. A comet tail of
-   translucent copies lags behind the leader so the path is obvious. */
+   translucent copies lags behind the leader so the path is obvious, and the
+   whole trail lingers + decays over time so the latest movements stay
+   readable for a couple of seconds after the card lands. */
 .flight-group {
   position: absolute;
   inset: 0;
   z-index: 40;
   pointer-events: none;
+}
+/* The dashed movement path (SVG line from source to destination) — appears
+   with the flight, holds until arrival, then decays away with the trail. */
+.flight-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.flight-path-line {
+  stroke: rgba(255, 214, 122, 0.8);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 2 15;
+  filter: drop-shadow(0 0 6px rgba(255, 214, 122, 0.75));
 }
 .flight-ghost {
   position: absolute;

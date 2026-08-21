@@ -52,7 +52,13 @@ export interface CaboState {
   gameId: 'cabo';
   phase: CaboPhase;
   players: GamePlayer[];
-  hands: Record<string, Card[]>;
+  /**
+   * Hands are SPARSE: a flushed card leaves a `null` gap so every remaining
+   * card keeps its position on the table (it's a memory game — positions are
+   * information). New cards (penalties, transfers) fill the first gap, or
+   * append when there is none.
+   */
+  hands: Record<string, (Card | null)[]>;
   /** Card ids each player is entitled to know the value of. */
   knowledge: Record<string, string[]>;
   deck: Card[];

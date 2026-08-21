@@ -118,7 +118,8 @@ describe('Room', () => {
     expect(() => room.playAgain(p2.id)).toThrow(/host/);
     room.playAgain(p1.id);
     expect(room.engine).not.toBeNull();
-    expect(room.engine!.getState().phase).toBe('INITIAL_PEEK');
+    // The initial peek is automatic — the round is immediately in play.
+    expect(room.engine!.getState().phase).toBe('TURN_DRAW');
     // Match scoreboard persists across rounds.
     expect(room.lobbyState().scoreboard[p1.id]).toBe(17);
     // Cannot play again while the (new) round is in progress.

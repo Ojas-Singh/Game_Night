@@ -40,7 +40,9 @@ export interface CaboRules {
   /** What happens when someone must draw from an empty deck. */
   emptyDeckBehavior: 'reshuffle_discard' | 'end_round';
 
-  /** A player reaching zero cards (via flushing) ends the round. */
+  /** Legacy switch: when true, a player reaching zero cards ends the round
+   *  immediately. Default false: reaching zero means that player scores 0
+   *  and Cabo is auto-called when their next turn arrives. */
   endRoundWhenPlayerHasNoCards: boolean;
 
   /** Cabo (calling the round end). */
@@ -85,7 +87,7 @@ export const DEFAULT_CABO_RULES: CaboRules = {
   swapOthersEnabled: true,
   wrongFlushPenalty: 'draw_one',
   emptyDeckBehavior: 'reshuffle_discard',
-  endRoundWhenPlayerHasNoCards: true,
+  endRoundWhenPlayerHasNoCards: false,
   cabo: {
     enabled: true,
     callerGetsFinalTurn: false,

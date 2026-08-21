@@ -32,6 +32,9 @@ export function setup(order: Card[], opts?: { rules?: Partial<CaboRules>; player
   return engine;
 }
 
+/** Actual cards in a (possibly gap-riddled sparse) hand. */
+export const live = (hand: (Card | null)[]): Card[] => hand.filter((c): c is Card => !!c);
+
 /** Everyone completes their initial peek (first two cards). */
 export function peekAll(engine: CaboEngine, indexes = [0, 1]): void {
   const s = engine.getState();

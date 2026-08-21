@@ -36,15 +36,18 @@ export function buildPlayerView(state: CaboState, viewerId: string, opts?: { rev
     ...state.deck,
     ...state.discard,
     ...(state.drawnCard ? [state.drawnCard] : []),
-    ...state.players.flatMap((p) => state.hands[p.id] ?? []),
+    ...state.players.flatMap((p) => (state.hands[p.id] ?? []).filter((c): c is Card => !!c)),
   ];
   for (const card of allCards) {
     if (revealAll || knownIds.has(card.id)) known[card.id] = card;
   }
 
+  // Hands keep their physical layout: a flushed card leaves an empty slot,
+  // surfaced as a "__slot__N" placeholder id so clients render the gap
+  // instead of sliding the remaining cards together.
   const handCardIds: Record<string, string[]> = {};
   for (const p of state.players) {
-    handCardIds[p.id] = (state.hands[p.id] ?? []).map((c) => c.id);
+    handCardIds[p.id] = (state.hands[p.id] ?? []).map((c, i) => c?.id ?? `__slot__${i}`);
   }
 
   const discardTop = state.discard[state.discard.length - 1] ?? null;
@@ -57,7 +60,7 @@ export function buildPlayerView(state: CaboState, viewerId: string, opts?: { rev
     players: state.players.map((p, i) => ({
       id: p.id,
       name: p.name,
-      cardCount: state.hands[p.id]?.length ?? 0,
+      cardCount: (state.hands[p.id] ?? []).filter((c) => !!c).length,
       isCurrentTurn: i === state.currentTurn,
     })),
     knownCards: known,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { standardDeck, createRng, shuffle } from '@game-night/shared';
 import { CaboEngine, cardValue, powerForRank, DEFAULT_CABO_RULES } from '../src/index.js';
-import { S, H, D, CL, c, setup, peekAll, mustFail, mustOk } from './helpers.js';
+import { S, H, D, CL, c, setup, peekAll, mustFail, mustOk, live } from './helpers.js';
 
 const P1 = 'p1';
 const P2 = 'p2';
@@ -382,9 +382,14 @@ describe('flushing own cards', () => {
     const s = e.getState();
     expect(s.players[s.currentTurn]!.id).toBe(P2);
     // p3 (not the current player) flushes their known 3.
+    const d2Idx = e.getState().hands.p3!.findIndex((x) => x?.id === 'd2');
     mustOk(e, { type: 'FLUSH_OWN', playerId: P3, cardIds: ['d2'] });
     const after = e.getState();
-    expect(after.hands.p3!.length).toBe(3);
+    expect(live(after.hands.p3!).length).toBe(3);
+    // Position preserved: the flushed slot is now an empty gap, and every
+    // other card keeps its exact index.
+    expect(after.hands.p3![d2Idx]).toBeNull();
+    expect(after.hands.p3!.filter((x) => x).map((x) => x!.id)).toEqual(['d1', 'd3', 'd4']);
     expect(after.discard[after.discard.length - 1]!.id).toBe('d2');
     expect(after.players[after.currentTurn]!.id).toBe(P2); // still p2's turn
     expect(after.phase).toBe('TURN_DRAW');
@@ -397,9 +402,9 @@ describe('flushing own cards', () => {
     expect(res.ok).toBe(true);
     const s = e.getState();
     // Card stays in hand (nothing removed).
-    expect(s.hands.p3!.some((c) => c.id === 'd1')).toBe(true);
-    // Penalty draw applied (default draw_one).
-    expect(s.hands.p3!.length).toBe(5);
+    expect(s.hands.p3!.some((c) => c?.id === 'd1')).toBe(true);
+    // Penalty draw applied (default draw_one): no gap, so it appends.
+    expect(live(s.hands.p3!).length).toBe(5);
     expect(s.deck.length).toBe(deckBefore - 1);
     expect(s.events.at(-1)!.type).toBe('PENALTY_DRAWN');
     // Everyone now knows the attempted (wrong) card — embarrassing, like real life.
@@ -451,7 +456,7 @@ describe('flushing own cards', () => {
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 }); // 8 on discard
     mustOk(e, { type: 'FLUSH_OWN', playerId: P1, cardIds: ['a1', 'a2', 'a3'] });
     const s = e.getState();
-    expect(s.hands.p1!.length).toBe(1);
+    expect(live(s.hands.p1!).length).toBe(1);
     expect(s.discard.slice(-3).map((card) => card.id)).toEqual(['a1', 'a2', 'a3']);
   });
 
@@ -462,7 +467,7 @@ describe('flushing own cards', () => {
     order[6] = c('a3', CL, 6);
     order[9] = c('a4', D, 6);
     order[12] = c('draw6', H, 6);
-    const e = setup(order); // endRoundWhenPlayerHasNoCards = true (default)
+    const e = setup(order, { rules: { endRoundWhenPlayerHasNoCards: true } }); // legacy mode
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 }); // triggers SWAP_OTHERS power!
@@ -477,6 +482,63 @@ describe('flushing own cards', () => {
     expect(s.phase).toBe('ROUND_COMPLETE');
     expect(s.scores!.p1).toBe(0);
     expect(s.roundWinnerId).toBe(P1);
+  });
+
+  it('zero cards does NOT finish the game: score is 0 and Cabo auto-calls at their turn', () => {
+    const order = baseOrder();
+    // p1's whole hand + first draw are all 4s (no power rank).
+    order[0] = c('a1', S, 4);
+    order[3] = c('a2', H, 4);
+    order[6] = c('a3', CL, 4);
+    order[9] = c('a4', D, 4);
+    order[12] = c('draw4', H, 4);
+    const e = setup(order); // default: endRoundWhenPlayerHasNoCards = false
+    peekAll(e);
+    mustOk(e, { type: 'DRAW', playerId: P1 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
+    mustOk(e, { type: 'FLUSH_OWN', playerId: P1, cardIds: ['a1', 'a2', 'a3', 'a4'] });
+    // Round continues: p2 and p3 still play normal turns.
+    let s = e.getState();
+    expect(s.phase).toBe('TURN_DRAW');
+    expect(s.players[s.currentTurn]!.id).toBe(P2);
+    mustOk(e, { type: 'DRAW', playerId: P2 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P2 });
+    mustOk(e, { type: 'DRAW', playerId: P3 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P3 });
+    // p1's turn arrives → Cabo auto-called for them (score 0), NOT a turn.
+    s = e.getState();
+    expect(s.cabo).toMatchObject({ callerId: P1 });
+    expect(s.events.some((ev) => ev.type === 'CABO_CALLED' && (ev.payload as { auto?: boolean })?.auto)).toBe(true);
+    // Everyone else takes a final turn, then reveal & scoring.
+    const finalPid = s.players[s.currentTurn]!.id;
+    mustOk(e, { type: 'DRAW', playerId: finalPid });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: finalPid });
+    const other = s.players.find((p) => p.id !== P1 && p.id !== finalPid)!.id;
+    mustOk(e, { type: 'DRAW', playerId: other });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: other });
+    const done = e.getState();
+    expect(done.phase).toBe('ROUND_COMPLETE');
+    expect(done.scores!.p1).toBe(0);
+    expect(done.roundWinnerId).toBe(P1);
+  });
+
+  it('a penalty card fills the gap a flush left (positions never shuffle)', () => {
+    const order = baseOrder();
+    order[0] = c('a1', S, 4);
+    order[3] = c('a2', H, 4);
+    order[12] = c('draw4', H, 4);
+    const e = setup(order);
+    peekAll(e);
+    mustOk(e, { type: 'DRAW', playerId: P1 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 }); // 4 on top, no power
+    mustOk(e, { type: 'FLUSH_OWN', playerId: P1, cardIds: ['a1'] }); // gap at index 0
+    // Now a misflush: the penalty card must slot into the gap, not append.
+    mustOk(e, { type: 'FLUSH_OWN', playerId: P1, cardIds: ['a3'] }); // a3 = 2 → misflush
+    const s = e.getState();
+    expect(s.hands.p1![0]).not.toBeNull(); // gap refilled by the penalty
+    expect(s.hands.p1!.filter((x) => x === null)).toHaveLength(0);
+    expect(live(s.hands.p1!).length).toBe(4);
+    expect(s.hands.p1!.slice(1, 4).map((x) => x!.id)).toEqual(['a2', 'a3', 'a4']);
   });
 });
 
@@ -499,19 +561,22 @@ describe('flushing another player\u2019s card', () => {
     mustOk(e, { type: 'FLUSH_OTHER', playerId: P1, targetPlayerId: P3, cardId: 'd2' });
     const mid = e.getState();
     expect(mid.phase).toBe('TRANSFER_PENDING');
-    expect(mid.hands.p3!.length).toBe(3);
+    expect(live(mid.hands.p3!).length).toBe(3);
+    expect(mid.hands.p3!.some((x) => x === null)).toBe(true); // gap where d2 was
     expect(mid.discard[mid.discard.length - 1]!.id).toBe('d2');
     // p2 cannot act for the pending transfer; p1 must give one of their own cards.
     mustFail(e, { type: 'TRANSFER_CARD', playerId: P2, cardId: 'b2' });
-    const p1Before = mid.hands.p1!.length;
+    const p1Before = live(mid.hands.p1!).length;
     mustOk(e, { type: 'TRANSFER_CARD', playerId: P1, cardId: 'a1' });
     const after = e.getState();
     expect(after.phase).toBe('TURN_DRAW');
     expect(after.players[after.currentTurn]!.id).toBe(P2); // turn preserved
-    expect(after.hands.p3!.length).toBe(4); // gained p1's card
-    expect(after.hands.p3![3]!.id).toBe('a1');
-    expect(after.hands.p1!.length).toBe(p1Before - 1);
-    expect(after.hands.p1!.find((card) => card.id === 'a1')).toBeUndefined();
+    expect(live(after.hands.p3!).length).toBe(4); // gained p1's card
+    // The transferred card fills the gap d2 left — same slot, nothing slid.
+    expect(after.hands.p3![after.hands.p3!.findIndex((x) => x?.id === 'a1')]!.id).toBe('a1');
+    expect(after.hands.p3!.filter((x) => x === null)).toHaveLength(0);
+    expect(live(after.hands.p1!).length).toBe(p1Before - 1);
+    expect(after.hands.p1!.find((card) => card?.id === 'a1')).toBeUndefined();
   });
 
   it('incorrect flush of another player: card stays with owner, revealed to everyone, penalty drawn', () => {
@@ -534,7 +599,7 @@ describe('flushing another player\u2019s card', () => {
       expect(after.knowledge[pid]).toContain('d1');
     }
     // Penalty draw applied (default draw_one).
-    expect(after.hands.p2!.length).toBe(5);
+    expect(live(after.hands.p2!).length).toBe(5);
     expect(after.deck.length).toBe(deckCount - 1);
   });
 
@@ -547,7 +612,7 @@ describe('flushing another player\u2019s card', () => {
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
     const deckBefore = e.getState().deck.length;
     e.handleAction({ type: 'FLUSH_OTHER', playerId: P2, targetPlayerId: P3, cardId: 'd1' });
-    expect(e.getState().hands.p2!.length).toBe(6);
+    expect(live(e.getState().hands.p2!).length).toBe(6);
     expect(e.getState().deck.length).toBe(deckBefore - 2);
   });
 
@@ -573,11 +638,11 @@ describe('simultaneous flush attempts', () => {
     mustOk(e, { type: 'FLUSH_OWN', playerId: P1, cardIds: ['a1'] });
     mustOk(e, { type: 'FLUSH_OWN', playerId: P2, cardIds: ['b1'] });
     const s = e.getState();
-    expect(s.hands.p1!.length).toBe(3);
-    expect(s.hands.p2!.length).toBe(3);
+    expect(live(s.hands.p1!).length).toBe(3);
+    expect(live(s.hands.p2!).length).toBe(3);
     expect(s.discard.slice(-2).map((card) => card.id)).toEqual(['a1', 'b1']);
     // No card exists in two hands (ownership integrity).
-    const all = s.players.flatMap((p) => s.hands[p.id]!);
+    const all = s.players.flatMap((p) => live(s.hands[p.id]!));
     expect(new Set(all.map((card) => card.id)).size).toBe(all.length);
   });
 

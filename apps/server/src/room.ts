@@ -245,9 +245,24 @@ export class Room {
       seated.map((p, i) => ({ id: p.id, name: p.name, seat: i })),
       { seed: this.debug.seed, rules: { swapOthersEnabled: this.swapOthersEnabled } },
     );
+    // Everyone is shown their bottom-row cards automatically at the start
+    // (bottom row of the 2×2 layout = indexes 1 and 3). The values flash
+    // briefly on each client, then flip back down — it's a memory game.
+    const rules = engine.getRules();
+    const peekIndexes = Array.from(
+      { length: rules.initialPeekCards },
+      (_, i) => Math.min(2 * i + 1, rules.startingCards - 1),
+    ).filter((v, i, arr) => arr.indexOf(v) === i);
+    for (const p of seated) {
+      engine.handleAction({
+        type: 'PEEK_STARTING',
+        playerId: p.id,
+        cardIndexes: peekIndexes,
+      } as unknown as GameAction);
+    }
     this.engine = engine;
     for (const p of seated) p.ready = false;
-    this.system('Game started — Cabo!');
+    this.system('Game started — Cabo! You briefly saw your bottom two cards — remember them!');
     log.info('game_start', { roomId: this.id, gameId: this.gameId, players: seated.length });
   }
 

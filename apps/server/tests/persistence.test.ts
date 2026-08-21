@@ -38,9 +38,7 @@ describe('room persistence', () => {
     const { player: p1 } = room.addPlayer('A');
     const { player: p2 } = room.addPlayer('B');
     room.startGame(room.hostId!);
-    // Both peek, then p1 draws.
-    room.handleGameAction(p1.id, { type: 'PEEK_STARTING', playerId: p1.id, cardIndexes: [0, 1] });
-    room.handleGameAction(p2.id, { type: 'PEEK_STARTING', playerId: p2.id, cardIndexes: [0, 1] });
+    // The starting peek is automatic (bottom row); p1 draws right away.
     room.handleGameAction(p1.id, { type: 'DRAW', playerId: p1.id });
 
     const before = room.engine!.getState();

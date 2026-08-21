@@ -21,17 +21,22 @@ interface CardFlightsProps {
 }
 
 /** How long the leader card takes to reach its destination. */
-const DURATION = 0.85;
+export const DURATION = 0.75;
+/** After arrival the whole trail LINGERS and decays, so players can read
+ *  back the latest movements instead of the ghost vanishing on landing. */
+export const DECAY = 1.6;
 /** The comet trail: how many fading ghost copies lag behind the leader. */
-const TRAIL = 4;
-const TRAIL_STEP = 0.06;
+const TRAIL = 5;
+const TRAIL_STEP = 0.07;
+/** Total lifetime of one flight group. */
+const TOTAL = DURATION + DECAY;
 
 /**
- * Ghost cards that fly from a seat (or the deck) to a destination, with a
- * fading comet-tail so everyone clearly sees the path and the latest
- * movement. Positioned absolutely inside the table — purely an overlay, it
- * never moves the real cards. Face-up ghosts show the rank for public moves
- * (flush/discard); face-down for secret ones (draw, penalty).
+ * Ghost cards that fly from a seat (or the deck) to a destination, trailed by
+ * a dashed path and fading comet copies that DECAY over time — the movement
+ * stays readable for a couple of seconds after the card lands. Face-up ghosts
+ * show the rank for public moves (flush/discard); face-down for secret ones
+ * (draw, penalty). Purely an overlay: it never moves the real cards.
  */
 export default function CardFlights({ flights, seatPos, discardPos, drawPos, onDone }: CardFlightsProps) {
   return (
@@ -60,9 +65,9 @@ function FlightGhost({
   to: FlightPos;
   onDone: (id: string) => void;
 }) {
-  // Remove the whole group shortly after the leader arrives.
+  // The group stays on screen while the trail decays, then is removed.
   useEffect(() => {
-    const t = setTimeout(() => onDone(flight.id), (DURATION + TRAIL * TRAIL_STEP + 0.2) * 1000);
+    const t = setTimeout(() => onDone(flight.id), (TOTAL + TRAIL * TRAIL_STEP + 0.2) * 1000);
     return () => clearTimeout(t);
   }, [flight.id, onDone]);
 
@@ -72,14 +77,28 @@ function FlightGhost({
       initial={{ opacity: 1 }}
       exit={{ opacity: 0, transition: { duration: 0.18 } }}
     >
+      {/* The lingering dashed path: appears with the flight and decays after
+          arrival, showing WHERE the card came from and WHERE it went. */}
+      <motion.svg className="flight-svg">
+        <motion.line
+          className="flight-path-line"
+          x1={`${from.x}%`}
+          y1={`${from.y}%`}
+          x2={`${to.x}%`}
+          y2={`${to.y}%`}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: [0, 0.75, 0.75, 0] }}
+          transition={{ duration: TOTAL, times: [0, 0.2, DURATION / TOTAL, 1], ease: 'easeOut' }}
+        />
+      </motion.svg>
       {Array.from({ length: TRAIL }).map((_, i) => (
         <GhostCopy
           key={i}
           from={from}
           to={to}
           delay={TRAIL_STEP * (i + 1)}
-          opacity={0.5 - i * 0.11}
-          scale={0.9 - i * 0.1}
+          opacity={0.5 - i * 0.09}
+          scale={0.9 - i * 0.09}
           faceDown={!flight.toDiscard}
           rank={flight.rank}
         />
@@ -117,6 +136,10 @@ function GhostCopy({
   rank: number;
   leader?: boolean;
 }) {
+  // Travel finishes at DURATION; the copy then lingers at the destination and
+  // decays to nothing across DECAY seconds (per-copy keyframe timings).
+  const total = TOTAL;
+  const times = [0, (DURATION * 0.45) / total, DURATION / total, 1];
   return (
     <motion.div
       className={`flight-ghost ${leader ? 'leader' : 'trail'} ${faceDown ? 'back' : ''}`}
@@ -127,7 +150,7 @@ function GhostCopy({
         top: `${from.y}%`,
         x: -30,
         y: -43,
-        opacity: leader ? 0 : 0,
+        opacity: 0,
         scale: 0.55,
         rotate: 10,
       }}
@@ -136,15 +159,20 @@ function GhostCopy({
         top: `${to.y}%`,
         x: -30,
         y: -43,
-        opacity: [0, opacity, opacity, 0.2],
+        opacity: [0, opacity, opacity, 0],
         scale: [0.55, scale, scale, 0.7],
         rotate: 6,
       }}
       exit={{ opacity: 0, scale: 0.4 }}
       transition={{
         delay,
-        duration: DURATION,
-        ease: [0.2, 0.7, 0.3, 1],
+        left: { delay, duration: DURATION, ease: [0.2, 0.7, 0.3, 1] },
+        top: { delay, duration: DURATION, ease: [0.2, 0.7, 0.3, 1] },
+        opacity: { delay, duration: total, times, ease: 'linear' },
+        scale: { delay, duration: total, times },
+        rotate: { delay, duration: DURATION },
+        x: { delay, duration: 0 },
+        y: { delay, duration: 0 },
       }}
     >
       {leader && <div className="flight-arrow" />}

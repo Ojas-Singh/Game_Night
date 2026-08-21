@@ -31,10 +31,6 @@ export function useGuidance(view: CaboPlayerView, myId: string) {
   if (error) {
     text = error;
     urgent = true;
-  } else if (view.phase === 'INITIAL_PEEK') {
-    text = view.needsInitialPeek
-      ? 'Pick two of your bottom cards to secretly peek at'
-      : 'Waiting for other players to peek…';
   } else if (view.phase === 'ROUND_COMPLETE') {
     text = 'Round over — check the scores!';
   } else if (view.phase === 'TRANSFER_PENDING') {

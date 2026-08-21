@@ -123,34 +123,23 @@ describe('socket integration', () => {
       const startRes = await startGame(alice);
       expect(startRes.ok).toBe(true);
 
-      const va = await trackA.waitFor((v) => v.phase === 'INITIAL_PEEK');
-      const vb = await trackB.waitFor((v) => v.phase === 'INITIAL_PEEK');
+      // Host starts the game — the initial peek of the bottom row is
+      // automatic, so the round is immediately in play.
+      const va = await trackA.waitFor((v) => v.phase === 'TURN_DRAW');
+      const vb = await trackB.waitFor((v) => v.phase === 'TURN_DRAW');
       expect(vb.handCardIds[joined.playerId!]).toHaveLength(4);
 
-      // Hidden info: before peeks, neither player knows any card values.
-      expect(Object.keys(va.knownCards)).toHaveLength(0);
-      expect(Object.keys(vb.knownCards)).toHaveLength(0);
-
-      // Initial peeks.
-      let res = await gameAction(alice, {
-        type: 'PEEK_STARTING',
-        playerId: created.playerId,
-        cardIndexes: [0, 1],
-      });
-      expect(res.ok).toBe(true);
-      res = await gameAction(bob, {
-        type: 'PEEK_STARTING',
-        playerId: joined.playerId,
-        cardIndexes: [0, 1],
-      });
-      expect(res.ok).toBe(true);
-
-      await trackA.waitFor((v) => v.phase === 'TURN_DRAW');
-      await trackB.waitFor((v) => v.phase === 'TURN_DRAW');
+      // Hidden info: each player knows EXACTLY their own bottom two cards
+      // (indexes 1 and 3) and nothing else.
+      const aHand = va.handCardIds[created.playerId!]!;
+      expect(Object.keys(va.knownCards).sort()).toEqual([aHand[1]!, aHand[3]!].sort());
+      const bHand = vb.handCardIds[joined.playerId!]!;
+      expect(Object.keys(vb.knownCards).sort()).toEqual([bHand[1]!, bHand[3]!].sort());
 
       // Drive the game to completion: draw → discard → resolve powers.
       // After enough turns, the current player calls Cabo to end the round.
       let done = false;
+      let res: { ok: boolean; error?: string };
       let guard = 0;
       while (!done && guard++ < 300) {
         const currentId = trackA.latest!.players.find((p) => p.isCurrentTurn)?.id;
@@ -344,9 +333,9 @@ describe('socket integration', () => {
     await joinRoom(guest, { roomId: created.roomId, name: 'Guest' });
     expect((await startGame(host)).ok).toBe(true);
 
-    // Before Test Mode: the guest (who peeked nothing) should know nothing.
-    await tracked.waitFor((v) => v.knownCards !== undefined);
-    expect(Object.keys(tracked.latest!.knownCards)).toHaveLength(0);
+    // Before Test Mode: the guest knows only their auto-peeked bottom two.
+    await tracked.waitFor((v) => v.phase === 'TURN_DRAW');
+    expect(Object.keys(tracked.latest!.knownCards)).toHaveLength(2);
 
     // Host toggles Test Mode on.
     const testModeOn = new Promise<boolean>((resolve) => {
@@ -368,9 +357,9 @@ describe('socket integration', () => {
     );
     expect(Object.keys(revealed.knownCards).length).toBeGreaterThanOrEqual(8);
 
-    // Turning it off stops the reveal again.
+    // Turning it off stops the reveal again (back to just the bottom two).
     host.emit('room:set_test_mode', { enabled: false });
-    await tracked.waitFor((v) => Object.keys(v.knownCards).length === 0, 5000);
+    await tracked.waitFor((v) => Object.keys(v.knownCards).length === 2, 5000);
 
     host.close();
     guest.close();
