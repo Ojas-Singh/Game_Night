@@ -379,23 +379,26 @@
   overflow: hidden;
 }
 .status-banner {
-  position: absolute;
-  bottom: 21%;
+  position: fixed;
+  bottom: 12px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 30;
-  background: rgba(13, 10, 8, 0.82);
-  border: 1px solid rgba(255, 220, 160, 0.14);
+  z-index: 100;
+  background: rgba(13, 10, 8, 0.85);
+  border: 1px solid rgba(255, 220, 160, 0.16);
   border-radius: 999px;
   padding: 9px 22px;
   font-size: 14.5px;
   font-weight: 500;
   color: var(--ink);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
   max-width: min(92vw, 640px);
   text-align: center;
   transition: border-color 0.2s ease;
   pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .status-banner.urgent {
   border-color: var(--accent);
@@ -494,8 +497,8 @@
 /* Cards */
 .pcard {
   position: relative;
-  width: var(--card-w, 88px);
-  height: var(--card-w, 88px);
+  width: var(--card-w, 84px);
+  height: calc(var(--card-w, 84px) * 1.42);
   border-radius: var(--radius-card);
   background: transparent;
   padding: 0;
@@ -532,21 +535,20 @@
   overflow: hidden;
 }
 .pcard-front .red { color: #b3372c; }
-.pcard-front .pip {
-  font-size: calc(var(--card-w, 88px) * 0.44);
-  line-height: 1;
-}
-.pcard-front .corner {
-  position: absolute;
-  font-weight: 700;
-  font-size: calc(var(--card-w, 88px) * 0.17);
+/* Clean "suit + number" label — much easier to read than a pip layout. */
+.card-label {
   font-family: var(--font-display);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--card-w, 84px) * 0.52);
+  line-height: 1;
+  transform-origin: center;
 }
-.corner.tl { top: 5%; left: 8%; }
-.corner.br { bottom: 5%; right: 8%; transform: rotate(180deg); }
 .pcard-front .unknown {
   color: #b7a98f;
-  font-size: calc(var(--card-w, 88px) * 0.3);
+  font-size: calc(var(--card-w, 84px) * 0.3);
 }
 .pcard-back {
   background: linear-gradient(160deg, var(--card-back-1), var(--card-back-2));

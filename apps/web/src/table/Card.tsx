@@ -68,10 +68,9 @@ export default function Card({
       <div className="pcard-inner">
         <div className="pcard-face pcard-front">
           {card ? (
-            <div className="pcard-value" style={valueStyle}>
-              <span className={`corner tl ${red ? 'red' : ''}`}>{RANK_LABELS[card.rank]}</span>
-              <span className={`pip ${red ? 'red' : ''}`}>{SUIT_GLYPH[card.suit] ?? ''}</span>
-              <span className={`corner br ${red ? 'red' : ''}`}>{RANK_LABELS[card.rank]}</span>
+            <div className={`card-label ${red ? 'red' : ''}`} style={valueStyle}>
+              {RANK_LABELS[card.rank]}
+              {SUIT_GLYPH[card.suit] ?? ''}
             </div>
           ) : (
             <span className="unknown">?</span>
