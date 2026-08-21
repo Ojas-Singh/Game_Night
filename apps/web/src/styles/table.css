@@ -1858,6 +1858,17 @@
   .cabo-ring-top { font-size: 11px; }
   .cabo-ring-bottom { font-size: 13px; }
   .table-center { top: 42%; }
+  /* The pass button normally floats right of the deck — on a phone that is
+     off-screen entirely. Drop it just below the centre piles instead, centred
+     and thumb-sized. */
+  .end-turn-btn {
+    left: 50%;
+    top: 64%;
+    transform: translate(-50%, -50%);
+    font-size: 14.5px;
+    padding: 12px 22px;
+    z-index: 40;
+  }
   .status-banner {
     font-size: 12.5px;
     padding: 7px 14px;
