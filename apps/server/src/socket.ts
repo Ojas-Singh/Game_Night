@@ -217,6 +217,35 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
       }
     });
 
+    // Host kicks a player from the lobby: the target is removed, told why,
+    // and fully detached from the socket room so they cannot act or rejoin
+    // silently via the reconnect path.
+    socket.on('room:kick', ({ playerId: targetId }, ack) => {
+      try {
+        const { room, playerId } = requireRoom();
+        const target = room.players.get(targetId);
+        if (!target) throw new RoomError('not in room');
+        room.kickPlayer(playerId, targetId);
+        ack?.({ ok: true });
+        const kickedSockets = [...target.sockets];
+        for (const sid of kickedSockets) {
+          const s = io.sockets.sockets.get(sid);
+          if (s) {
+            (s.data as SocketData).roomId = undefined;
+            (s.data as SocketData).playerId = undefined;
+            s.leave(room.id);
+          }
+          io.to(sid).emit('room:closed', { reason: 'kicked by the host' });
+        }
+        const last = room.chat[room.chat.length - 1]!;
+        io.to(room.id).emit('room:chat', last);
+        broadcastLobby(room);
+        persistRoom(room);
+      } catch (err) {
+        ack?.(fail(err));
+      }
+    });
+
     // Self-healing sync: a client that suspects it fell behind (window focus,
     // periodic check) asks for a fresh view; the server only sends one when
     // the client's revision is stale, so nothing replays unnecessarily.

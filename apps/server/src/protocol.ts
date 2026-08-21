@@ -55,6 +55,8 @@ export interface ClientEvents {
   'room:set_ready': (payload: { ready: boolean }) => void;
   'room:select_game': (payload: { gameId: string }) => void;
   'room:set_swap_others': (payload: { enabled: boolean }) => void;
+  /** Host removes a player from the lobby. */
+  'room:kick': (payload: { playerId: string }, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:start_game': (payload: {}, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:chat': (payload: { text: string }) => void;
   'room:emote': (payload: { emote: string }) => void;

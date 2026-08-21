@@ -57,6 +57,27 @@ describe('Room', () => {
     expect(room.chat.at(-1)!.text).toBe('Second is now the host');
   });
 
+  it('host can kick a player from the lobby; not mid-game, not self, not by others', () => {
+    const room = new Room({ roomId: 'TEST12' });
+    const { player: p1 } = room.addPlayer('Host');
+    const { player: p2 } = room.addPlayer('Guest');
+    // Non-host cannot kick.
+    expect(() => room.kickPlayer(p2.id, p1.id)).toThrow(/host/);
+    // Host cannot kick themselves.
+    expect(() => room.kickPlayer(p1.id, p1.id)).toThrow(/host cannot/);
+    // Unknown target.
+    expect(() => room.kickPlayer(p1.id, 'nobody')).toThrow(/not in room/);
+    // A real kick removes the player and records the system message.
+    room.kickPlayer(p1.id, p2.id);
+    expect(room.players.has(p2.id)).toBe(false);
+    expect(room.hostId).toBe(p1.id);
+    expect(room.chat.at(-1)!.text).toBe('Guest kicked by the host');
+    // Not once the game is running.
+    const { player: p3 } = room.addPlayer('Late');
+    room.startGame(p1.id);
+    expect(() => room.kickPlayer(p1.id, p3.id)).toThrow(/lobby/);
+  });
+
   it('only the host can start, with enough players', () => {
     const room = new Room({ roomId: 'TEST05' });
     const { player: p1 } = room.addPlayer('A');

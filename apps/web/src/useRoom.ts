@@ -206,6 +206,8 @@ export interface RoomApi {
   testMode: boolean;
   setTestMode: (enabled: boolean) => void;
   startGame: () => Promise<{ ok: boolean; error?: string }>;
+  /** Host-only: remove a player from the lobby. */
+  kickPlayer: (playerId: string) => Promise<{ ok: boolean; error?: string }>;
   sendChat: (text: string) => void;
   sendAction: (action: ClientCaboAction) => Promise<{ ok: boolean; error?: string }>;
   playAgain: () => Promise<{ ok: boolean; error?: string }>;
@@ -447,7 +449,20 @@ export function useRoom(): RoomApi {
       setEmotes((prev) => ({ ...prev, [playerId]: { emote, at: Date.now() } }));
     };
     socket.on('room:emote', onEmote);
-    socket.on('room:closed', ({ reason }) => setJoinError(`Room closed: ${reason}`));
+    socket.on('room:closed', ({ reason }) => {
+      // Fully detach: clear the stored session so the reconnect path can't
+      // silently re-join a room we were kicked from (or that was deleted).
+      const rid = activeRoomRef.current;
+      if (rid) clearSession(rid);
+      activeRoomRef.current = null;
+      setLobby(null);
+      setView(null);
+      viewRef.current = null;
+      setChat([]);
+      setRoomId(null);
+      setMyPlayerId(null);
+      setJoinError(`Room closed: ${reason}`);
+    });
     return () => {
       window.removeEventListener('focus', requestSync);
       window.clearInterval(syncTimer);
@@ -548,6 +563,10 @@ export function useRoom(): RoomApi {
       startGame: () =>
         new Promise((resolve) => {
           socketRef.current?.emit('room:start_game', {}, resolve);
+        }),
+      kickPlayer: (playerId: string) =>
+        new Promise((resolve) => {
+          socketRef.current?.emit('room:kick', { playerId }, resolve);
         }),
       sendChat: (text: string) => socketRef.current?.emit('room:chat', { text }),
       sendAction: (action) =>

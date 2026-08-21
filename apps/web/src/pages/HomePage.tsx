@@ -6,15 +6,30 @@ import { loadName } from '../session.js';
 export default function HomePage({ room }: { room: RoomApi }) {
   const navigate = useNavigate();
   const [name, setName] = useState(loadName());
+  const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
 
   const createGame = async () => {
     if (!room.socket) return;
     setBusy(true);
+    setJoinError(null);
     const finalName = name.trim() || undefined;
     const res = await room.createRoom(finalName ?? 'Host');
     setBusy(false);
     if (res.ok && res.roomId) navigate(`/game/${res.roomId}`);
+  };
+
+  const joinGame = async () => {
+    const clean = code.trim().toUpperCase();
+    if (!room.socket || !clean) return;
+    setBusy(true);
+    setJoinError(null);
+    const finalName = name.trim() || undefined;
+    const res = await room.joinRoom(clean, finalName);
+    setBusy(false);
+    if (res.ok && res.roomId) navigate(`/game/${res.roomId}`);
+    else setJoinError(res.error ?? 'failed to join room');
   };
 
   return (
@@ -45,6 +60,29 @@ export default function HomePage({ room }: { room: RoomApi }) {
         <p className="home-hint">
           You'll get a shareable link. Send it to friends — they join instantly.
         </p>
+
+        <div className="home-join-divider">
+          <span>or join with a room code</span>
+        </div>
+        <div className="home-join">
+          <input
+            type="text"
+            placeholder="ABC123"
+            value={code}
+            maxLength={6}
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            className="join-code"
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            onKeyDown={(e) => e.key === 'Enter' && !busy && joinGame()}
+          />
+          <button onClick={joinGame} disabled={!room.socket || busy || !code.trim()}>
+            Join Room
+          </button>
+        </div>
+        {joinError && <p className="home-join-error">{joinError}</p>}
+
         {room.status !== 'connected' && (
           <p className="home-status">Connecting to server…</p>
         )}

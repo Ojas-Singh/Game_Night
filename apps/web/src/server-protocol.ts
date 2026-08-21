@@ -63,6 +63,7 @@ export type ClientToServerEvents = {
   'room:set_ready': (payload: { ready: boolean }) => void;
   'room:select_game': (payload: { gameId: string }) => void;
   'room:set_swap_others': (payload: { enabled: boolean }) => void;
+  'room:kick': (payload: { playerId: string }, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:start_game': (payload: Record<string, never>, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:chat': (payload: { text: string }) => void;
   'room:leave': () => void;

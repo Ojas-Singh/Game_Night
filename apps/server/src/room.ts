@@ -165,7 +165,7 @@ export class Room {
     return { player, reconnected: false };
   }
 
-  removePlayer(playerId: string, reason: 'left' = 'left'): void {
+  removePlayer(playerId: string, reason: 'left' | 'kicked by the host' = 'left'): void {
     const p = this.players.get(playerId);
     if (!p) return;
     this.players.delete(playerId);
@@ -185,6 +185,16 @@ export class Room {
     p.connected = false;
     p.disconnectedAt = Date.now();
     this.system(`${p.name} disconnected`);
+  }
+
+  /** Host removes a player from the room. Lobby only — never mid-game (the
+   *  engine state is built from the seated players and cannot lose one). */
+  kickPlayer(hostId: string, targetId: string): void {
+    if (hostId !== this.hostId) throw new RoomError('only the host can kick players');
+    if (targetId === this.hostId) throw new RoomError('the host cannot be kicked');
+    if (this.engine) throw new RoomError('players can only be kicked in the lobby');
+    if (!this.players.has(targetId)) throw new RoomError('not in room');
+    this.removePlayer(targetId, 'kicked by the host');
   }
 
   /** True when the reconnect grace period for a player has elapsed. */

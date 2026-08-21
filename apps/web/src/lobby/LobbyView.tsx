@@ -87,6 +87,15 @@ export default function LobbyView({ room }: { room: RoomApi }) {
                   {p.isHost && <span className="badge host">Host</span>}
                   {p.isYou && <span className="badge you">You</span>}
                   {!p.connected && <span className="badge dc">reconnecting…</span>}
+                  {isHost && !p.isYou && !p.isHost && (
+                    <button
+                      className="kick-btn"
+                      title={`Remove ${p.name} from the room`}
+                      onClick={() => void room.kickPlayer(p.id)}
+                    >
+                      ✕
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
