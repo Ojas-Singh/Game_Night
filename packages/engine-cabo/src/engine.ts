@@ -615,7 +615,8 @@ export class CaboEngine {
       if (s.deck.length === 0) break;
       const card = s.deck.pop()!;
       s.hands[playerId]!.push(card);
-      this.learn(playerId, card.id);
+      // Deliberately NOT learned: the extra penalty card is placed face-down
+      // and is a secret to everyone, including the player who drew it.
     }
     if (drawCount > 0) {
       this.emit('PENALTY_DRAWN', { playerId, count: drawCount });

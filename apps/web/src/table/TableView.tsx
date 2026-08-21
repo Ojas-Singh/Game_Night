@@ -12,6 +12,7 @@ import ChatPanel from '../chat/ChatPanel.js';
 import SoundToggle from '../SoundToggle.js';
 import EmotePicker from '../EmotePicker.js';
 import FloatingEmote from './FloatingEmote.js';
+import InfoModal from './InfoModal.js';
 
 /**
  * The round-table experience. The local player always sits at the bottom;
@@ -30,6 +31,8 @@ export default function TableView({ room }: { room: RoomApi }) {
 
   // Seat geometry: 2..6 opponents distribute around the top arc.
   const seats = useMemo(() => SeatPlanner(others.length), [others.length]);
+
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const myHand = view.handCardIds[me.id] ?? [];
   const isMyTurn = view.players.find((p) => p.isCurrentTurn)?.id === me.id;
@@ -219,6 +222,14 @@ export default function TableView({ room }: { room: RoomApi }) {
       </div>
       <SoundToggle />
       <EmotePicker room={room} />
+      <button
+        className="info-toggle"
+        onClick={() => setInfoOpen(true)}
+        aria-label="Rules"
+        title="How to play"
+      >
+        ❓
+      </button>
 
       {/* the table */}
       <div className="table-ellipse">
@@ -243,7 +254,10 @@ export default function TableView({ room }: { room: RoomApi }) {
               >
                 {(view.handCardIds[p.id] ?? []).map((cardId) => {
                   const known = view.knownCards[cardId];
-                  const revealed = flashActive(cardId) || mode === 'round-over';
+                  // A card is shown face-up only if we actually KNOW its value
+                  // (during the reveal window, or round reveal). Unknown cards
+                  // always stay face-down — nothing leaks or "opens" on its own.
+                  const revealed = !!known && (flashActive(cardId) || mode === 'round-over');
                   return (
                     <Card
                       key={cardId}
@@ -294,10 +308,10 @@ export default function TableView({ room }: { room: RoomApi }) {
             <AnimatePresence>
               {myHand.map((cardId, idx) => {
                 const known = view.knownCards[cardId];
-                // Only show your card values on your own turn (or the brief
-                // peek flash, or round reveal). Otherwise keep them hidden
-                // with just the seen-light dot — no click-to-reveal.
-                const revealed = isMyTurn || flashActive(cardId) || mode === 'round-over';
+                // Only cards you actually know render face-up — on your own
+                // turn, during the brief reveal window, or at round reveal.
+                // Cards you've never seen stay face-down (no "all open").
+                const revealed = !!known && (isMyTurn || flashActive(cardId) || mode === 'round-over');
                 const highlight =
                   (mode === 'initial-peek' && flushSel.includes(cardId)) ||
                   (mode === 'power-blind-swap' && selectedOwn === cardId) ||
@@ -349,6 +363,8 @@ export default function TableView({ room }: { room: RoomApi }) {
 
       {/* round-over overlay */}
       {mode === 'round-over' && <ScoreBoard view={view} room={room} />}
+
+      <InfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
 
       <ChatPanel room={room} floating />
     </div>

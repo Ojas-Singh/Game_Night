@@ -78,6 +78,19 @@ export function collectFlights(prev: CaboPlayerView, next: CaboPlayerView): Card
         toDiscard: false,
         rank,
       });
+    } else if (ev.type === 'PENALTY_DRAWN') {
+      // A secret penalty card flies from the deck to the penalized player's
+      // hand — face-down (no rank in the shared log), so everyone sees the
+      // movement but not the value.
+      const toPlayerId = String(ev.playerId ?? '');
+      out.push({
+        id: `${ev.type}-${ev.seq}`,
+        seq: ev.seq,
+        fromPlayerId: 'deck',
+        toDiscard: false,
+        toPlayerId,
+        rank: 0,
+      });
     }
   }
   return out;
@@ -106,8 +119,10 @@ export interface CardFlight {
   seq: number;
   /** Source seat: a player id, or 'deck'. */
   fromPlayerId: string | 'deck';
-  /** Destination: the discard pile, or the player's own slot (draw). */
+  /** Destination: the discard pile, or (no toPlayerId) the local draw slot. */
   toDiscard: boolean;
+  /** When set, the flight lands in this player's hand (e.g. a secret penalty). */
+  toPlayerId?: string;
   rank: number;
 }
 

@@ -406,6 +406,12 @@ describe('flushing own cards', () => {
     for (const pid of s.players.map((p) => p.id)) {
       expect(s.knowledge[pid]).toContain('d1');
     }
+    // But the extra penalty card is secret — placed face-down, learned by no
+    // one, not even the player who drew it.
+    const penaltyCard = s.hands.p3![s.hands.p3!.length - 1]!;
+    expect(s.knowledge.p3).not.toContain(penaltyCard.id);
+    expect(s.knowledge.p1).not.toContain(penaltyCard.id);
+    expect(s.knowledge.p2).not.toContain(penaltyCard.id);
   });
 
   it('a misflush does not remove matching cards in the same batch attempts', () => {

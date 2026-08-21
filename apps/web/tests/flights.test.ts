@@ -61,6 +61,18 @@ describe('collectFlights', () => {
     expect(flights[0].rank).toBe(0);
   });
 
+  it('maps a secret penalty card to a face-down flight landing in that player hand', () => {
+    const next = view([{ seq: 8, type: 'PENALTY_DRAWN', playerId: 'P', payload: { count: 1 } }]);
+    const flights = collectFlights(view([]), next);
+    expect(flights).toHaveLength(1);
+    expect(flights[0]).toMatchObject({
+      fromPlayerId: 'deck',
+      toDiscard: false,
+      toPlayerId: 'P',
+      rank: 0,
+    });
+  });
+
   it('only reports events newer than the previous view (delta)', () => {
     const prev = view([{ seq: 1, type: 'CARD_DISCARDED', playerId: 'A', payload: { rank: 4 } }]);
     const next = view([
