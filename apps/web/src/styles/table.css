@@ -1879,9 +1879,14 @@
   .home-title { font-size: 36px; }
   .seat-me { bottom: 0%; }
   .draw-slot { left: calc(50% + 64px); }
-  .chat-bubble { width: 42px; height: 42px; }
-  .sound-toggle { width: 36px; height: 36px; bottom: 84px; }
-  .info-toggle { width: 36px; height: 36px; bottom: 184px; }
+  /* Control stack (chat / sound / info) moves to the LEFT edge on phones,
+     stacked above the host-only Test Mode pill — frees the right side for
+     the drawn card and the "keep or discard" flow. */
+  .chat-panel.closed { left: 10px; right: auto; bottom: 54px; }
+  .chat-panel.floating.open { left: 10px; right: auto; bottom: 54px; }
+  .chat-bubble { width: 40px; height: 40px; }
+  .sound-toggle { width: 36px; height: 36px; left: 12px; right: auto; bottom: 102px; }
+  .info-toggle { width: 36px; height: 36px; left: 12px; right: auto; bottom: 146px; }
   .info-card { max-height: 90vh; }
   .test-toggle { left: 10px; bottom: 10px; width: 50px; height: 38px; font-size: 11px; }
   .memorize-note {
