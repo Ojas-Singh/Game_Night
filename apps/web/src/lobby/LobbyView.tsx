@@ -4,6 +4,7 @@ import ChatPanel from '../chat/ChatPanel.js';
 import DebugPanel from '../DebugPanel.js';
 import { loadName } from '../session.js';
 import Avatar from '../table/Avatar.js';
+import InfoModal from '../table/InfoModal.js';
 import { loadAvatar, saveAvatar } from '../avatar.js';
 import { AVATAR_COLORS, EYE_STYLES, MOUTH_STYLES, HAT_STYLES } from '../avatar.js';
 import type { Avatar as AvatarModel } from '../server-protocol.js';
@@ -15,6 +16,9 @@ export default function LobbyView({ room }: { room: RoomApi }) {
   const [name, setName] = useState(me?.name ?? loadName());
   const [avatar, setAvatar] = useState<AvatarModel>(me?.avatar ?? loadAvatar());
   const [copied, setCopied] = useState(false);
+  // The rules are shown by default when you arrive — everyone knows the
+  // game before clicking ready (which now auto-starts the game).
+  const [rulesOpen, setRulesOpen] = useState(true);
 
   const customize = (patch: Partial<AvatarModel>) => {
     const next = { ...avatar, ...patch };

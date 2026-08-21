@@ -293,6 +293,18 @@ export class Room {
     this.system(enabled ? 'TEST MODE ON — all cards revealed' : 'TEST MODE OFF');
   }
 
+  /** Host restarts the round at ANY time: fresh deal, scoreboard preserved. */
+  restartGame(playerId: string): void {
+    if (playerId !== this.hostId) throw new RoomError('only the host can restart the game');
+    const seated = [...this.players.values()];
+    if (seated.length < GAME_REGISTRY[this.gameId].minPlayers) {
+      throw new RoomError(`needs at least ${GAME_REGISTRY[this.gameId].minPlayers} players`);
+    }
+    this.engine = null;
+    this.startGame(playerId);
+    this.system('Host restarted the game — fresh deal!');
+  }
+
   returnToLobby(playerId: string): void {
     if (playerId !== this.hostId) throw new RoomError('only the host can return to the lobby');
     this.engine = null;

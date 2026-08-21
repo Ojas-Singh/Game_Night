@@ -126,6 +126,22 @@ describe('Room', () => {
     expect(() => room.playAgain(p1.id)).toThrow(/in progress/);
   });
 
+  it('host can restart a running game at any time (fresh deal, scoreboard kept)', () => {
+    const room = new Room({ roomId: 'RSTART' });
+    const { player: p1 } = room.addPlayer('A');
+    const { player: p2 } = room.addPlayer('B');
+    room.startGame(room.hostId!);
+    expect(room.engine).not.toBeNull();
+    room.scoreboard[p1.id] = 5;
+    // Non-host cannot restart.
+    expect(() => room.restartGame(p2.id)).toThrow(/host/);
+    room.restartGame(p1.id);
+    expect(room.engine).not.toBeNull();
+    // A brand-new round in progress (immediately playable after auto-peek).
+    expect(room.engine!.getState().phase).toBe('TURN_DRAW');
+    expect(room.lobbyState().scoreboard[p1.id]).toBe(5);
+  });
+
   it('players can customize their avatar; it is validated and broadcast in lobby state', () => {
     const room = new Room({ roomId: 'AVATAR1' });
     const { player: p1 } = room.addPlayer('A');

@@ -161,6 +161,17 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         const { room, playerId } = requireRoom();
         room.setReady(playerId, ready);
         broadcastLobby(room);
+        // Auto-start: once every connected player has clicked ready (and the
+        // room is big enough), the game begins on its own.
+        const seated = [...room.players.values()].filter((p) => p.connected);
+        if (!room.engine && seated.length >= 2 && seated.every((p) => p.ready) && room.hostId) {
+          room.startGame(room.hostId);
+          const last = room.chat[room.chat.length - 1]!;
+          io.to(room.id).emit('room:chat', last);
+          broadcastLobby(room);
+          broadcastGame(room);
+          persistRoom(room);
+        }
       } catch {
         /* ignore */
       }
@@ -203,6 +214,38 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         persistRoom(room);
       } catch (err) {
         log.warn('set_test_mode_failed', { error: msg(err) });
+      }
+    });
+
+    // Self-healing sync: a client that suspects it fell behind (window focus,
+    // periodic check) asks for a fresh view; the server only sends one when
+    // the client's revision is stale, so nothing replays unnecessarily.
+    socket.on('game:sync', (clientRevision: unknown) => {
+      try {
+        const { room, playerId } = requireRoom();
+        if (!room.engine) return;
+        const view = room.gameView(playerId);
+        if (!view) return;
+        if (typeof clientRevision === 'number' && view.revision <= clientRevision) return;
+        io.to(socket.id).emit('game:view', view);
+      } catch {
+        /* not in a room */
+      }
+    });
+
+    // Host restarts the round at any time (fresh deal, scoreboard kept).
+    socket.on('room:restart_game', (_payload, ack) => {
+      try {
+        const { room, playerId } = requireRoom();
+        room.restartGame(playerId);
+        ack?.({ ok: true });
+        const last = room.chat[room.chat.length - 1]!;
+        io.to(room.id).emit('room:chat', last);
+        broadcastLobby(room);
+        broadcastGame(room);
+        persistRoom(room);
+      } catch (err) {
+        ack?.(fail(err));
       }
     });
 

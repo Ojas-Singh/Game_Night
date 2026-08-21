@@ -210,6 +210,8 @@ export interface RoomApi {
   sendAction: (action: ClientCaboAction) => Promise<{ ok: boolean; error?: string }>;
   playAgain: () => Promise<{ ok: boolean; error?: string }>;
   returnToLobby: () => void;
+  /** Host-only: redeal the round at any time (scoreboard kept). */
+  restartGame: () => Promise<{ ok: boolean; error?: string }>;
   leaveRoom: () => void;
 }
 
@@ -431,6 +433,13 @@ export function useRoom(): RoomApi {
         }, PEEK_MARK_MS);
       }
     };
+    // Self-healing view sync: if an update was ever missed (flaky transport,
+    // stale socket), ask the server for a fresh view on focus + periodically.
+    const requestSync = () => {
+      socketRef.current?.emit('game:sync', viewRef.current?.revision ?? 0);
+    };
+    window.addEventListener('focus', requestSync);
+    const syncTimer = window.setInterval(requestSync, 12_000);
     socket.on('room:state', onState);
     socket.on('room:chat', onChat);
     socket.on('game:view', onView);
@@ -440,6 +449,8 @@ export function useRoom(): RoomApi {
     socket.on('room:emote', onEmote);
     socket.on('room:closed', ({ reason }) => setJoinError(`Room closed: ${reason}`));
     return () => {
+      window.removeEventListener('focus', requestSync);
+      window.clearInterval(syncTimer);
       socket.off('room:state', onState);
       socket.off('room:chat', onChat);
       socket.off('game:view', onView);
@@ -548,6 +559,10 @@ export function useRoom(): RoomApi {
           socketRef.current?.emit('room:play_again', {}, resolve);
         }),
       returnToLobby: () => socketRef.current?.emit('room:return_to_lobby'),
+      restartGame: () =>
+        new Promise((resolve) => {
+          socketRef.current?.emit('room:restart_game', {}, resolve);
+        }),
       leaveRoom: () => {
         if (roomId) clearSession(roomId);
         socketRef.current?.emit('room:leave');

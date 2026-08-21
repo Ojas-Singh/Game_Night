@@ -927,6 +927,28 @@
 .end-turn-btn:hover {
   background: rgba(34, 58, 82, 0.95);
 }
+.restart-toggle {
+  position: absolute;
+  top: 18px;
+  left: 64px;
+  z-index: 28;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  font-size: 18px;
+  font-weight: 700;
+  background: rgba(13, 10, 8, 0.75);
+  border: 1px solid rgba(232, 165, 75, 0.4);
+  box-shadow: none;
+  padding: 0;
+}
+.restart-toggle:hover {
+  background: rgba(40, 20, 12, 0.85);
+}
+.rules-again {
+  margin-top: 10px;
+  width: 100%;
+}
 /* Leave button (game) */
 .leave-toggle {
   position: absolute;

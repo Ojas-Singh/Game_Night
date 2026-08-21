@@ -61,6 +61,7 @@ export interface ClientEvents {
   'room:leave': () => void;
   'game:action': (payload: { action: GameAction }, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:return_to_lobby': () => void;
+  'room:restart_game': (payload: {}, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:play_again': (payload: {}, ack: (res: { ok: boolean; error?: string }) => void) => void;
 }
 

@@ -332,6 +332,16 @@ export default function TableView({ room }: { room: RoomApi }) {
       >
         🚪
       </button>
+      {room.lobby?.hostId === room.myPlayerId && (
+        <button
+          className="restart-toggle"
+          onClick={() => void room.restartGame()}
+          aria-label="Restart game"
+          title="Restart the game — fresh deal (host)"
+        >
+          ↻
+        </button>
+      )}
       <SoundToggle />
       <EmotePicker room={room} />
       <button
