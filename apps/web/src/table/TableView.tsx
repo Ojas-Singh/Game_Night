@@ -34,10 +34,32 @@ export default function TableView({ room }: { room: RoomApi }) {
 
   const [infoOpen, setInfoOpen] = useState(false);
 
+  // Measure the table so flight destinations match the real DOM: the draw
+  // slot sits at left calc(50% + 96px), top 50% of .table-ellipse.
+  const tableRef = useRef<HTMLDivElement>(null);
+  const [drawSlotPos, setDrawSlotPos] = useState({ x: 62, y: 50 });
+  useEffect(() => {
+    const el = tableRef.current;
+    if (!el) return;
+    const update = () => {
+      const w = el.offsetWidth || 900;
+      setDrawSlotPos({ x: 50 + (96 / w) * 100, y: 50 });
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
   const myHand = view.handCardIds[me.id] ?? [];
   const isMyTurn = view.players.find((p) => p.isCurrentTurn)?.id === me.id;
   // A flushed card leaves an empty slot so positions never shuffle.
   const isEmptySlot = (cardId: string) => cardId.startsWith('__slot__');
+  // Which player recently peeked at a card (eye badge) — everyone sees it.
+  const peekedBy = (cardId: string): string | null => {
+    const m = room.peekMarks[cardId];
+    if (!m) return null;
+    return view.players.find((p) => p.id === m.byPlayerId)?.name ?? null;
+  };
   const myLiveCount = myHand.filter((id) => !isEmptySlot(id)).length;
 
   // ----- Card-flights overlay ---------------------------------------------
@@ -222,7 +244,7 @@ export default function TableView({ room }: { room: RoomApi }) {
       </button>
 
       {/* the table */}
-      <div className="table-ellipse">
+      <div className="table-ellipse" ref={tableRef}>
         <div className="table-felt" />
 
         {/* opponents around the arc */}
@@ -264,6 +286,7 @@ export default function TableView({ room }: { room: RoomApi }) {
                           contentRotate={-seat.facing}
                           small
                           test={room.testMode}
+                          peekedBy={peekedBy(cardId)}
                           selectable={selectable}
                           onClick={() => onOpponentCardClick(p.id, cardId)}
                         />
@@ -296,7 +319,7 @@ export default function TableView({ room }: { room: RoomApi }) {
           flights={flights}
           seatPos={seatPos}
           discardPos={{ x: 50, y: 46 }}
-          drawPos={{ x: 88, y: 78 }}
+          drawPos={drawSlotPos}
           onDone={dropFlight}
         />
 
@@ -327,6 +350,7 @@ export default function TableView({ room }: { room: RoomApi }) {
                         seenMarker={!!known && !revealed}
                         highlight={!!highlight}
                         test={room.testMode}
+                        peekedBy={peekedBy(cardId)}
                         lifted={mode === 'draw-decision' || mode === 'power-peek-own' || mode === 'transfer'}
                         onClick={() => onMyCardClick(cardId)}
                       />

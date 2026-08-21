@@ -23,6 +23,9 @@ export interface CardProps {
   selectable?: boolean;
   /** Test Mode: render with a see-through tint so the value is visible. */
   test?: boolean;
+  /** Name of the player who just peeked at this card — shows a decaying eye
+   *  badge so everyone knows which card was looked at (not its value). */
+  peekedBy?: string | null;
   /** Counter-rotation (deg) so the value stays upright when the whole hand
    *  is rotated to face the player who sits there. */
   contentRotate?: number;
@@ -46,6 +49,7 @@ export default function Card({
   lifted = false,
   selectable = false,
   test = false,
+  peekedBy = null,
   contentRotate = 0,
   onClick,
 }: CardProps) {
@@ -68,6 +72,12 @@ export default function Card({
       aria-label={faceDown ? (card ? `face-down card (you saw this one)` : 'face-down card') : card ? `${RANK_LABELS[card.rank]} of ${card.suit}` : 'card'}
       data-card-id={cardId}
     >
+      {peekedBy && (
+        <span className="eye-badge" title={`${peekedBy} peeked at this card`}>
+          <span className="eye-badge-icon">👁</span>
+          <span className="eye-badge-name">{peekedBy}</span>
+        </span>
+      )}
       <div className="pcard-inner">
         <div className="pcard-face pcard-front">
           {card ? (

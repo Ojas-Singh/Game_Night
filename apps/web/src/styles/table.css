@@ -696,6 +696,45 @@
 .card-slot-empty.small {
   --card-w: 52px;
 }
+/* Eye badge: shown for a few seconds on whichever card someone peeked at —
+   everyone sees WHICH card was looked at (never its value). */
+.eye-badge {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(24, 42, 60, 0.88);
+  border: 1px solid rgba(140, 220, 255, 0.55);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  white-space: nowrap;
+  animation: eye-decay 6s ease-in forwards;
+}
+.eye-badge-icon {
+  font-size: 12px;
+  line-height: 1;
+  filter: drop-shadow(0 0 4px rgba(140, 220, 255, 0.8));
+}
+.eye-badge-name {
+  font-size: 10px;
+  font-weight: 600;
+  color: #cdeaff;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@keyframes eye-decay {
+  0% { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  6% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  78% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+}
 
 /* Table centre piles */
 .table-center {
@@ -776,55 +815,129 @@
 }
 .cabo-ring-zone {
   position: absolute;
-  left: calc(50% + 132px);
+  left: calc(50% + 122px);
   top: 50%;
   transform: translateY(-50%);
   z-index: 16;
 }
+/* CALL CABO: a cute little service bell — no text, just a shine and a ding. */
 .cabo-ring {
-  width: 108px;
-  height: 108px;
+  width: 84px;
+  height: 84px;
   border-radius: 50%;
   padding: 0;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 0;
-  color: #2a1a08;
-  background: radial-gradient(circle at 50% 30%, #f8e6c0, #e3b870 60%, #c8964a);
-  box-shadow:
-    0 10px 26px rgba(0, 0, 0, 0.55),
-    inset 0 2px 4px rgba(255, 255, 255, 0.5);
-  border: 5px solid rgba(255, 240, 200, 0.85);
-  font-weight: 700;
+  border: none;
+  background: transparent;
   position: relative;
-  animation: cabo-glow 2s ease-in-out infinite;
+  cursor: pointer;
+  animation: cabo-glow 2.4s ease-in-out infinite;
 }
-.cabo-ring::before {
+.cabo-ring:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 4px;
+  border-radius: 50%;
+}
+/* Bell dome */
+.cabo-bell {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: end center;
+  filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.5));
+  transform-origin: 50% 88%;
+}
+.cabo-bell .dome {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  width: 58px;
+  height: 40px;
+  transform: translateX(-50%);
+  border-radius: 58px 58px 14px 14px / 72px 72px 10px 10px;
+  background:
+    radial-gradient(circle at 34% 22%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 42%),
+    linear-gradient(180deg, #f3d9a4 0%, #d9a75c 55%, #b9833b 100%);
+  border: 1px solid rgba(120, 80, 30, 0.5);
+}
+/* The little push-button on top of the dome */
+.cabo-bell .knob {
+  position: absolute;
+  left: 50%;
+  bottom: 54px;
+  width: 12px;
+  height: 12px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff3d6, #d9a75c 70%, #a9762f);
+  border: 1px solid rgba(120, 80, 30, 0.5);
+}
+/* Base plate */
+.cabo-bell .base {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  width: 74px;
+  height: 12px;
+  transform: translateX(-50%);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #e6bf82, #a9762f);
+  border: 1px solid rgba(120, 80, 30, 0.5);
+  box-shadow: inset 0 2px 3px rgba(255, 255, 255, 0.5);
+}
+/* Moving specular shine sweeping the dome */
+.cabo-bell .shine {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  width: 58px;
+  height: 40px;
+  transform: translateX(-50%);
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+.cabo-bell .shine::after {
   content: '';
   position: absolute;
-  inset: 9px;
-  border-radius: 50%;
-  border: 2px dashed rgba(120, 70, 10, 0.45);
+  top: -60%;
+  left: -80%;
+  width: 55%;
+  height: 220%;
+  transform: rotate(24deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: bell-shine 2.8s ease-in-out infinite;
 }
-.cabo-ring-top {
-  letter-spacing: 0.22em;
-  font-size: 13px;
+.cabo-ring:hover .cabo-bell {
+  transform: translateY(-1px) scale(1.03);
 }
-.cabo-ring-center {
-  font-size: 22px;
-  line-height: 1;
+.cabo-ring:active .cabo-bell {
+  animation: bell-ding 0.55s cubic-bezier(0.3, 1.6, 0.4, 1);
 }
-.cabo-ring-bottom {
-  letter-spacing: 0.16em;
-  font-size: 15px;
+.cabo-ring:active .cabo-bell .knob {
+  animation: knob-press 0.55s ease-out;
+}
+@keyframes bell-ding {
+  0% { transform: rotate(0deg) scale(1); }
+  18% { transform: rotate(-7deg) scale(0.97, 1.04); }
+  40% { transform: rotate(6deg) scale(1.03, 0.97); }
+  62% { transform: rotate(-3.5deg); }
+  82% { transform: rotate(2deg); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+@keyframes knob-press {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  25% { transform: translateX(-50%) translateY(3px); }
+}
+@keyframes bell-shine {
+  0%, 12% { left: -80%; }
+  50%, 100% { left: 130%; }
 }
 @keyframes cabo-glow {
   0%, 100% {
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55), 0 0 0 0 rgba(232, 165, 75, 0);
+    box-shadow: 0 0 0 0 rgba(232, 165, 75, 0);
   }
   50% {
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55), 0 0 0 10px rgba(232, 165, 75, 0.22);
+    box-shadow: 0 0 0 12px rgba(232, 165, 75, 0.2);
   }
 }
 .cabo-called-note {
@@ -833,19 +946,18 @@
   font-weight: 600;
 }
 
-/* Flying-card overlay: ghost cards mark where each card came from and where
-   it landed. Positioned in % so they track seats exactly. A comet tail of
-   translucent copies lags behind the leader so the path is obvious, and the
-   whole trail lingers + decays over time so the latest movements stay
-   readable for a couple of seconds after the card lands. */
+/* Flying-card overlay: 3D tumbling ghost cards arc from source to
+   destination with a comet tail, a flowing dashed path and a landing pulse;
+   the whole trail lingers + decays so the latest movements stay readable. */
 .flight-group {
   position: absolute;
   inset: 0;
   z-index: 40;
   pointer-events: none;
+  perspective: 900px;
 }
-/* The dashed movement path (SVG line from source to destination) — appears
-   with the flight, holds until arrival, then decays away with the trail. */
+/* The movement path (curved SVG) — appears with the flight, flows while the
+   card travels, then decays away with the trail. */
 .flight-svg {
   position: absolute;
   inset: 0;
@@ -855,29 +967,101 @@
   pointer-events: none;
 }
 .flight-path-line {
-  stroke: rgba(255, 214, 122, 0.8);
-  stroke-width: 4;
+  fill: none;
+  stroke: rgba(255, 216, 130, 0.85);
+  stroke-width: 3.5;
   stroke-linecap: round;
-  stroke-dasharray: 2 15;
-  filter: drop-shadow(0 0 6px rgba(255, 214, 122, 0.75));
+  stroke-dasharray: 1 14;
+  filter: drop-shadow(0 0 5px rgba(255, 216, 130, 0.8));
+  animation: path-flow 0.6s linear infinite;
+}
+.flight-svg.peek .flight-path-line {
+  stroke: rgba(140, 220, 255, 0.8);
+  filter: drop-shadow(0 0 5px rgba(140, 220, 255, 0.7));
+}
+@keyframes path-flow {
+  to {
+    stroke-dashoffset: -15;
+  }
+}
+/* Landing pulse: a soft ring where the card/eye touches down. */
+.landing-pulse {
+  position: absolute;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 224, 150, 0.9);
+  box-shadow: 0 0 18px rgba(255, 214, 122, 0.55);
+  pointer-events: none;
+}
+.landing-pulse.peek {
+  border-color: rgba(140, 220, 255, 0.9);
+  box-shadow: 0 0 18px rgba(140, 220, 255, 0.55);
+}
+/* The peek orb: a glowing eye gliding to the peeked card. */
+.peek-orb {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(70, 130, 180, 0.35), rgba(70, 130, 180, 0) 70%);
+  pointer-events: none;
+}
+.peek-eye {
+  font-size: 26px;
+  line-height: 1;
+  filter: drop-shadow(0 0 8px rgba(140, 220, 255, 0.95));
+  animation: eye-blink 1.6s ease-in-out infinite;
+}
+.peek-spark {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(140, 220, 255, 0.7);
+  animation: spark-out 1.2s ease-out infinite;
+}
+@keyframes eye-blink {
+  0%, 100% { transform: scaleY(1); }
+  48% { transform: scaleY(1); }
+  50% { transform: scaleY(0.12); }
+  52% { transform: scaleY(1); }
+}
+@keyframes spark-out {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(1.8); opacity: 0; }
 }
 .flight-ghost {
   position: absolute;
   width: 60px;
   height: 86px;
   border-radius: var(--radius-card);
+  pointer-events: none;
+  transform-style: preserve-3d;
+}
+/* The 3D card body inside a ghost: own shading + shadow so the tumble reads
+   as a real card flipping through the air. */
+.flight-card3d {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-card);
   background: linear-gradient(165deg, #f4ecd7, #e7ddc4);
   border: 1px solid rgba(120, 80, 30, 0.35);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
   display: grid;
   place-items: center;
-  pointer-events: none;
 }
-/* Afterimage copies in the comet tail: softer + blurred so the eye reads
-   the leader card as the one doing the moving. */
-.flight-ghost.trail {
-  filter: blur(0.8px) saturate(0.8) brightness(0.95);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+.flight-ghost.leader .flight-card3d {
+  box-shadow:
+    0 18px 34px rgba(0, 0, 0, 0.5),
+    0 0 22px rgba(255, 214, 122, 0.35);
+}
+/* Afterimage copies in the comet tail: blurred + desaturated so the eye
+   reads the leader as the card doing the moving. */
+.flight-ghost.trail .flight-card3d {
+  filter: blur(1.2px) saturate(0.75) brightness(0.96);
+  opacity: 0.9;
 }
 .flight-ghost.leader {
   z-index: 1;

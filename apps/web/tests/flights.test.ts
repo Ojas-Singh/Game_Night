@@ -73,6 +73,42 @@ describe('collectFlights', () => {
     });
   });
 
+  it('maps a draw to the drawing player seat (their own slot when it is me)', () => {
+    const next = view([{ seq: 9, type: 'CARD_DRAWN', playerId: 'G', payload: { deckCount: 18 } }]);
+    const mine = collectFlights(view([]), next, 'ME');
+    expect(mine[0]).toMatchObject({ fromPlayerId: 'deck', toPlayerId: 'G' });
+    const own = collectFlights(
+      view([]),
+      view([{ seq: 9, type: 'CARD_DRAWN', playerId: 'ME', payload: { deckCount: 18 } }]),
+      'ME',
+    );
+    expect(own[0].toPlayerId).toBeUndefined(); // lands in my local draw slot
+  });
+
+  it('maps a peek power to a glowing-eye flight from the peeker to the peeked seat', () => {
+    const next = view([
+      { seq: 10, type: 'POWER_RESOLVED', playerId: 'A', payload: { power: 'PEEK_OTHER', targetPlayerId: 'B', cardId: 'c9' } },
+      { seq: 11, type: 'POWER_RESOLVED', playerId: 'B', payload: { power: 'PEEK_OWN', cardId: 'c2' } },
+    ]);
+    const flights = collectFlights(view([]), next);
+    expect(flights).toHaveLength(2);
+    expect(flights[0]).toMatchObject({ kind: 'peek', fromPlayerId: 'A', toPlayerId: 'B' });
+    expect(flights[1]).toMatchObject({ kind: 'peek', fromPlayerId: 'B', toPlayerId: 'B' });
+  });
+
+  it('maps blind and others swaps to two crossing face-down flights', () => {
+    const next = view([
+      { seq: 12, type: 'POWER_RESOLVED', playerId: 'A', payload: { power: 'BLIND_SWAP', ownCardId: 'x', targetPlayerId: 'B', targetCardId: 'y' } },
+      { seq: 13, type: 'POWER_RESOLVED', playerId: 'A', payload: { power: 'SWAP_OTHERS', cardIdA: 'p', cardIdB: 'q', ownerA: 'B', ownerB: 'C' } },
+    ]);
+    const flights = collectFlights(view([]), next);
+    expect(flights).toHaveLength(4);
+    expect(flights[0]).toMatchObject({ fromPlayerId: 'A', toPlayerId: 'B', rank: 0 });
+    expect(flights[1]).toMatchObject({ fromPlayerId: 'B', toPlayerId: 'A', rank: 0 });
+    expect(flights[2]).toMatchObject({ fromPlayerId: 'B', toPlayerId: 'C', rank: 0 });
+    expect(flights[3]).toMatchObject({ fromPlayerId: 'C', toPlayerId: 'B', rank: 0 });
+  });
+
   it('only reports events newer than the previous view (delta)', () => {
     const prev = view([{ seq: 1, type: 'CARD_DISCARDED', playerId: 'A', payload: { rank: 4 } }]);
     const next = view([

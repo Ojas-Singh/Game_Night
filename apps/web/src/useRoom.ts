@@ -47,7 +47,11 @@ function playSoundsFor(prev: CaboPlayerView, next: CaboPlayerView): void {
 }
 
 /** Derive card-flight events from the event log delta between two views. */
-export function collectFlights(prev: CaboPlayerView, next: CaboPlayerView): CardFlight[] {
+export function collectFlights(
+  prev: CaboPlayerView,
+  next: CaboPlayerView,
+  myPlayerId?: string | null,
+): CardFlight[] {
   const seen = new Set(prev.events.map((e) => e.seq));
   const out: CardFlight[] = [];
   for (const ev of next.events) {
@@ -71,13 +75,60 @@ export function collectFlights(prev: CaboPlayerView, next: CaboPlayerView): Card
         rank,
       });
     } else if (ev.type === 'CARD_DRAWN') {
+      // The drawn card flies from the deck to the DRAWING player — their seat
+      // for opponents, the local draw slot for me (no rank: it's secret).
+      const drawer = String(ev.playerId ?? '');
       out.push({
         id: `${ev.type}-${ev.seq}`,
         seq: ev.seq,
         fromPlayerId: 'deck',
         toDiscard: false,
+        toPlayerId: drawer === myPlayerId ? undefined : drawer,
         rank,
       });
+    } else if (ev.type === 'POWER_RESOLVED') {
+      const pow = String(p?.power ?? '');
+      if (pow === 'PEEK_OWN' || pow === 'PEEK_OTHER') {
+        // A peek travels as a glowing "eye" from the peeker to the peeked
+        // card's seat — everyone sees WHICH card was looked at (not its value).
+        out.push({
+          id: `${ev.type}-${ev.seq}`,
+          seq: ev.seq,
+          kind: 'peek',
+          fromPlayerId: String(ev.playerId ?? ''),
+          toDiscard: false,
+          toPlayerId: String(p?.targetPlayerId ?? ev.playerId ?? ''),
+          rank: 0,
+        });
+      } else if (pow === 'BLIND_SWAP') {
+        // Two cards cross between the performer and the target (face-down:
+        // values must not leak through the shared event log).
+        const meId = String(ev.playerId ?? '');
+        const target = String(p?.targetPlayerId ?? '');
+        out.push({
+          id: `${ev.type}-${ev.seq}-a`,
+          seq: ev.seq,
+          fromPlayerId: meId,
+          toDiscard: false,
+          toPlayerId: target,
+          rank: 0,
+        });
+        out.push({
+          id: `${ev.type}-${ev.seq}-b`,
+          seq: ev.seq,
+          fromPlayerId: target,
+          toDiscard: false,
+          toPlayerId: meId,
+          rank: 0,
+        });
+      } else if (pow === 'SWAP_OTHERS' && typeof p?.ownerA === 'string' && typeof p?.ownerB === 'string') {
+        const a = String(p.ownerA);
+        const b = String(p.ownerB);
+        if (a && b && a !== b) {
+          out.push({ id: `${ev.type}-${ev.seq}-a`, seq: ev.seq, fromPlayerId: a, toDiscard: false, toPlayerId: b, rank: 0 });
+          out.push({ id: `${ev.type}-${ev.seq}-b`, seq: ev.seq, fromPlayerId: b, toDiscard: false, toPlayerId: a, rank: 0 });
+        }
+      }
     } else if (ev.type === 'PENALTY_DRAWN') {
       // A secret penalty card flies from the deck to the penalized player's
       // hand — face-down (no rank in the shared log), so everyone sees the
@@ -107,6 +158,8 @@ export type ConnStatus = 'connecting' | 'connected' | 'reconnecting' | 'error';
 
 /** How long a freshly peeked card stays face-up before flipping back down. */
 const PEEK_FLASH_MS = 2600;
+/** How long the "someone peeked here" eye badge stays visible. */
+const PEEK_MARK_MS = 6000;
 
 /** A Cabo action without playerId, preserving discriminated-union narrowing. */
 type ClientCaboAction = {
@@ -124,6 +177,8 @@ export interface CardFlight {
   /** When set, the flight lands in this player's hand (e.g. a secret penalty). */
   toPlayerId?: string;
   rank: number;
+  /** 'peek' renders a glowing eye instead of a card (a look, not a move). */
+  kind?: 'card' | 'peek';
 }
 
 export interface RoomApi {
@@ -141,6 +196,9 @@ export interface RoomApi {
   flights: CardFlight[];
   /** Most recent emote per player: playerId → { emote, at }. */
   emotes: Record<string, { emote: string; at: number }>;
+  /** Recently peeked cards: cardId → { byPlayerId, at } — everyone sees
+   *  WHICH card was peeked (a decaying eye badge), never its value. */
+  peekMarks: Record<string, { byPlayerId: string; at: number }>;
   sendEmote: (emote: string) => void;
   markChatRead: () => void;
   joinError: string | null;
@@ -182,9 +240,15 @@ export function useRoom(): RoomApi {
   const [emotes, setEmotes] = useState<Record<string, { emote: string; at: number }>>({});
   /** Recent card movements to animate (pruned automatically over time). */
   const [flights, setFlights] = useState<CardFlight[]>([]);
+  /** Recently peeked cards (eye badges that decay). */
+  const [peekMarks, setPeekMarks] = useState<Record<string, { byPlayerId: string; at: number }>>({});
+  const myIdRef = useRef<string | null>(null);
+  myIdRef.current = myPlayerId;
 
-  const flashKnowledge = useCallback((prev: CaboPlayerView, next: CaboPlayerView) => {
-    const before = new Set(Object.keys(prev.knownCards));
+  const flashKnowledge = useCallback((prev: CaboPlayerView | null, next: CaboPlayerView) => {
+    // prev === null on the FIRST view after (re)join — the starting peek of
+    // the bottom two cards arrives that way, so it must flash too.
+    const before = new Set(prev ? Object.keys(prev.knownCards) : []);
     const fresh = Object.keys(next.knownCards).filter((id) => !before.has(id));
     if (fresh.length === 0) return;
     const now = Date.now();
@@ -251,15 +315,41 @@ export function useRoom(): RoomApi {
     };
     const onView = (v: CaboPlayerView) => {
       setView((prev) => {
-        if (prev && prev !== v) {
-          playSoundsFor(prev, v);
+        if (prev !== v) {
+          if (prev) playSoundsFor(prev, v);
           flashKnowledge(prev, v);
-          const fresh = collectFlights(prev, v);
-          if (fresh.length > 0) {
-            setFlights((cur) => {
-              const merged = [...cur, ...fresh].slice(-8);
-              return merged;
-            });
+          if (prev) {
+            const fresh = collectFlights(prev, v, myIdRef.current);
+            if (fresh.length > 0) {
+              setFlights((cur) => [...cur, ...fresh].slice(-8));
+            }
+            // Eye badges: which cards were just peeked (by whom).
+            const seen = new Set(prev.events.map((e) => e.seq));
+            const now = Date.now();
+            const marks: Array<[string, string]> = [];
+            for (const ev of v.events) {
+              if (seen.has(ev.seq)) continue;
+              const p = ev.payload as Record<string, unknown> | undefined;
+              if (ev.type === 'POWER_RESOLVED' && (p?.power === 'PEEK_OWN' || p?.power === 'PEEK_OTHER') && typeof p?.cardId === 'string') {
+                marks.push([p.cardId, String(ev.playerId ?? '')]);
+              }
+            }
+            if (marks.length > 0) {
+              setPeekMarks((cur) => {
+                const nextMarks = { ...cur };
+                for (const [cardId, by] of marks) nextMarks[cardId] = { byPlayerId: by, at: now };
+                return nextMarks;
+              });
+              setTimeout(() => {
+                setPeekMarks((cur) => {
+                  const kept: typeof cur = {};
+                  for (const [id, m] of Object.entries(cur)) {
+                    if (now - m.at < PEEK_MARK_MS - 50) kept[id] = m;
+                  }
+                  return kept;
+                });
+              }, PEEK_MARK_MS);
+            }
           }
         }
         return v;
@@ -339,6 +429,7 @@ export function useRoom(): RoomApi {
       chat,
       peekFlash,
       emotes,
+      peekMarks,
       flights,
       sendEmote: (emote: string) => socketRef.current?.emit('room:emote', { emote }),
       unreadChat: unread,
@@ -382,7 +473,7 @@ export function useRoom(): RoomApi {
         setMyPlayerId(null);
       },
     }),
-    [socket, status, roomId, myPlayerId, lobby, testMode, view, chat, peekFlash, emotes, flights, unread, joinError, createRoom, joinRoom],
+    [socket, status, roomId, myPlayerId, lobby, testMode, view, chat, peekFlash, emotes, peekMarks, flights, unread, joinError, createRoom, joinRoom],
   );
 
   return api;

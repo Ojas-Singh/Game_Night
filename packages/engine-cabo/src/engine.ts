@@ -544,14 +544,19 @@ export class CaboEngine {
   ): void {
     const s = this.getState();
     const pending = s.pendingPower!;
+    let swapInfo: { cardIdA: string; cardIdB: string; ownerA: string; ownerB: string } | null = null;
     switch (payload.power) {
       case 'SWAP_OTHERS': {
         // Swap positions of two cards belonging to other players; values stay hidden.
+        let ownerA: string | null = null;
+        let ownerB: string | null = null;
         for (const pid of Object.keys(s.hands)) {
           const i = findCard(s.hands[pid]!, payload.cardIdA);
           if (i >= 0) {
+            ownerA = pid;
             const j = findCard(s.hands[pid]!, payload.cardIdB);
             if (j >= 0) {
+              ownerB = pid;
               const tmp = s.hands[pid]![i]!;
               s.hands[pid]![i] = s.hands[pid]![j]!;
               s.hands[pid]![j] = tmp;
@@ -561,6 +566,20 @@ export class CaboEngine {
             break;
           }
         }
+        // Resolve the final owners AFTER the swap for the event payload so
+        // clients can animate both cards along their true paths.
+        if (!ownerB) {
+          for (const pid of Object.keys(s.hands)) {
+            if (findCard(s.hands[pid]!, payload.cardIdA) >= 0) ownerA = pid;
+            if (findCard(s.hands[pid]!, payload.cardIdB) >= 0) ownerB = pid;
+          }
+        }
+        swapInfo = {
+          cardIdA: payload.cardIdA,
+          cardIdB: payload.cardIdB,
+          ownerA: ownerA ?? '',
+          ownerB: ownerB ?? '',
+        };
         break;
       }
       case 'PEEK_OWN': {
@@ -598,7 +617,7 @@ export class CaboEngine {
       }
     }
     if (payload.power !== 'PEEK_OWN' && payload.power !== 'PEEK_OTHER') {
-      this.emit('POWER_RESOLVED', { playerId, power: payload.power });
+      this.emit('POWER_RESOLVED', { playerId, power: payload.power, ...(swapInfo ?? {}) });
     }
     s.pendingPower = null;
     s.phase = 'TURN_DRAW';
