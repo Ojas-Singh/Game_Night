@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { standardDeck, createRng, shuffle } from '@game-night/shared';
-import { CaboEngine, cardValue, powerForRank, DEFAULT_CABO_RULES } from '../src/index.js';
+import { CaboEngine, cardValue, powerForRank, DEFAULT_CABO_RULES, type CaboRules } from '../src/index.js';
 import { S, H, D, CL, c, setup, peekAll, mustFail, mustOk, live } from './helpers.js';
 
 const P1 = 'p1';
@@ -276,10 +276,10 @@ describe('house rule: the discarded card triggers its power', () => {
 });
 
 describe('powers', () => {
-  function pendingPowerFor(power: string, setupDraw: (o: ReturnType<typeof baseOrder>) => void) {
+  function pendingPowerFor(power: string, setupDraw: (o: ReturnType<typeof baseOrder>) => void, rules?: Partial<CaboRules>) {
     const order = baseOrder();
     setupDraw(order);
-    const e = setup(order);
+    const e = setup(order, { rules });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
@@ -288,9 +288,13 @@ describe('powers', () => {
   }
 
   it('5/6 SWAP_OTHERS swaps two cards belonging to other players without revealing them', () => {
-    const e = pendingPowerFor('SWAP_OTHERS', (o) => {
-      o[12] = c('draw5', H, 5);
-    });
+    const e = pendingPowerFor(
+      'SWAP_OTHERS',
+      (o) => {
+        o[12] = c('draw5', H, 5);
+      },
+      { swapOthersEnabled: true }, // host-enabled house rule
+    );
     const s = e.getState();
     const p2Before = s.hands.p2!.slice();
     const p3Before = s.hands.p3!.slice();
@@ -473,7 +477,7 @@ describe('flushing own cards', () => {
     order[6] = c('a3', CL, 6);
     order[9] = c('a4', D, 6);
     order[12] = c('draw6', H, 6);
-    const e = setup(order, { rules: { endRoundWhenPlayerHasNoCards: true } }); // legacy mode
+    const e = setup(order, { rules: { endRoundWhenPlayerHasNoCards: true, swapOthersEnabled: true } }); // legacy mode
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 }); // triggers SWAP_OTHERS power!

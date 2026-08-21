@@ -83,8 +83,8 @@ export const DEFAULT_CABO_RULES: CaboRules = {
     { from: 9, to: 10, power: 'PEEK_OTHER' },
     { from: 11, to: 12, power: 'BLIND_SWAP' },
   ],
-  // 5–6 optional by host (house rule); 7–10 and J–Q always on.
-  swapOthersEnabled: true,
+  // 5–6 is a host-optional house rule, OFF by default; 7–10 and J–Q always on.
+  swapOthersEnabled: false,
   wrongFlushPenalty: 'draw_one',
   emptyDeckBehavior: 'reshuffle_discard',
   endRoundWhenPlayerHasNoCards: false,

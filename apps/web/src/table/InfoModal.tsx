@@ -6,8 +6,8 @@ interface InfoModalProps {
 }
 
 /**
- * In-game "Info" button content: the house rules plus a rhyme to remember the
- * special card actions. Read-only reference — closing returns to the table.
+ * In-game "Info" button content: the house rules, written to be quick to read
+ * and easy to remember. Read-only reference — closing returns to the table.
  */
 export default function InfoModal({ open, onClose }: InfoModalProps) {
   return (
@@ -39,65 +39,72 @@ export default function InfoModal({ open, onClose }: InfoModalProps) {
               <section className="info-section">
                 <h4>Aim</h4>
                 <p>
-                  Be the player with the <strong>lowest score</strong> when someone calls{' '}
-                  <strong>CABO</strong> and the round ends. Number cards are worth their face
-                  value, <strong>Ace = 1</strong>, <strong>J = 11</strong>, <strong>Q = 12</strong>,
-                  red <strong>King = 13</strong>, black <strong>King = −1</strong> — and your score
-                  can never drop below <strong>−2</strong>.
+                  Have the <strong>lowest score</strong> by the end of the game.
+                </p>
+                <p>
+                  Number cards = face value &middot; <strong>Ace = 1</strong> &middot;{' '}
+                  <strong>Jack = 11</strong> &middot; <strong>Queen = 12</strong> &middot;{' '}
+                  <strong>Red King = 13</strong> &middot; <strong>Black King = &minus;1</strong>
+                </p>
+                <p>
+                  Lowest possible score: <strong>&minus;2</strong>.
                 </p>
               </section>
 
               <section className="info-section">
                 <h4>Setup</h4>
                 <p>
-                  Everyone gets 4 cards face-down in a 2×2 grid. At the start you peek at your{' '}
-                  <strong>bottom two</strong>. On your turn, <strong>draw</strong> a card (keep it and
-                  swap it in, or throw it straight onto the pile), or <strong>flush</strong> the pile.
+                  Get <strong>4 face-down cards</strong> in a 2&times;2 grid. Peek at your{' '}
+                  <strong>bottom two</strong>.
+                </p>
+                <p>
+                  On your turn, <strong>draw a card</strong>: swap it with one of yours or discard
+                  it.
+                </p>
+                <p className="tip">
+                  💡 Tip: It&rsquo;s usually better to replace a new card with one of your unknown
+                  cards, so you learn more about your cards early on.
                 </p>
               </section>
 
               <section className="info-section">
                 <h4>Flushing</h4>
                 <p>
-                  Throw cards that match the rank on top of the pile — your own, or another
-                  player&rsquo;s card you&rsquo;ve already seen. Guess wrong and you&rsquo;ll be{' '}
-                  <strong>caught</strong>: the card is revealed to everyone and you draw a{' '}
-                  <strong>secret penalty card</strong>.
+                  If a card matches the number on top of the discard pile, <strong>flush it</strong>{' '}
+                  &mdash; yours or another player&rsquo;s card you&rsquo;ve already seen, even when
+                  it&rsquo;s not your turn.
+                </p>
+                <p>
+                  <strong>Guess wrong:</strong> the card is revealed to everyone, and you must take
+                  a <strong>penalty card</strong>.
                 </p>
               </section>
 
-              <section className="info-section rhyme">
-                <h4>The special cards</h4>
-                <div className="rhyme-panel">
+              <section className="info-section special">
+                <h4>Special cards</h4>
+                <div className="special-panel">
                   <p>
-                    Five or six — <strong>swap the crowd</strong>:
-                    <br />
-                    two of your friends swap ~ allow.
+                    <strong>7 or 8 &mdash; Know Your Fate:</strong> Peek at one of your cards.
                   </p>
                   <p>
-                    Seven or eight — <strong>your own fate</strong>:
-                    <br />
-                    peek one of yours to set things straight.
+                    <strong>9 or 10 &mdash; Know Your Friend:</strong> Peek at one of your
+                    friend&rsquo;s cards.
                   </p>
                   <p>
-                    Nine or ten — <strong>a friend&rsquo;s disguise</strong>:
-                    <br />
-                    peek their card before your eyes.
-                  </p>
-                  <p>
-                    Jack or Queen — <strong>the blind swap</strong>:
-                    <br />
-                    trade one of yours without a peek, don&rsquo;t stop.
+                    <strong>Jack or Queen &mdash; Switch Between:</strong> Trade one of your cards
+                    with someone else&rsquo;s <strong>without looking</strong>.
                   </p>
                 </div>
               </section>
 
               <section className="info-section">
-                <h4>CABO</h4>
+                <h4>Call CABO</h4>
                 <p>
-                  On your turn you can call <strong>CABO</strong> to end the round. Everyone else
-                  gets one final turn; the caller doesn&rsquo;t. Then all cards are revealed and
-                  the lowest score wins. Flush out all your cards to end the round early!
+                  On your turn, call <strong>CABO</strong> to end the round. Everyone else gets{' '}
+                  <strong>one final turn</strong> &mdash; but you don&rsquo;t.
+                </p>
+                <p>
+                  Card reveal! <strong>Lowest score wins.</strong>
                 </p>
               </section>
             </div>

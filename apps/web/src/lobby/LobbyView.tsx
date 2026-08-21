@@ -113,7 +113,7 @@ export default function LobbyView({ room }: { room: RoomApi }) {
             {isHost ? (
               <div className="host-controls">
                 <div className="house-rule-row">
-                  <label className="rule-label" title="When a player discards a 5 or 6, they swap two of their opponents' cards">
+                  <label className="rule-label" title="Optional house rule: when a player discards a 5 or 6, they swap two of their opponents' cards">
                     <input
                       type="checkbox"
                       checked={lobby.swapOthersEnabled}

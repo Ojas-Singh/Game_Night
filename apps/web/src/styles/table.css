@@ -1741,10 +1741,16 @@
 .info-section strong {
   color: var(--accent);
 }
-.info-section.rhyme h4 {
+.info-section p.tip {
+  margin-top: 6px;
+  font-size: 13px;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.62);
+}
+.info-section.special h4 {
   margin-bottom: 8px;
 }
-.rhyme-panel {
+.special-panel {
   background: rgba(255, 220, 160, 0.05);
   border: 1px dashed rgba(255, 220, 160, 0.18);
   border-radius: 12px;
@@ -1753,7 +1759,7 @@
   flex-direction: column;
   gap: 8px;
 }
-.rhyme-panel p {
+.special-panel p {
   margin: 0;
   font-size: 14px;
   line-height: 1.5;

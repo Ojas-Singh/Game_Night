@@ -70,8 +70,8 @@ export class Room {
   engine: CaboEngine | null = null;
   /** Cumulative match scoreboard across rounds. */
   scoreboard: Record<string, number> = {};
-  /** Host-selectable house rule: enable the 5–6 "swap others" power. */
-  swapOthersEnabled = true;
+  /** Host-selectable house rule: enable the 5–6 "swap others" power. OFF by default. */
+  swapOthersEnabled = false;
   /** Test Mode: reveal every card's value to all players so anyone can watch
    *  the full flow. Purely a debugging/test aid — off by default. */
   testMode = false;
@@ -94,7 +94,7 @@ export class Room {
     room.gameId = (snap.gameId in { cabo: 1 } ? snap.gameId : 'cabo') as GameId;
     room.chat = snap.chat;
     room.scoreboard = snap.scoreboard;
-    room.swapOthersEnabled = snap.swapOthersEnabled ?? true;
+    room.swapOthersEnabled = snap.swapOthersEnabled ?? false;
     room.testMode = snap.testMode ?? false;
     room.debug = snap.debug ?? {};
     for (const sp of snap.players) {
