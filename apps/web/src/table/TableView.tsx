@@ -7,7 +7,7 @@ import Card from './Card.js';
 import TableCenter from './TableCenter.js';
 import SeatPlanner from './SeatPlanner.js';
 import ScoreBoard from './ScoreBoard.js';
-import CardFlights, { SwapConnector } from './CardFlights.js';
+import CardFlights, { SwapGhosts } from './CardFlights.js';
 import { useGuidance } from './guidance.js';
 import ChatPanel from '../chat/ChatPanel.js';
 import SoundToggle from '../SoundToggle.js';
@@ -92,43 +92,42 @@ export default function TableView({ room }: { room: RoomApi }) {
     return () => window.removeEventListener('resize', measureAnchors);
   }, [measureAnchors, room.flights, others.length]);
 
-  // ---- Swap connector ---------------------------------------------------
-  // ONE double-arrowed ⇄ between the two slots that exchanged cards. The
-  // endpoints are measured AFTER the glide settles (~0.6s) so they mark the
-  // final resting slots, and the connector fades after ~2.4s.
+  // ---- Swap ghosts (peek style) ------------------------------------------
+  // On a swap, each card flies to its partner's OLD slot — so both ghosts
+  // launch from/to positions measured at commit time (before the glide
+  // settles), rendered exactly like the peek eye: glowing object, curved
+  // path, sparks, landing pulse.
   const handledSwapPairs = useRef<Set<string>>(new Set());
-  const [swapConnectors, setSwapConnectors] = useState<Array<{ id: string; a: FlightPos; b: FlightPos }>>([]);
-  useEffect(() => {
+  const [swapGhosts, setSwapGhosts] = useState<Array<{ id: string; from: FlightPos; to: FlightPos }>>([]);
+  useLayoutEffect(() => {
     const table = tableRef.current;
     if (!table || room.swapPairs.length === 0) return;
     const fresh = room.swapPairs.filter((p) => !handledSwapPairs.current.has(p.id));
     if (fresh.length === 0) return;
     fresh.forEach((p) => handledSwapPairs.current.add(p.id));
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    const t1 = setTimeout(() => {
-      const rect = table.getBoundingClientRect();
-      const centerOf = (cid: string): FlightPos | null => {
-        const el = table.querySelector<HTMLElement>(`[data-card-id="${cid}"]`);
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return { x: r.left - rect.left + r.width / 2, y: r.top - rect.top + r.height / 2 };
-      };
-      const conns: Array<{ id: string; a: FlightPos; b: FlightPos }> = [];
-      for (const pair of fresh) {
-        const a = centerOf(pair.cardA);
-        const b = centerOf(pair.cardB);
-        if (a && b) conns.push({ id: pair.id, a, b });
+    const rect = table.getBoundingClientRect();
+    const centerOf = (cid: string): FlightPos | null => {
+      const el = table.querySelector<HTMLElement>(`[data-card-id="${cid}"]`);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.left - rect.left + r.width / 2, y: r.top - rect.top + r.height / 2 };
+    };
+    const ghosts: Array<{ id: string; from: FlightPos; to: FlightPos }> = [];
+    for (const pair of fresh) {
+      const a = centerOf(pair.cardA);
+      const b = centerOf(pair.cardB);
+      if (a && b) {
+        ghosts.push({ id: `${pair.id}-a`, from: a, to: b });
+        ghosts.push({ id: `${pair.id}-b`, from: b, to: a });
       }
-      if (conns.length > 0) {
-        setSwapConnectors((cur) => [...cur, ...conns].slice(-3));
-        const t2 = setTimeout(() => {
-          setSwapConnectors((cur) => cur.filter((c) => !conns.some((x) => x.id === c.id)));
-        }, 2500);
-        timers.push(t2);
-      }
-    }, 620);
-    timers.push(t1);
-    return () => timers.forEach(clearTimeout);
+    }
+    if (ghosts.length > 0) {
+      setSwapGhosts((cur) => [...cur, ...ghosts].slice(-6));
+      const t = setTimeout(() => {
+        setSwapGhosts((cur) => cur.filter((g) => !ghosts.some((x) => x.id === g.id)));
+      }, 2100);
+      return () => clearTimeout(t);
+    }
   }, [room.swapPairs]);
 
   const myHand = view.handCardIds[me.id] ?? [];
@@ -445,8 +444,7 @@ export default function TableView({ room }: { room: RoomApi }) {
             onDone={dropFlight}
           />
         )}
-        {anchors &&
-          swapConnectors.map((c) => <SwapConnector key={c.id} id={c.id} a={c.a} b={c.b} size={anchors.size} />)}
+        {anchors && <SwapGhosts ghosts={swapGhosts} size={anchors.size} />}
 
         {/* my hand */}
         <div className={`seat seat-me ${isMyTurn ? 'active' : ''}`}>

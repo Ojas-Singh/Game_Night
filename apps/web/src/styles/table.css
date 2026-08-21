@@ -860,44 +860,52 @@
   border-color: var(--accent-strong);
   font-weight: 700;
 }
-/* A just-swapped card: a suspense beat (charge up + trembling glow) and
-   then the dart across with a trail-like glow, settling back down. */
+/* A just-swapped card: a soft glow while it glides (the ghost does the show). */
 .pcard.swapped {
-  animation: swap-note 1.5s cubic-bezier(0.3, 0.8, 0.3, 1);
+  animation: swap-note 1.4s ease-out;
   z-index: 30;
 }
 @keyframes swap-note {
-  0% { box-shadow: 0 0 0 0 rgba(255, 178, 88, 0); transform: scale(1) rotate(0deg); }
-  20% { box-shadow: 0 0 0 4px rgba(255, 178, 88, 0.75), 0 0 16px rgba(255, 178, 88, 0.55); transform: scale(1.06) rotate(-2deg); }
-  35% { box-shadow: 0 0 0 7px rgba(255, 178, 88, 0.95), 0 0 30px rgba(255, 178, 88, 0.8); transform: scale(1.22) rotate(2.5deg); }
-  45% { transform: scale(1.2) rotate(-2deg); }
-  55% { transform: scale(1.2) rotate(1.5deg); }
-  70% { box-shadow: 0 0 0 5px rgba(255, 178, 88, 0.5), 0 0 18px rgba(255, 178, 88, 0.45); transform: scale(1.06) rotate(0deg); }
-  100% { box-shadow: 0 0 0 0 rgba(255, 178, 88, 0); transform: scale(1) rotate(0deg); }
+  0% { box-shadow: 0 0 0 0 rgba(255, 178, 88, 0); }
+  18% { box-shadow: 0 0 0 4px rgba(255, 178, 88, 0.8), 0 0 18px rgba(255, 178, 88, 0.6); }
+  65% { box-shadow: 0 0 0 4px rgba(255, 178, 88, 0.45), 0 0 12px rgba(255, 178, 88, 0.35); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 178, 88, 0); }
 }
-/* Swap trail path: warmer + thicker than regular flight paths. */
-.flight-svg.swap .flight-path-line,
-.flight-path-line.swap {
-  stroke: rgba(255, 178, 88, 0.95);
-  stroke-width: 4.5;
-  filter: drop-shadow(0 0 7px rgba(255, 178, 88, 0.85));
-}
-.swap-badge {
+/* Swap ghost: a small glowing face-down card flying in the peek style. */
+.swap-ghost {
   position: absolute;
-  transform: translate(-50%, -50%);
-  z-index: 3;
+  left: 0;
+  top: 0;
+  width: 48px;
+  height: 70px;
+  margin: -35px 0 0 -24px;
+  pointer-events: none;
+  will-change: transform;
+}
+.swap-ghost-card {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-card);
+  background: linear-gradient(165deg, #3a2c1a, #241a0e);
+  border: 1.5px solid rgba(255, 200, 110, 0.7);
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  font-size: 18px;
-  font-weight: 700;
-  color: #2a1a08;
-  background: radial-gradient(circle at 40% 30%, #ffe9bd, #f0b95f 70%, #d99a3d);
-  border: 1.5px solid rgba(120, 80, 30, 0.5);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45), 0 0 14px rgba(255, 178, 88, 0.55);
-  pointer-events: none;
+  box-shadow:
+    0 14px 30px rgba(0, 0, 0, 0.55),
+    0 0 22px rgba(255, 178, 88, 0.75),
+    inset 0 0 12px rgba(255, 178, 88, 0.25);
+}
+.swap-ghost-icon {
+  font-size: 20px;
+  color: #ffd97a;
+  text-shadow: 0 0 10px rgba(255, 200, 110, 0.95);
+}
+.swap-spark {
+  border-color: rgba(255, 200, 110, 0.8);
+}
+.flight-path-line.swap {
+  stroke: rgba(255, 190, 100, 0.85);
+  filter: drop-shadow(0 0 6px rgba(255, 190, 100, 0.75));
 }
 /* End-of-action pass button */
 .end-turn-btn {

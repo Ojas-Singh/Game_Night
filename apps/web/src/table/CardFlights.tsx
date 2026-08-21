@@ -313,48 +313,69 @@ function FlightPath({
   );
 }
 
-/** ONE clear swap visual: a double-arrowed connector between the two slots
- *  that exchanged cards, with a ⇄ badge at its middle. The real cards glide
- *  under it with their amber glow — no confusing per-card trails. */
-export function SwapConnector({
-  id,
-  a,
-  b,
+/** Swap in the PEEK style: for each exchanged card a small glowing
+ *  face-down ghost glides from its OLD slot to its partner's OLD slot (its
+ *  landing position), with the same curved path, sparks and landing pulse
+ *  as the peek eye — no blinking connector lines. */
+export function SwapGhosts({
+  ghosts,
   size,
 }: {
-  id: string;
-  a: FlightPos;
-  b: FlightPos;
+  ghosts: Array<{ id: string; from: FlightPos; to: FlightPos }>;
   size: { w: number; h: number };
 }) {
-  const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - Math.min(26, Math.hypot(b.x - a.x, b.y - a.y) * 0.1) };
-  const d = `M ${a.x} ${a.y} Q ${mid.x} ${mid.y} ${b.x} ${b.y}`;
-  // Dramatic beat: charge (0→0.45s), DART (0.45→0.75s), settle & fade.
-  const T = 2.1;
   return (
-    <motion.div key={id} className="flight-group" initial={{ opacity: 1 }} animate={{ opacity: [1, 1, 0] }} transition={{ duration: T, times: [0, 0.75, 1] }}>
+    <>
+      {ghosts.map((g) => (
+        <SwapGhost key={g.id} from={g.from} to={g.to} size={size} />
+      ))}
+    </>
+  );
+}
+
+function SwapGhost({ from, to, size }: { from: FlightPos; to: FlightPos; size: { w: number; h: number } }) {
+  const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - Math.min(46, Math.hypot(to.x - from.x, to.y - from.y) * 0.2) };
+  const d = `M ${from.x} ${from.y} Q ${mid.x} ${mid.y} ${to.x} ${to.y}`;
+  const D = 0.66;
+  const TOTAL = 2.0;
+  return (
+    <motion.div className="flight-group" initial={{ opacity: 1 }} exit={{ opacity: 0, transition: { duration: 0.18 } }}>
       <svg className="flight-svg swap" width={size.w} height={size.h} viewBox={`0 0 ${size.w} ${size.h}`}>
         <motion.path
           className="flight-path-line swap"
           d={d}
-          initial={{ opacity: 0, pathLength: 0 }}
-          animate={{ opacity: [0, 0.4, 1, 1, 0], pathLength: [0, 0, 1, 1, 1] }}
-          transition={{ duration: T, times: [0, 0.2, 0.36, 0.75, 1], ease: 'easeOut' }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: [0, 0.8, 0.8, 0] }}
+          transition={{ duration: TOTAL, times: [0, 0.12, D / TOTAL, 1], ease: 'easeOut' }}
         />
       </svg>
-      <motion.span
-        className="swap-badge"
-        style={{ left: mid.x, top: mid.y }}
-        initial={{ opacity: 0, scale: 0.3, rotate: -30 }}
+      <LandingPulse to={to} delay={D} />
+      <motion.div
+        className="swap-ghost"
+        style={{ transformPerspective: 900 }}
+        initial={{ x: from.x, y: from.y, opacity: 0, scale: 0.4, rotate: -12 }}
         animate={{
+          x: [from.x, mid.x, to.x],
+          y: [from.y, mid.y, to.y],
           opacity: [0, 1, 1, 0],
-          scale: [0.3, 0.7, 1.35, 1],
-          rotate: [-30, -12, 8, 0],
+          scale: [0.4, 1.12, 1, 0.8],
+          rotate: [-12, 6, 0],
         }}
-        transition={{ duration: T, times: [0, 0.18, 0.4, 0.75] }}
+        transition={{
+          x: { duration: D, ease: [0.3, 0.7, 0.3, 1] },
+          y: { duration: D, ease: [0.35, 0.7, 0.3, 1] },
+          opacity: { duration: TOTAL, times: [0, 0.15, D / TOTAL, 1], ease: 'linear' },
+          scale: { duration: TOTAL, times: [0, 0.3, D / TOTAL, 1] },
+          rotate: { duration: D },
+        }}
       >
-        ⇄
-      </motion.span>
+        <div className="swap-ghost-card">
+          <span className="swap-ghost-icon">⇄</span>
+          {[0, 1, 2].map((i) => (
+            <span key={i} className="peek-spark swap-spark" style={{ animationDelay: `${i * 0.14}s` }} />
+          ))}
+        </div>
+      </motion.div>
     </motion.div>
   );
 }
