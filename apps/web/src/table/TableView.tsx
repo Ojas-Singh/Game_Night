@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import type { RoomApi, CardFlight } from '../useRoom.js';
 import type { FlightPos } from './CardFlights.js';
 import type { CaboPlayerView } from '@cabo/views.js';
@@ -44,6 +43,12 @@ export default function TableView({ room }: { room: RoomApi }) {
   // discard pile, draw slot, each player's actual hand grid) instead of being
   // guessed from planner percentages — so ghosts fly along true paths.
   const tableRef = useRef<HTMLDivElement>(null);
+  /**
+   * The swap event arrives with the already-swapped view. Keep the last
+   * committed card coordinates so the swap ghosts can still start at the
+   * cards' old slots instead of measuring their new slots.
+   */
+  const previousCardPositions = useRef<Record<string, FlightPos>>({});
   const [anchors, setAnchors] = useState<{
     size: { w: number; h: number };
     // The table container's viewport rect — used to place the avatar/name
@@ -55,53 +60,27 @@ export default function TableView({ room }: { room: RoomApi }) {
     hands: Record<string, FlightPos>;
     cards: Record<string, FlightPos>;
   } | null>(null);
-  const measureAnchors = useCallback(() => {
-    const table = tableRef.current;
-    if (!table) return;
-    const rect = table.getBoundingClientRect();
-    const center = (el: Element | null): FlightPos | null => {
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return { x: r.left - rect.left + r.width / 2, y: r.top - rect.top + r.height / 2 };
-    };
-    const hands: Record<string, FlightPos> = {};
-    table.querySelectorAll<HTMLElement>('[data-hand-for]').forEach((el) => {
-      const pid = el.dataset.handFor;
-      const pos = center(el);
-      if (pid && pos) hands[pid] = pos;
-    });
-    // Per-card anchors: trajectories land in the CENTRE of the exact card.
+
+  const readCardPositions = useCallback((table: HTMLDivElement, rect: DOMRect): Record<string, FlightPos> => {
     const cards: Record<string, FlightPos> = {};
     table.querySelectorAll<HTMLElement>('[data-card-id]').forEach((el) => {
       const cid = el.dataset.cardId;
-      const pos = center(el);
-      if (cid && pos) cards[cid] = pos;
+      const r = el.getBoundingClientRect();
+      if (cid) cards[cid] = { x: r.left - rect.left + r.width / 2, y: r.top - rect.top + r.height / 2 };
     });
-    setAnchors({
-      size: { w: rect.width, h: rect.height },
-      ellipse: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-      // Pile faces (not the labelled container, whose text shifts the centre).
-      deck: center(table.querySelector('.deck-pile .deck-stack.s3')) ?? center(table.querySelector('.deck-pile')) ?? { x: rect.width * 0.46, y: rect.height * 0.46 },
-      discard: center(table.querySelector('.discard-pile .discard-card')) ??
-        center(table.querySelector('.discard-pile .discard-empty')) ??
-        center(table.querySelector('.discard-pile')) ?? { x: rect.width * 0.54, y: rect.height * 0.46 },
-      // The drawn card element itself when present, else the slot.
-      draw: center(table.querySelector('.draw-slot .pcard')) ?? center(table.querySelector('.draw-slot')) ?? { x: rect.width * 0.62, y: rect.height * 0.5 },
-      hands,
-      cards,
-    });
+    return cards;
   }, []);
-  useLayoutEffect(() => {
-    measureAnchors();
-    window.addEventListener('resize', measureAnchors);
-    return () => window.removeEventListener('resize', measureAnchors);
-  }, [measureAnchors, room.flights, others.length]);
+
+  const captureCardPositions = useCallback(() => {
+    const table = tableRef.current;
+    if (!table) return;
+    previousCardPositions.current = readCardPositions(table, table.getBoundingClientRect());
+  }, [readCardPositions]);
 
   // ---- Swap ghosts (peek style) ------------------------------------------
-  // On a swap, each card flies to its partner's OLD slot — so both ghosts
-  // launch from/to positions measured at commit time (before the glide
-  // settles), rendered exactly like the peek eye: glowing object, curved
-  // path, sparks, landing pulse.
+  // On a swap, each card flies to its partner's OLD slot. This effect runs
+  // before the position snapshot below, so previousCardPositions still
+  // describes the DOM from the view before the swap.
   const handledSwapPairs = useRef<Set<string>>(new Set());
   const [swapGhosts, setSwapGhosts] = useState<Array<{ id: string; from: FlightPos; to: FlightPos }>>([]);
   useLayoutEffect(() => {
@@ -110,13 +89,11 @@ export default function TableView({ room }: { room: RoomApi }) {
     const fresh = room.swapPairs.filter((p) => !handledSwapPairs.current.has(p.id));
     if (fresh.length === 0) return;
     fresh.forEach((p) => handledSwapPairs.current.add(p.id));
+
     const rect = table.getBoundingClientRect();
-    const centerOf = (cid: string): FlightPos | null => {
-      const el = table.querySelector<HTMLElement>(`[data-card-id="${cid}"]`);
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return { x: r.left - rect.left + r.width / 2, y: r.top - rect.top + r.height / 2 };
-    };
+    const current = readCardPositions(table, rect);
+    const old = previousCardPositions.current;
+    const centerOf = (cid: string): FlightPos | null => old[cid] ?? current[cid] ?? null;
     const ghosts: Array<{ id: string; from: FlightPos; to: FlightPos }> = [];
     for (const pair of fresh) {
       const a = centerOf(pair.cardA);
@@ -133,7 +110,56 @@ export default function TableView({ room }: { room: RoomApi }) {
       }, 2100);
       return () => clearTimeout(t);
     }
-  }, [room.swapPairs]);
+  }, [readCardPositions, room.swapPairs]);
+
+  const measureAnchors = useCallback(() => {
+    const table = tableRef.current;
+    if (!table) return;
+    const rect = table.getBoundingClientRect();
+    const center = (el: Element | null): FlightPos | null => {
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.left - rect.left + r.width / 2, y: r.top - rect.top + r.height / 2 };
+    };
+    const hands: Record<string, FlightPos> = {};
+    table.querySelectorAll<HTMLElement>('[data-hand-for]').forEach((el) => {
+      const pid = el.dataset.handFor;
+      const pos = center(el);
+      if (pid && pos) hands[pid] = pos;
+    });
+    // Per-card anchors: trajectories land in the CENTRE of the exact card.
+    const cards = readCardPositions(table, rect);
+    setAnchors({
+      size: { w: rect.width, h: rect.height },
+      ellipse: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      // Pile faces (not the labelled container, whose text shifts the centre).
+      deck: center(table.querySelector('.deck-pile .deck-stack.s3')) ?? center(table.querySelector('.deck-pile')) ?? { x: rect.width * 0.46, y: rect.height * 0.46 },
+      discard: center(table.querySelector('.discard-pile .discard-card')) ??
+        center(table.querySelector('.discard-pile .discard-empty')) ??
+        center(table.querySelector('.discard-pile')) ?? { x: rect.width * 0.54, y: rect.height * 0.46 },
+      // The drawn card element itself when present, else the slot.
+      draw: center(table.querySelector('.draw-slot .pcard')) ?? center(table.querySelector('.draw-slot')) ?? { x: rect.width * 0.62, y: rect.height * 0.5 },
+      hands,
+      cards,
+    });
+  }, [readCardPositions]);
+  useLayoutEffect(() => {
+    measureAnchors();
+    captureCardPositions();
+    const onResize = () => {
+      measureAnchors();
+      captureCardPositions();
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [captureCardPositions, measureAnchors, room.flights, others.length]);
+
+  // Keep the snapshot current after every authoritative view, including
+  // swaps (which do not create a normal card flight and therefore would not
+  // otherwise rerun measureAnchors).
+  useLayoutEffect(() => {
+    captureCardPositions();
+  }, [captureCardPositions, view.revision, room.swapPairs, others.length]);
 
   const myHand = view.handCardIds[me.id] ?? [];
   const isMyTurn = view.players.find((p) => p.isCurrentTurn)?.id === me.id;
@@ -519,39 +545,37 @@ export default function TableView({ room }: { room: RoomApi }) {
         <div className={`seat seat-me ${isMyTurn ? 'active' : ''}`}>
           <FloatingEmote emote={room.emotes[me.id]} />
           <div className="my-hand hand-grid" data-hand-for={me.id}>
-            <AnimatePresence>
-              {myHand.map((cardId) =>
-                isEmptySlot(cardId) ? (
-                  <div key={cardId} className="card-slot-empty" />
-                ) : (
-                  (() => {
-                    const known = view.knownCards[cardId];
-                    // Memory game: your own cards render face-up ONLY during
-                    // a reveal window (peek flash / round reveal) or Test
-                    // Mode — never just because it's your turn or you once
-                    // saw the value. The "seen" dot is the only reminder.
-                    const revealed =
-                      room.testMode || (!!known && (flashActive(cardId) || mode === 'round-over'));
-                    const highlight = mode === 'power-blind-swap' && selectedOwn === cardId;
-                    return (
-                      <Card
-                        key={cardId}
-                        cardId={cardId}
-                        card={known ?? null}
-                        faceDown={!revealed}
-                        seenMarker={!!known && !revealed}
-                        highlight={!!highlight}
-                        test={room.testMode}
-                        peekedBy={peekedBy(cardId)}
-                        swapped={wasSwapped(cardId)}
-                        lifted={mode === 'draw-decision' || mode === 'power-peek-own' || mode === 'transfer'}
-                        onClick={() => onMyCardClick(cardId)}
-                      />
-                    );
-                  })()
-                ),
-              )}
-            </AnimatePresence>
+            {myHand.map((cardId) =>
+              isEmptySlot(cardId) ? (
+                <div key={cardId} className="card-slot-empty" />
+              ) : (
+                (() => {
+                  const known = view.knownCards[cardId];
+                  // Memory game: your own cards render face-up ONLY during
+                  // a reveal window (peek flash / round reveal) or Test
+                  // Mode — never just because it's your turn or you once
+                  // saw the value. The "seen" dot is the only reminder.
+                  const revealed =
+                    room.testMode || (!!known && (flashActive(cardId) || mode === 'round-over'));
+                  const highlight = mode === 'power-blind-swap' && selectedOwn === cardId;
+                  return (
+                    <Card
+                      key={cardId}
+                      cardId={cardId}
+                      card={known ?? null}
+                      faceDown={!revealed}
+                      seenMarker={!!known && !revealed}
+                      highlight={!!highlight}
+                      test={room.testMode}
+                      peekedBy={peekedBy(cardId)}
+                      swapped={wasSwapped(cardId)}
+                      lifted={mode === 'draw-decision' || mode === 'power-peek-own' || mode === 'transfer'}
+                      onClick={() => onMyCardClick(cardId)}
+                    />
+                  );
+                })()
+              ),
+            )}
           </div>
           {view.drawnCard && (
             <div className="draw-slot">

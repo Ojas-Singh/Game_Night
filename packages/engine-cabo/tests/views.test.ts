@@ -55,6 +55,22 @@ describe('hidden-information filtering', () => {
     expect(v2.knownCards.draw0).toBeUndefined();
   });
 
+  it('removes a flushed card from the viewer hand view while preserving its slot', () => {
+    const forced = order();
+    forced[12] = c('draw4', H, 4);
+    const e = setup(forced, { rules: { endRoundWhenPlayerHasNoCards: false } });
+    peekAll(e);
+    mustOk(e, { type: 'DRAW', playerId: 'p1' });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: 'p1' });
+
+    // Another player flushes p1's matching card. The local viewer must
+    // receive the hole, not the card id that has moved to the discard pile.
+    mustOk(e, { type: 'FLUSH_OTHER', playerId: 'p2', targetPlayerId: 'p1', cardId: 'a1' });
+    const v1 = e.getPlayerState('p1');
+    expect(v1.handCardIds.p1).toEqual(['__slot__0', 'a2', 'a3', 'a4']);
+    expect(v1.handCardIds.p1).not.toContain('a1');
+  });
+
   it('peek powers do not leak into other players\u2019 views', () => {
     const o = order();
     o[12] = c('draw9', H, 9);
