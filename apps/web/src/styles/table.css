@@ -2353,6 +2353,15 @@
   50% { translate: 3px 0; }
   75% { translate: -2px 0; }
 }
+/* A just-collected pair: gold pulse in its old slot while it fades out. */
+.po-card.collected::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2.5px rgba(255, 214, 122, 0.9), 0 0 22px rgba(255, 200, 90, 0.5);
+  pointer-events: none;
+}
 
 /* Matched cards flying to the collector's chip. */
 .po-fly {

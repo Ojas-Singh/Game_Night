@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import type { RoomApi } from '../useRoom.js';
 import type { PairOnePlayerView } from '@pairone/views.js';
 import type { Card } from '@shared/cards.js';
@@ -164,18 +164,28 @@ export default function PairOneTable({ room, view }: Props) {
   // ---- Match collection flights -------------------------------------------
   const handledCollections = useRef<Set<number>>(new Set());
   const [collectFx, setCollectFx] = useState<CollectFx[]>([]);
+  /**
+   * The server resolves the second flip instantly: a matched card leaves the
+   * grid in the SAME view update that would first show it face-up. An exit
+   * animation would freeze on the stale face-down render, so instead we keep
+   * an explicit face-up "collected ghost" in each vacated slot for ~0.8s.
+   */
+  const [collectedGhosts, setCollectedGhosts] = useState<Record<number, { cardId: string; at: number }>>({});
   useEffect(() => {
     const fresh = view.events.filter(
       (e) => e.type === 'PAIR_COLLECTED' && !handledCollections.current.has(e.seq),
     );
     if (fresh.length === 0) return;
     const created: CollectFx[] = [];
+    const ghosts: Array<[number, string]> = [];
+    const at = Date.now();
     for (const ev of fresh) {
       handledCollections.current.add(ev.seq);
       const p = ev.payload as { indexes?: number[]; cardIds?: string[] };
       const [idxA, idxB] = p.indexes ?? [];
       const [idA, idB] = p.cardIds ?? [];
       if (idxA === undefined || idxB === undefined || !idA || !idB) continue;
+      if (view.knownCards[idA] && view.knownCards[idB]) ghosts.push([idxA, idA], [idxB, idB]);
       const fromA = slotCenter(idxA);
       const fromB = slotCenter(idxB);
       const to = chipCenter(String(ev.playerId ?? ''));
@@ -184,6 +194,13 @@ export default function PairOneTable({ room, view }: Props) {
       if (!fromA || !fromB || !to || !cardA || !cardB) continue;
       created.push({ id: `collect-${ev.seq}`, fromA, fromB, to, cardA, cardB });
     }
+    if (ghosts.length > 0) {
+      setCollectedGhosts((cur) => {
+        const next = { ...cur };
+        for (const [idx, id] of ghosts) next[idx] = { cardId: id, at };
+        return next;
+      });
+    }
     if (created.length === 0) return;
     setCollectFx((cur) => [...cur, ...created].slice(-4));
     const t = setTimeout(() => {
@@ -191,6 +208,11 @@ export default function PairOneTable({ room, view }: Props) {
     }, 1100);
     return () => clearTimeout(t);
   }, [view.events, view.knownCards, slotCenter, chipCenter]);
+  useEffect(() => {
+    if (Object.keys(collectedGhosts).length === 0) return;
+    const t = setTimeout(() => setCollectedGhosts({}), 850);
+    return () => clearTimeout(t);
+  }, [collectedGhosts]);
 
   // ---- Guidance line --------------------------------------------------------
   const [error, setError] = useState<string | null>(null);
@@ -326,61 +348,63 @@ export default function PairOneTable({ room, view }: Props) {
               const missed = !!missMarks[slotId] && Date.now() - missMarks[slotId]! < 3000;
               const clickable =
                 !isEmpty && !roundOver && isMyTurn && view.faceUpCardIds.length < 2 && !midTurnUp;
+              const ghostEntry = collectedGhosts[index];
+              const ghostCard =
+                isEmpty && ghostEntry && Date.now() - ghostEntry.at < 850
+                  ? view.knownCards[ghostEntry.cardId] ?? null
+                  : null;
               return (
                 <div className="po-slot" key={index} data-slot={index}>
-                  <AnimatePresence>
-                    {!isEmpty && (
-                      <motion.div
-                        key={slotId}
-                        className={`pcard po-card ${faceUp ? 'faceup' : 'facedown'} ${
-                          clickable ? 'clickable' : ''
-                        } ${missed ? 'missed' : ''} ${room.testMode ? 'test' : ''} ${
-                          card ? 'known' : ''
-                        }`}
-                        initial={{ opacity: 0, scale: 0.5, y: -14 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{
-                          scale: [1, 1.22, 0.35],
-                          opacity: [1, 1, 0],
-                          rotate: [-4, 6, -10],
-                          transition: { duration: 0.5, times: [0, 0.45, 1] },
-                        }}
-                        transition={{ type: 'spring', stiffness: 340, damping: 26 }}
-                        onClick={clickable ? () => act(slotId) : undefined}
-                        role={clickable ? 'button' : undefined}
-                        aria-label={
-                          faceUp && card
-                            ? `${RANK_LABELS[card.rank]} of ${card.suit}`
-                            : 'face-down card'
-                        }
-                      >
-                        <div className="pcard-inner">
-                          <div className="pcard-face po-front">
-                            {card ? (
-                              <>
-                                <span className={`po-corner tl ${card.suit === 'hearts' || card.suit === 'diamonds' ? 'red' : ''}`}>
-                                  {RANK_LABELS[card.rank]}
-                                </span>
-                                <span className={`po-rank ${card.suit === 'hearts' || card.suit === 'diamonds' ? 'red' : ''}`}>
-                                  {RANK_LABELS[card.rank]}
-                                  <em>{SUIT_GLYPH[card.suit]}</em>
-                                </span>
-                                <span className={`po-corner br ${card.suit === 'hearts' || card.suit === 'diamonds' ? 'red' : ''}`}>
-                                  {RANK_LABELS[card.rank]}
-                                </span>
-                              </>
-                            ) : (
-                              <span className="unknown">?</span>
-                            )}
-                          </div>
-                          <div className="pcard-back po-back">
-                            <div className="back-pattern" />
-                            <span className="po-back-mark">1×2</span>
-                          </div>
+                  {!isEmpty && (
+                    <motion.div
+                      key={slotId}
+                      className={`pcard po-card ${faceUp ? 'faceup' : 'facedown'} ${
+                        clickable ? 'clickable' : ''
+                      } ${missed ? 'missed' : ''} ${room.testMode ? 'test' : ''} ${
+                        card ? 'known' : ''
+                      }`}
+                      initial={{ opacity: 0, scale: 0.5, y: -14 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      transition={{ type: 'spring', stiffness: 340, damping: 26 }}
+                      onClick={clickable ? () => act(slotId) : undefined}
+                      role={clickable ? 'button' : undefined}
+                      aria-label={
+                        faceUp && card
+                          ? `${RANK_LABELS[card.rank]} of ${card.suit}`
+                          : 'face-down card'
+                      }
+                    >
+                      <div className="pcard-inner">
+                        <div className="pcard-face po-front">
+                          {card ? (
+                            <>
+                              <span className={`po-corner tl ${card.suit === 'hearts' || card.suit === 'diamonds' ? 'red' : ''}`}>
+                                {RANK_LABELS[card.rank]}
+                              </span>
+                              <span className={`po-rank ${card.suit === 'hearts' || card.suit === 'diamonds' ? 'red' : ''}`}>
+                                {RANK_LABELS[card.rank]}
+                                <em>{SUIT_GLYPH[card.suit]}</em>
+                              </span>
+                              <span className={`po-corner br ${card.suit === 'hearts' || card.suit === 'diamonds' ? 'red' : ''}`}>
+                                {RANK_LABELS[card.rank]}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="unknown">?</span>
+                          )}
                         </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                        <div className="pcard-back po-back">
+                          <div className="back-pattern" />
+                          <span className="po-back-mark">1×2</span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                  {/* Face-up ghost of a just-collected pair — the real card
+                      left the grid in the same update that revealed it. */}
+                  {isEmpty && ghostCard && (
+                    <CollectedGhost card={ghostCard} />
+                  )}
                 </div>
               );
             })}
@@ -401,9 +425,37 @@ export default function PairOneTable({ room, view }: Props) {
   );
 }
 
+/**
+ * Face-up ghost of a card that was just collected: pulses gold in its old
+ * slot and fades as the flying copy heads for the collector's chip. This is
+ * how the second flipped card gets SEEN — the server removes it from the grid
+ * in the same update that reveals it.
+ */
+function CollectedGhost({ card }: { card: Card }) {
+  const red = card.suit === 'hearts' || card.suit === 'diamonds';
+  return (
+    <motion.div
+      className="pcard po-card faceup collected"
+      initial={{ opacity: 1, scale: 1 }}
+      animate={{ scale: [1, 1.2, 1.08], opacity: [1, 1, 0] }}
+      transition={{ duration: 0.8, ease: 'easeOut' }}
+    >
+      <div className="pcard-inner">
+        <div className="pcard-face po-front">
+          <span className={`po-corner tl ${red ? 'red' : ''}`}>{RANK_LABELS[card.rank]}</span>
+          <span className={`po-rank ${red ? 'red' : ''}`}>
+            {RANK_LABELS[card.rank]}
+            <em>{SUIT_GLYPH[card.suit]}</em>
+          </span>
+          <span className={`po-corner br ${red ? 'red' : ''}`}>{RANK_LABELS[card.rank]}</span>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 /** A matched pair flying from its two grid slots into the collector's chip. */
-function CollectFlight({ fx, delay }: { fx: CollectFx; delay: number }) {
-  const midX = (fx.fromA.x + fx.to.x) / 2;
+function CollectFlight({ fx, delay }: { fx: CollectFx; delay: number }) {  const midX = (fx.fromA.x + fx.to.x) / 2;
   const midY = Math.min(fx.fromA.y, fx.to.y) - 70;
   const render = (pos: { x: number; y: number }, card: Card, key: string) => (
     <motion.div
