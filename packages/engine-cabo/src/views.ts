@@ -9,6 +9,8 @@ import type { Card, GameEvent, PlayerView } from '@game-night/shared';
 import type { CaboState } from './types.js';
 
 export interface CaboPlayerView extends PlayerView {
+  /** Discriminator for the client (PairOnePlayerView carries 'pairone'). */
+  gameId: 'cabo';
   /** Current pending power prompt, only when owed by the viewer. */
   pendingPower: { power: string; sourceCardId: string } | null;
   /** Pending transfer owed by the viewer. */
@@ -57,6 +59,7 @@ export function buildPlayerView(state: CaboState, viewerId: string, opts?: { rev
   return {
     revision: state.revision,
     phase: state.phase,
+    gameId: 'cabo',
     players: state.players.map((p, i) => ({
       id: p.id,
       name: p.name,

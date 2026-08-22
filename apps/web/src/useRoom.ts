@@ -6,7 +6,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import type { CaboPlayerView } from '@cabo/views.js';
+import type { PairOnePlayerView } from '@pairone/views.js';
+import type { PairOneAction } from '@pairone/types.js';
+import type { AnyGameView } from './server-protocol.js';
 import type { ChatMessage, JoinResult, RoomLobbyState } from './server-protocol.js';
 import type { CaboAction } from '@cabo/types.js';
 import { playSound } from './sound.js';
@@ -14,7 +16,7 @@ import { loadAvatar, saveAvatar } from './avatar.js';
 import type { Avatar } from './server-protocol.js';
 
 /** Derive sound cues from view transitions by comparing event logs. */
-function playSoundsFor(prev: CaboPlayerView, next: CaboPlayerView): void {
+function playSoundsFor(prev: AnyGameView, next: AnyGameView): void {
   const seen = new Set(prev.events.map((e) => e.seq));
   for (const ev of next.events) {
     if (seen.has(ev.seq)) continue;
@@ -44,16 +46,28 @@ function playSoundsFor(prev: CaboPlayerView, next: CaboPlayerView): void {
       case 'INITIAL_PEEKED':
         playSound('flip');
         break;
+      // ---- Pair One ----
+      case 'CARD_FLIPPED':
+        playSound('flip');
+        break;
+      case 'PAIR_COLLECTED':
+        playSound('match');
+        break;
+      case 'PAIR_MISSED':
+        playSound('miss');
+        break;
     }
   }
 }
 
 /** Derive card-flight events from the event log delta between two views. */
 export function collectFlights(
-  prev: CaboPlayerView,
-  next: CaboPlayerView,
+  prev: AnyGameView,
+  next: AnyGameView,
   myPlayerId?: string | null,
 ): CardFlight[] {
+  // Card flights are a Cabo-table feature; Pair One animates its own way.
+  if (next.gameId !== 'cabo' || prev.gameId !== 'cabo') return [];
   const seen = new Set(prev.events.map((e) => e.seq));
   const out: CardFlight[] = [];
   for (const ev of next.events) {
@@ -148,6 +162,12 @@ type ClientCaboAction = {
   [K in CaboAction['type']]: Omit<Extract<CaboAction, { type: K }>, 'playerId'>;
 }[CaboAction['type']];
 
+/** A Pair One action without playerId. */
+type ClientPairOneAction = Omit<PairOneAction, 'playerId'>;
+
+/** Any game action the client may send (playerId is stamped by the server). */
+export type ClientGameAction = ClientCaboAction | ClientPairOneAction;
+
 /** A card visually flying across the table so everyone sees where it went. */
 export interface CardFlight {
   id: string;
@@ -173,7 +193,8 @@ export interface RoomApi {
   roomId: string | null;
   myPlayerId: string | null;
   lobby: RoomLobbyState | null;
-  view: CaboPlayerView | null;
+  /** Filtered game view for whichever game is running (discriminated by gameId). */
+  view: AnyGameView | null;
   chat: ChatMessage[];
   unreadChat: number;
   /** Cards currently in their reveal window (face-up): { at, ms }. */
@@ -209,7 +230,7 @@ export interface RoomApi {
   /** Host-only: remove a player from the lobby. */
   kickPlayer: (playerId: string) => Promise<{ ok: boolean; error?: string }>;
   sendChat: (text: string) => void;
-  sendAction: (action: ClientCaboAction) => Promise<{ ok: boolean; error?: string }>;
+  sendAction: (action: ClientGameAction) => Promise<{ ok: boolean; error?: string }>;
   playAgain: () => Promise<{ ok: boolean; error?: string }>;
   returnToLobby: () => void;
   /** Host-only: redeal the round at any time (scoreboard kept). */
@@ -225,7 +246,7 @@ export function useRoom(): RoomApi {
   const [roomId, setRoomId] = useState<string | null>(null);
   const [lobby, setLobby] = useState<RoomLobbyState | null>(null);
   const [testMode, setTestMode] = useState(false);
-  const [view, setView] = useState<CaboPlayerView | null>(null);
+  const [view, setView] = useState<AnyGameView | null>(null);
   const [chat, setChat] = useState<ChatMessage[]>([]);
   const [unread, setUnread] = useState(0);
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -237,7 +258,7 @@ export function useRoom(): RoomApi {
   /** Latest applied game:view — side effects diff against this OUTSIDE any
    *  React updater (StrictMode re-invokes updaters; impure ones lose updates,
    *  which is why the starting peek used to never flash). */
-  const viewRef = useRef<CaboPlayerView | null>(null);
+  const viewRef = useRef<AnyGameView | null>(null);
   /** Emote reactions: playerId → latest { emote, at } (at = client receive time). */
   const [emotes, setEmotes] = useState<Record<string, { emote: string; at: number }>>({});
   /** Recent card movements to animate (pruned automatically over time). */
@@ -253,10 +274,12 @@ export function useRoom(): RoomApi {
   const myIdRef = useRef<string | null>(null);
   myIdRef.current = myPlayerId;
 
-  const flashKnowledge = useCallback((prev: CaboPlayerView | null, next: CaboPlayerView): void => {
+  const flashKnowledge = useCallback((prev: AnyGameView | null, next: AnyGameView): void => {
     // prev === null on the FIRST view after (re)join — the starting peek of
     // the bottom two cards arrives that way, so it must flash too (longer:
-    // it's the memorize-your-cards moment).
+    // it's the memorize-your-cards moment). Pair One has no private peek:
+    // skip the join-time mega-flash; its flips flash via the normal path.
+    if (!prev && next.gameId === 'pairone') return;
     const before = new Set(prev ? Object.keys(prev.knownCards) : []);
     const fresh = Object.keys(next.knownCards).filter((id) => !before.has(id));
     if (fresh.length === 0) return;
@@ -344,9 +367,10 @@ export function useRoom(): RoomApi {
       if (msg.playerId === null && /joined|reconnected/.test(msg.text)) playSound('join');
       if (!chatOpenRef.current && msg.playerId !== null) setUnread((n) => n + 1);
     };
-    const onView = (v: CaboPlayerView) => {
-      const prev = viewRef.current;
+    const onView = (v: AnyGameView) => {
+      let prev = viewRef.current;
       if (prev === v) return;
+      if (prev && prev.gameId !== v.gameId) prev = null; // game switched: no delta side effects
       viewRef.current = v;
       setView(v);
       // All side effects run here in the socket handler — NEVER inside a

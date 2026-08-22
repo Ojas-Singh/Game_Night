@@ -16,9 +16,8 @@ export default function LobbyView({ room }: { room: RoomApi }) {
   const [name, setName] = useState(me?.name ?? loadName());
   const [avatar, setAvatar] = useState<AvatarModel>(me?.avatar ?? loadAvatar());
   const [copied, setCopied] = useState(false);
-  // The rules are shown by default when you arrive — everyone knows the
-  // game before clicking ready (which now auto-starts the game).
-  const [rulesOpen, setRulesOpen] = useState(true);
+  // Rules live on each game tile — tap a tile's ⓘ to read them. No auto-popup.
+  const [rulesGame, setRulesGame] = useState<GameId | null>(null);
 
   const customize = (patch: Partial<AvatarModel>) => {
     const next = { ...avatar, ...patch };
@@ -107,30 +106,49 @@ export default function LobbyView({ room }: { room: RoomApi }) {
           <section className="lobby-panel game-panel">
             <h2 className="lobby-section-title">Game</h2>
             <div className="game-selector">
-              <button
-                className={`game-tile selected`}
-                title="Cabo — the house-rules classic"
-              >
-                <span className="game-tile-art">🂡</span>
-                <span className="game-tile-name">Cabo</span>
-              </button>
-              <div className="game-tile soon" title="Coming soon">
-                <span className="game-tile-art">?</span>
-                <span className="game-tile-name">More soon</span>
-              </div>
+              <GameTile
+                id="cabo"
+                label="Cabo"
+                tagline="Bluff, peek & flush"
+                art={<span className="game-tile-art">🂡</span>}
+                selected={lobby.gameId === 'cabo'}
+                selectable={isHost}
+                onSelect={() => isHost && room.selectGame('cabo')}
+                onInfo={() => setRulesGame('cabo')}
+              />
+              <GameTile
+                id="pairone"
+                label="Pair One"
+                tagline="Memory — match the numbers"
+                art={
+                  <span className="tile-pair-art" aria-hidden>
+                    <span className="tile-pair-back" />
+                    <span className="tile-pair-face">7♥</span>
+                  </span>
+                }
+                selected={lobby.gameId === 'pairone'}
+                selectable={isHost}
+                onSelect={() => isHost && room.selectGame('pairone')}
+                onInfo={() => setRulesGame('pairone')}
+              />
             </div>
             {isHost ? (
               <div className="host-controls">
-                <div className="house-rule-row">
-                  <label className="rule-label" title="Optional house rule: when a player discards a 5 or 6, they swap two of their opponents' cards">
-                    <input
-                      type="checkbox"
-                      checked={lobby.swapOthersEnabled}
-                      onChange={(e) => room.setSwapOthers(e.target.checked)}
-                    />
-                    <span>5–6 swap rule</span>
-                  </label>
-                </div>
+                {lobby.gameId === 'cabo' && (
+                  <div className="house-rule-row">
+                    <label
+                      className="rule-label"
+                      title="Optional house rule: when a player discards a 5 or 6, they swap two of their opponents' cards"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={lobby.swapOthersEnabled}
+                        onChange={(e) => room.setSwapOthers(e.target.checked)}
+                      />
+                      <span>5–6 swap rule</span>
+                    </label>
+                  </div>
+                )}
                 <button
                   className="start-btn"
                   disabled={!canStart}
@@ -141,7 +159,14 @@ export default function LobbyView({ room }: { room: RoomApi }) {
                 </button>
               </div>
             ) : (
-              <p className="waiting-host">Waiting for the host to start…</p>
+              <p className="waiting-host">
+                Waiting for the host to start…
+                {!isHost && (
+                  <span className="waiting-game">
+                    {' '}· {GAME_META[lobby.gameId as GameId]?.label ?? lobby.gameId}
+                  </span>
+                )}
+              </p>
             )}
           </section>
         </div>
@@ -190,11 +215,79 @@ export default function LobbyView({ room }: { room: RoomApi }) {
           </div>
         </div>
         <ChatPanel room={room} expanded />
-        <InfoModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
-        <button className="ghost rules-again" onClick={() => setRulesOpen(true)}>
-          📖 Show rules again
+        <InfoModal
+          open={rulesGame !== null}
+          onClose={() => setRulesGame(null)}
+          game={rulesGame ?? 'cabo'}
+        />
+        <button className="ghost rules-again" onClick={() => setRulesGame(lobby.gameId as GameId)}>
+          📖 Show {GAME_META[lobby.gameId as GameId]?.label ?? 'game'} rules
         </button>
       </aside>
+    </div>
+  );
+}
+
+/** Platform games, for tile metadata. */
+type GameId = 'cabo' | 'pairone';
+
+const GAME_META: Record<GameId, { label: string }> = {
+  cabo: { label: 'Cabo' },
+  pairone: { label: 'Pair One' },
+};
+
+/**
+ * A game tile in the lobby: the host taps it to pick the game; anyone can tap
+ * the ⓘ corner to read that game's rules before sitting down.
+ */
+function GameTile({
+  id,
+  label,
+  tagline,
+  art,
+  selected,
+  selectable,
+  onSelect,
+  onInfo,
+}: {
+  id: GameId;
+  label: string;
+  tagline: string;
+  art: React.ReactNode;
+  selected: boolean;
+  selectable: boolean;
+  onSelect: () => void;
+  onInfo: () => void;
+}) {
+  return (
+    <div className={`game-tile ${selected ? 'selected' : ''}`}>
+      <button
+        className="game-tile-hit"
+        onClick={selectable ? onSelect : undefined}
+        disabled={!selectable}
+        title={
+          selectable
+            ? `${label} — ${tagline}. Tap to select this game`
+            : `${label} — ${tagline} (only the host can change the game)`
+        }
+        aria-pressed={selected}
+      >
+        {art}
+        <span className="game-tile-name">{label}</span>
+        <span className="game-tile-tagline">{tagline}</span>
+        {!selectable && selected && <span className="game-tile-chosen">chosen</span>}
+      </button>
+      <button
+        className="game-tile-info"
+        onClick={(e) => {
+          e.stopPropagation();
+          onInfo();
+        }}
+        aria-label={`How to play ${label}`}
+        title={`How to play ${label}`}
+      >
+        ⓘ
+      </button>
     </div>
   );
 }

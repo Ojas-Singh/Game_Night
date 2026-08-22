@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import type { RoomApi } from '../useRoom.js';
 import LobbyView from '../lobby/LobbyView.js';
 import TableView from '../table/TableView.js';
+import PairOneTable from '../pairone/PairOneTable.js';
 
 export default function GamePage({ room }: { room: RoomApi }) {
   const { roomId } = useParams<{ roomId: string }>();
@@ -55,9 +56,13 @@ export default function GamePage({ room }: { room: RoomApi }) {
     return <div className="overlay-msg">Joining table…</div>;
   }
 
-  return room.lobby.inGame && room.view ? (
-    <TableView room={room} />
-  ) : (
-    <LobbyView room={room} />
-  );
+  // Route to the right table by the view's game discriminator.
+  const view = room.view;
+  if (room.lobby.inGame && view) {
+    if (view.gameId === 'pairone') {
+      return <PairOneTable room={room} view={view} />;
+    }
+    return <TableView room={room} view={view} />;
+  }
+  return <LobbyView room={room} />;
 }

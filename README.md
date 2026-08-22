@@ -1,12 +1,13 @@
 # Game Night
 
-An online multiplayer card-game platform — friends around one table, no accounts required. First game: our house-rules **Cabo**.
+An online multiplayer card-game platform — friends around one table, no accounts required.
+Games: our house-rules **Cabo** and **Pair One** (a two-deck memory game).
 
 ## Quick start (local dev)
 
 ```bash
 pnpm install
-pnpm build                 # shared, engine, web, server
+pnpm build                 # shared, engines, web, server
 pnpm --filter @game-night/server dev   # server on :3000 (debug mode on)
 pnpm --filter @game-night/web dev      # client on :5173 (proxies sockets)
 ```
@@ -26,20 +27,23 @@ Coolify: point a new Docker Compose resource at this repo; set `SESSION_SECRET`;
 ## Architecture
 
 ```
-packages/shared       # card model, engine interface contract, seedable RNG
-packages/engine-cabo  # server-authoritative Cabo rules engine (pure, heavily tested)
-apps/server           # rooms, presence, chat, tokens/reconnect, socket transport, debug API
-apps/web              # React round-table client (2.5D DOM, framer-motion)
+packages/shared         # card model, engine interface contract, seedable RNG
+packages/engine-cabo    # server-authoritative Cabo rules engine (pure, heavily tested)
+packages/engine-pairone # server-authoritative Pair One rules engine (pure, heavily tested)
+apps/server             # rooms, presence, chat, tokens/reconnect, socket transport, debug API
+apps/web                # React client (round-table Cabo + memory-grid Pair One, framer-motion)
 ```
 
 - Networking talks only to the engine interface — adding a game never touches transport code.
+  Register a new engine in `apps/server/src/room.ts` (`GAME_REGISTRY`) and route its view in the
+  web client (views are discriminated by `gameId`).
 - Per-player filtered views: hidden card values never leave the server.
 - Debug endpoints (`/debug/*`) and the 🛠 overlay exist only in non-production builds.
 
 ## Tests
 
 ```bash
-pnpm test   # 44 engine + 21 server/transport (incl. full-game socket integration & persistence) + 10 web logic tests
+pnpm test   # 72 engine tests (Cabo + Pair One) + 30 server/transport (incl. full-game socket integration & persistence) + 20 web logic tests
 ```
 
 ## Deployment verification status

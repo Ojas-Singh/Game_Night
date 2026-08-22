@@ -7,10 +7,16 @@
 
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { GameAction } from '@game-night/shared';
-import { CaboEngine, type CaboPlayerView } from '@game-night/engine-cabo';
+import { CaboEngine, type CaboPlayerView, type CaboState } from '@game-night/engine-cabo';
+import { PairOneEngine, type PairOnePlayerView } from '@game-night/engine-pairone';
 import type { ChatMessage, LobbyPlayer, RoomLobbyState } from './protocol.js';
 import { isValidAvatar, randomAvatar, type Avatar } from './protocol.js';
 import { log } from './log.js';
+
+/** Any engine on the platform. Rooms talk to this union via the shared surface
+ *  (createGame/getState/getPlayerState/handleAction/calculateScore/...). */
+export type AnyGameEngine = CaboEngine | PairOneEngine;
+export type AnyGameView = CaboPlayerView | PairOnePlayerView;
 
 /** Available games on the platform. Adding one here lights it up everywhere. */
 const GAME_REGISTRY = {
@@ -20,6 +26,13 @@ const GAME_REGISTRY = {
     minPlayers: 2,
     maxPlayers: 6,
     create: () => new CaboEngine(),
+  },
+  pairone: {
+    id: 'pairone',
+    label: 'Pair One',
+    minPlayers: 2,
+    maxPlayers: 6,
+    create: () => new PairOneEngine(),
   },
 } as const;
 
@@ -67,7 +80,7 @@ export class Room {
   hostId: string | null = null;
   gameId: GameId = 'cabo';
   chat: ChatMessage[] = [];
-  engine: CaboEngine | null = null;
+  engine: AnyGameEngine | null = null;
   /** Cumulative match scoreboard across rounds. */
   scoreboard: Record<string, number> = {};
   /** Host-selectable house rule: enable the 5–6 "swap others" power. OFF by default. */
@@ -91,7 +104,7 @@ export class Room {
     const room = new Room({ roomId: snap.id });
     room.createdAt = snap.createdAt;
     room.hostId = snap.hostId;
-    room.gameId = (snap.gameId in { cabo: 1 } ? snap.gameId : 'cabo') as GameId;
+    room.gameId = (snap.gameId in GAME_REGISTRY ? snap.gameId : 'cabo') as GameId;
     room.chat = snap.chat;
     room.scoreboard = snap.scoreboard;
     room.swapOthersEnabled = snap.swapOthersEnabled ?? false;
@@ -111,9 +124,15 @@ export class Room {
       });
     }
     if (snap.engineState) {
-      const engine = new CaboEngine();
-      engine.restoreState(snap.engineState);
-      room.engine = engine;
+      if (snap.gameId === 'pairone') {
+        const engine = new PairOneEngine();
+        engine.restoreState(snap.engineState as import('@game-night/engine-pairone').PairOneState);
+        room.engine = engine;
+      } else {
+        const engine = new CaboEngine();
+        engine.restoreState(snap.engineState as CaboState);
+        room.engine = engine;
+      }
     }
     return room;
   }
@@ -255,38 +274,56 @@ export class Room {
     this.system(`Host selected ${GAME_REGISTRY[gameId as GameId].label}`);
   }
 
-  startGame(playerId: string): void {
-    if (playerId !== this.hostId) throw new RoomError('only the host can start the game');
-    if (this.engine) throw new RoomError('game already running');
+  /** Create and deal the selected game for the currently seated players. */
+  private dealNewGame(): AnyGameEngine {
     const reg = GAME_REGISTRY[this.gameId];
     const seated = [...this.players.values()];
     if (seated.length < reg.minPlayers) {
       throw new RoomError(`needs at least ${reg.minPlayers} players`);
     }
-    const engine = reg.create();
-    engine.createGame(
-      seated.map((p, i) => ({ id: p.id, name: p.name, seat: i })),
-      { seed: this.debug.seed, rules: { swapOthersEnabled: this.swapOthersEnabled } },
-    );
-    // Everyone is shown their bottom-row cards automatically at the start
-    // (bottom row of the 2×2 layout = indexes 1 and 3). The values flash
-    // briefly on each client, then flip back down — it's a memory game.
-    const rules = engine.getRules();
-    const peekIndexes = Array.from(
-      { length: rules.initialPeekCards },
-      (_, i) => Math.min(2 * i + 1, rules.startingCards - 1),
-    ).filter((v, i, arr) => arr.indexOf(v) === i);
-    for (const p of seated) {
-      engine.handleAction({
-        type: 'PEEK_STARTING',
-        playerId: p.id,
-        cardIndexes: peekIndexes,
-      } as unknown as GameAction);
+    const seats = seated.map((p, i) => ({ id: p.id, name: p.name, seat: i }));
+    let engine: AnyGameEngine;
+    if (reg.id === 'cabo') {
+      const cabo = new CaboEngine();
+      cabo.createGame(seats, {
+        seed: this.debug.seed,
+        rules: { swapOthersEnabled: this.swapOthersEnabled },
+      });
+      // Everyone is shown their bottom-row cards automatically at the start
+      // (bottom row of the 2×2 layout = indexes 1 and 3). The values flash
+      // briefly on each client, then flip back down — it's a memory game.
+      const rules = cabo.getRules();
+      const peekIndexes = Array.from(
+        { length: rules.initialPeekCards },
+        (_, i) => Math.min(2 * i + 1, rules.startingCards - 1),
+      ).filter((v, i, arr) => arr.indexOf(v) === i);
+      for (const p of seated) {
+        cabo.handleAction({
+          type: 'PEEK_STARTING',
+          playerId: p.id,
+          cardIndexes: peekIndexes,
+        } as unknown as GameAction);
+      }
+      engine = cabo;
+    } else {
+      const pairOne = new PairOneEngine();
+      pairOne.createGame(seats, { seed: this.debug.seed });
+      engine = pairOne;
     }
-    this.engine = engine;
-    for (const p of seated) p.ready = false;
-    this.system('Game started — Cabo! You briefly saw your bottom two cards — remember them!');
-    log.info('game_start', { roomId: this.id, gameId: this.gameId, players: seated.length });
+    return engine;
+  }
+
+  startGame(playerId: string): void {
+    if (playerId !== this.hostId) throw new RoomError('only the host can start the game');
+    if (this.engine) throw new RoomError('game already running');
+    this.engine = this.dealNewGame();
+    for (const p of this.players.values()) p.ready = false;
+    const opener =
+      this.gameId === 'pairone'
+        ? 'Game started — Pair One! Flip two cards; match the numbers to collect the pair.'
+        : 'Game started — Cabo! You briefly saw your bottom two cards — remember them!';
+    this.system(opener);
+    log.info('game_start', { roomId: this.id, gameId: this.gameId, players: this.players.size });
   }
 
   /** Host toggles the optional 5–6 "swap others" power (applies next round). */
@@ -327,9 +364,10 @@ export class Room {
     if (this.engine && !this.engine.isGameFinished()) {
       throw new RoomError('current round is still in progress');
     }
+    const label = GAME_REGISTRY[this.gameId].label;
     this.engine = null;
     this.startGame(playerId);
-    this.system('Next round — Cabo!');
+    this.system(`Next round — ${label}!`);
   }
 
   /** Cumulative match scoreboard across rounds (public info). */
@@ -385,10 +423,14 @@ export class Room {
     };
   }
 
-  gameView(playerId: string): CaboPlayerView | null {
+  gameView(playerId: string): AnyGameView | null {
     if (!this.engine) return null;
     if (!this.players.has(playerId)) return null; // spectators: public state only (later)
-    return this.engine.getPlayerState(playerId, this.testMode ? { revealAll: true } : undefined);
+    const opts = this.testMode ? { revealAll: true } : undefined;
+    if (this.engine instanceof PairOneEngine) {
+      return this.engine.getPlayerState(playerId, opts);
+    }
+    return this.engine.getPlayerState(playerId, opts);
   }
 
   // -------------------------------------------------------------------

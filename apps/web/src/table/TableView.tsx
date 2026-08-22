@@ -22,8 +22,7 @@ import Avatar from './Avatar.js';
  * positions derive from the seat angle so animations read as physical
  * movement around the table.
  */
-export default function TableView({ room }: { room: RoomApi }) {
-  const view = room.view!;
+export default function TableView({ room, view }: { room: RoomApi; view: CaboPlayerView }) {
   const me = view.players.find((p) => p.id === room.myPlayerId) ?? view.players[0]!;
   const others = view.players.filter((p) => p.id !== me.id);
   // Cards inside their brief reveal window render face-up; afterwards they

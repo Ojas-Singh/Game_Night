@@ -5,6 +5,10 @@
 
 import type { GameAction } from '@shared/game.js';
 import type { CaboPlayerView } from '@cabo/views.js';
+import type { PairOnePlayerView } from '@pairone/views.js';
+
+/** Any game's filtered per-player view. */
+export type AnyGameView = CaboPlayerView | PairOnePlayerView;
 
 export interface JoinResult {
   ok: boolean;
@@ -77,8 +81,8 @@ export type ServerToClientEvents = {
   'room:state': (state: RoomLobbyState) => void;
   'room:chat': (message: ChatMessage) => void;
   'room:emote': (payload: { playerId: string; emote: string; timestamp: string }) => void;
-  'game:view': (view: CaboPlayerView) => void;
+  'game:view': (view: AnyGameView) => void;
   'room:closed': (payload: { reason: string }) => void;
 };
 
-export type { GameAction, CaboPlayerView };
+export type { GameAction, CaboPlayerView, PairOnePlayerView };

@@ -12,8 +12,10 @@ import { RANK_LABELS } from '@shared/cards.js';
 interface DebugState {
   players: Array<{ id: string; name: string }>;
   engine: {
+    gameId?: string;
     phase: string;
-    hands: Record<string, Array<{ id: string; suit: string; rank: number }>>;
+    hands?: Record<string, Array<{ id: string; suit: string; rank: number }>>;
+    grid?: Array<{ id: string; suit: string; rank: number } | null>;
     deck: number;
   } | null;
 }
@@ -60,14 +62,20 @@ export default function DebugPanel({ room }: { room: RoomApi }) {
           )}
           {state?.engine && (
             <div className="debug-state">
+              <div>game: {state.engine.gameId ?? 'cabo'}</div>
               <div>phase: {state.engine.phase}</div>
               <div>deck: {state.engine.deck}</div>
-              {Object.entries(state.engine.hands).map(([pid, cards]) => (
-                <div key={pid}>
-                  {state.players.find((p) => p.id === pid)?.name ?? pid}:{' '}
-                  {cards.map((c) => `${RANK_LABELS[c.rank as 1 | 2 | 3]}${{ spades: '♠', hearts: '♥', diamonds: '♦', clubs: '♣' }[c.suit]}`).join(' ')}
-                </div>
-              ))}
+              {/* Cabo hands; Pair One exposes a grid instead. */}
+              {state.engine.hands &&
+                Object.entries(state.engine.hands).map(([pid, cards]) => (
+                  <div key={pid}>
+                    {state.players.find((p) => p.id === pid)?.name ?? pid}:{' '}
+                    {cards.map((c) => `${RANK_LABELS[c.rank as 1 | 2 | 3]}${{ spades: '♠', hearts: '♥', diamonds: '♦', clubs: '♣' }[c.suit]}`).join(' ')}
+                  </div>
+                ))}
+              {state.engine.grid && (
+                <div>grid: {state.engine.grid.filter((c) => c !== null).length} face-down</div>
+              )}
             </div>
           )}
         </div>

@@ -250,9 +250,17 @@
   display: flex;
   gap: 12px;
 }
+/* Game tile: a mini card-art panel. The whole face is the host's select
+   button; the ⓘ corner opens that game's rules for everyone. */
 .game-tile {
+  position: relative;
   flex: 1;
-  aspect-ratio: 3 / 2;
+  min-width: 0;
+  aspect-ratio: 4 / 3;
+}
+.game-tile-hit {
+  width: 100%;
+  height: 100%;
   border-radius: 14px;
   border: 1px solid rgba(255, 220, 160, 0.14);
   background: linear-gradient(165deg, rgba(124, 45, 45, 0.4), rgba(36, 20, 9, 0.6));
@@ -260,19 +268,96 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   cursor: pointer;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, filter 0.14s ease;
 }
-.game-tile.selected {
+.game-tile-hit:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: brightness(1.1);
+}
+.game-tile.selected .game-tile-hit,
+.game-tile.selected .game-tile-hit:disabled {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(232, 165, 75, 0.25), 0 8px 24px rgba(232, 165, 75, 0.12);
-}
-.game-tile.soon {
-  opacity: 0.45;
-  cursor: default;
+  box-shadow: 0 0 0 2px rgba(232, 165, 75, 0.3), 0 8px 24px rgba(232, 165, 75, 0.14);
 }
 .game-tile-art { font-size: 34px; color: var(--card-face); }
-.game-tile-name { font-weight: 600; color: var(--ink); }
+.game-tile-name { font-weight: 600; color: var(--ink); font-size: 15px; }
+.game-tile-tagline {
+  font-size: 10.5px;
+  color: var(--ink-dim);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.game-tile-chosen {
+  margin-top: 3px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent-strong);
+}
+.game-tile-info {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 12.5px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  background: rgba(13, 10, 8, 0.72);
+  color: var(--ink);
+  border: 1px solid rgba(255, 220, 160, 0.28);
+  box-shadow: none;
+}
+.game-tile-info:hover {
+  background: rgba(232, 165, 75, 0.25);
+  color: #ffe9c2;
+  transform: scale(1.08);
+}
+/* Pair One tile art: two overlapping mini cards (one face-up). */
+.tile-pair-art {
+  position: relative;
+  display: block;
+  width: 44px;
+  height: 44px;
+}
+.tile-pair-back,
+.tile-pair-face {
+  position: absolute;
+  width: 27px;
+  height: 38px;
+  border-radius: 5px;
+  box-shadow: var(--shadow-card);
+}
+.tile-pair-back {
+  left: 2px;
+  top: 4px;
+  transform: rotate(-9deg);
+  background: linear-gradient(160deg, var(--card-back-1), var(--card-back-2));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.tile-pair-face {
+  right: 2px;
+  top: 1px;
+  transform: rotate(7deg);
+  background: linear-gradient(165deg, var(--card-face), #efe7d3);
+  color: #b3372c;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+}
+.waiting-game {
+  color: var(--accent-strong);
+}
 .host-controls {
   margin-top: 16px;
 }
@@ -2013,4 +2098,295 @@
   pointer-events: none;
 }
 .test-banner { font-size: 11px; padding: 5px 12px; }
+}
+
+/* ---------------------------------------------------------------------------
+   Pair One — the memory grid.
+--------------------------------------------------------------------------- */
+.po-room {
+  display: block;
+  padding-top: 8px;
+}
+/* Player chips along the top edge. */
+.po-players {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin: 6px auto 0;
+  max-width: min(96vw, 1100px);
+}
+.po-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px 5px 7px;
+  border-radius: 999px;
+  background: rgba(13, 10, 8, 0.78);
+  border: 1px solid rgba(255, 220, 160, 0.14);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.po-chip.turn {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(232, 165, 75, 0.32), 0 6px 20px rgba(232, 165, 75, 0.2);
+}
+.po-chip-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.po-chip.turn .po-chip-name {
+  color: var(--accent-strong);
+}
+.po-chip-pairs {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  padding-left: 9px;
+  border-left: 1px solid rgba(255, 220, 160, 0.16);
+}
+.po-chip-pair-count {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 17px;
+  color: #ffd97a;
+  animation: pair-bounce 0.45s cubic-bezier(0.3, 1.6, 0.4, 1);
+}
+@keyframes pair-bounce {
+  0% { transform: scale(1.9); }
+  100% { transform: scale(1); }
+}
+.po-chip-pair-icon {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+}
+
+/* Cards-left pill, floating above the board. */
+.po-remaining {
+  position: relative;
+  z-index: 25;
+  width: fit-content;
+  margin: 10px auto 0;
+  padding: 4px 16px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  background: rgba(13, 10, 8, 0.66);
+  border: 1px solid rgba(255, 220, 160, 0.1);
+}
+.po-remaining-num {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* The felt panel holding the grid. */
+.po-board-wrap {
+  position: relative;
+  height: calc(100% - 132px);
+  margin: 10px auto 0;
+  width: min(96vw, 1180px);
+  min-height: 0;
+}
+.po-board-wrap.my-turn .po-felt {
+  border-color: rgba(232, 165, 75, 0.55);
+  box-shadow:
+    0 26px 60px rgba(0, 0, 0, 0.55),
+    inset 0 0 90px rgba(0, 0, 0, 0.5),
+    0 0 0 2px rgba(232, 165, 75, 0.22);
+}
+.po-felt {
+  height: 100%;
+  border-radius: 26px;
+  border: 2px solid rgba(255, 220, 160, 0.16);
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 20%, rgba(255, 220, 150, 0.09), transparent 70%),
+    radial-gradient(ellipse at 50% 40%, var(--felt-1), var(--felt-2) 78%);
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.55), inset 0 0 90px rgba(0, 0, 0, 0.5);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 18px;
+}
+/* The grid: --po-cols columns; slots keep their place when pairs leave. */
+.po-grid {
+  --po-gap: 9px;
+  display: grid;
+  grid-template-columns: repeat(var(--po-cols), 1fr);
+  gap: var(--po-gap);
+  justify-items: stretch;
+}
+.po-slot {
+  position: relative;
+  aspect-ratio: 5 / 7;
+}
+/* Card sizing derives from slot size so any column count fits. */
+.po-card {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border-radius: 9px;
+  perspective: 700px;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+  transition: transform 0.14s ease, filter 0.14s ease;
+}
+.po-card.clickable:hover:not(:disabled) {
+  transform: translateY(-4px) scale(1.04);
+  filter: brightness(1.08);
+}
+.po-card .pcard-inner {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transition: transform 0.4s cubic-bezier(0.4, 0.1, 0.2, 1);
+  border-radius: 9px;
+}
+.po-card.faceup .pcard-inner {
+  transform: rotateY(180deg);
+}
+.po-front {
+  position: absolute;
+  inset: 0;
+  border-radius: 9px;
+  backface-visibility: hidden;
+  transform: rotateY(180deg);
+  background: linear-gradient(165deg, var(--card-face), #efe7d3);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.po-rank {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(20px, 4.2vw, 42px);
+  line-height: 1;
+  color: #241409;
+  padding-bottom: 6%;
+}
+.po-rank em {
+  font-style: normal;
+  font-size: 0.62em;
+  margin-left: 2px;
+}
+.po-rank.red,
+.po-corner.red {
+  color: #b3372c;
+}
+.po-corner {
+  position: absolute;
+  font-size: clamp(9px, 1.2vw, 13px);
+  font-weight: 700;
+  color: #241409;
+  opacity: 0.85;
+}
+.po-corner.tl { top: 5%; left: 8%; }
+.po-corner.br { bottom: 5%; right: 8%; transform: rotate(180deg); }
+.po-back {
+  position: absolute;
+  inset: 0;
+  border-radius: 9px;
+  backface-visibility: hidden;
+  background: linear-gradient(160deg, #34243c, #201430);
+  border: 1px solid rgba(190, 160, 255, 0.22);
+  box-shadow: var(--shadow-card);
+}
+.po-back .back-pattern {
+  position: absolute;
+  inset: 8%;
+  border-radius: 6px;
+  border: 1.5px solid rgba(200, 170, 255, 0.28);
+  background:
+    repeating-linear-gradient(45deg, rgba(200, 170, 255, 0.08) 0 4px, transparent 4px 9px),
+    repeating-linear-gradient(-45deg, rgba(200, 170, 255, 0.08) 0 4px, transparent 4px 9px);
+}
+.po-back-mark {
+  position: absolute;
+  bottom: 7%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: rgba(215, 195, 255, 0.55);
+}
+/* A just-missed pair: red glow + shake while everyone gets a last look. */
+.po-card.missed .pcard-inner {
+  animation: miss-shake 0.5s ease-in-out 2;
+}
+.po-card.missed::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2.5px rgba(224, 108, 90, 0.75), 0 0 18px rgba(224, 108, 90, 0.4);
+  pointer-events: none;
+}
+@keyframes miss-shake {
+  0%, 100% { translate: 0 0; }
+  25% { translate: -3px 0; }
+  50% { translate: 3px 0; }
+  75% { translate: -2px 0; }
+}
+
+/* Matched cards flying to the collector's chip. */
+.po-fly {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 120;
+  pointer-events: none;
+  will-change: transform;
+}
+.po-fly-card {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 64px;
+  margin: -32px 0 0 -23px;
+  border-radius: 8px;
+  background: linear-gradient(165deg, var(--card-face), #efe7d3);
+  color: #241409;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 22px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.5), 0 0 22px rgba(255, 214, 122, 0.5);
+}
+.po-fly-card.red { color: #b3372c; }
+
+/* Results overlay tweaks for Pair One. */
+.po-result-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .po-chip-name { max-width: 90px; }
+  .po-felt { padding: 12px; }
+  .po-grid { --po-gap: 6px; }
+}
+@media (max-width: 640px) {
+  .po-players { gap: 6px; }
+  .po-chip { padding: 4px 10px 4px 5px; gap: 6px; }
+  .po-chip-name { max-width: 70px; font-size: 11.5px; }
+  .po-chip-pair-count { font-size: 14px; }
+  .po-board-wrap { height: calc(100% - 150px); }
+  .po-back-mark { display: none; }
 }

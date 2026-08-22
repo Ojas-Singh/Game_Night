@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { collectFlights } from '../src/useRoom.js';
 import type { CaboPlayerView } from '@cabo/views.js';
 
-/** Minimal view carrying only the event log (the only field collectFlights reads). */
+/** Minimal view carrying only the fields collectFlights reads: gameId + event log. */
 function view(events: Array<{ seq: number; type: string; playerId?: string; payload?: Record<string, unknown> }>): CaboPlayerView {
   return {
+    gameId: 'cabo',
     events: events as CaboPlayerView['events'],
   } as unknown as CaboPlayerView;
 }

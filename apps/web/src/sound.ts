@@ -16,6 +16,8 @@ export type SoundName =
   | 'cabo'
   | 'swap'
   | 'reveal'
+  | 'match'
+  | 'miss'
   | 'error';
 
 let ctx: AudioContext | null = null;
@@ -143,6 +145,17 @@ export function playSound(name: SoundName): void {
     }
     case 'reveal':
       for (let i = 0; i < 4; i++) tone(440 + i * 110, 0.1, 0.05, i * 0.09);
+      break;
+    case 'match':
+      // Pair One: a bright two-note "found it!" chime.
+      tone(784, 0.12, 0.08);
+      tone(1175, 0.18, 0.07, 0.09);
+      noise(0.05, 3000, 0.08, 0.02);
+      break;
+    case 'miss':
+      // Pair One: a soft low "nope" — cards sink back down.
+      tone(233, 0.16, 0.07, 0, 'triangle');
+      tone(175, 0.2, 0.05, 0.1, 'triangle');
       break;
     case 'error':
       tone(196, 0.12, 0.07, 0, 'square');

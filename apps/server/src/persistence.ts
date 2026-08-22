@@ -12,9 +12,13 @@ import { log } from './log.js';
 import type { Room, RoomPlayer } from './room.js';
 import type { ChatMessage } from './protocol.js';
 import type { CaboState } from '@game-night/engine-cabo';
+import type { PairOneState } from '@game-night/engine-pairone';
 
 const SNAPSHOT_VERSION = 1;
 const KEY_PREFIX = 'game-night:room:';
+
+/** Whichever engine's serialized state the room was running. */
+export type AnyEngineState = CaboState | PairOneState;
 
 export interface RoomSnapshot {
   version: typeof SNAPSHOT_VERSION;
@@ -28,7 +32,7 @@ export interface RoomSnapshot {
   testMode: boolean;
   debug: Room['debug'];
   players: Array<Omit<RoomPlayer, 'sockets'> & { socketCount: number }>;
-  engineState: CaboState | null;
+  engineState: AnyEngineState | null;
 }
 
 export function serializeRoom(room: Room): RoomSnapshot {

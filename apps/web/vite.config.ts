@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => ({
     alias: {
       '@shared': fileURLToPath(new URL('../../packages/shared/src', import.meta.url)),
       '@cabo': fileURLToPath(new URL('../../packages/engine-cabo/src', import.meta.url)),
+      '@pairone': fileURLToPath(new URL('../../packages/engine-pairone/src', import.meta.url)),
     },
   },
   server: {

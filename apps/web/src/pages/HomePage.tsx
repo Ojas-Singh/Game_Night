@@ -42,7 +42,8 @@ export default function HomePage({ room }: { room: RoomApi }) {
         </div>
         <h1 className="font-display home-title">Game Night</h1>
         <p className="home-sub">
-          Sit around a table with friends and play <strong>Cabo</strong> — no accounts, just a link.
+          Sit around a table with friends — play <strong>Cabo</strong> or{' '}
+          <strong>Pair One</strong>. No accounts, just a link.
         </p>
         <div className="home-form">
           <input

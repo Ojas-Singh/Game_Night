@@ -6,6 +6,10 @@
 
 import type { GameAction } from '@game-night/shared';
 import type { CaboPlayerView } from '@game-night/engine-cabo';
+import type { PairOnePlayerView } from '@game-night/engine-pairone';
+
+/** Any game's filtered per-player view. */
+export type AnyGameView = CaboPlayerView | PairOnePlayerView;
 
 // ---------------------------------------------------------------------------
 // Client → Server
@@ -116,6 +120,6 @@ export interface ServerEvents {
   'room:state': (state: RoomLobbyState) => void;
   'room:chat': (message: ChatMessage) => void;
   'room:emote': (payload: { playerId: string; emote: string; timestamp: string }) => void;
-  'game:view': (view: CaboPlayerView | { spectator: true }) => void;
+  'game:view': (view: AnyGameView | { spectator: true }) => void;
   'room:closed': (payload: { reason: string }) => void;
 }

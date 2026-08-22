@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Room, RoomError, randomRoomCode } from '../src/room.js';
 import { RoomManager } from '../src/roomManager.js';
+import { serializeRoom } from '../src/persistence.js';
 
 describe('room codes', () => {
   it('generates 6-char unambiguous codes', () => {
@@ -194,6 +195,65 @@ describe('Room', () => {
     room.startGame(p1.id);
     expect(room.engine!.getRules().swapOthersEnabled).toBe(false);
     expect(room.chat.some((m) => m.text.includes('OFF'))).toBe(true);
+  });
+
+  it('supports Pair One: host selects it, start deals the 104-card grid', () => {
+    const room = new Room({ roomId: 'PAIR01' });
+    const { player: p1 } = room.addPlayer('A');
+    const { player: p2 } = room.addPlayer('B');
+    // Non-host cannot switch games.
+    expect(() => room.selectGame(p2.id, 'pairone')).toThrow(/host/);
+    room.selectGame(p1.id, 'pairone');
+    expect(room.gameId).toBe('pairone');
+    expect(() => room.selectGame(p1.id, 'nope')).toThrow(/unknown game/);
+
+    room.startGame(p1.id);
+    const engine = room.engine!;
+    expect(engine.gameId).toBe('pairone');
+    const state = engine.getState();
+    expect(state.grid.length).toBe(104);
+    expect(state.phase).toBe('TURN');
+
+    // Filtered views flow for pair one viewers too.
+    const view = room.gameView(p1.id)!;
+    expect(view.gameId).toBe('pairone');
+    expect(view.gridCardIds.filter((id) => !id.startsWith('__empty__'))).toHaveLength(104);
+
+    // A flip works through the room action path.
+    const firstCard = state.grid[0]!.id;
+    room.handleGameAction(p1.id, { type: 'FLIP_CARD', cardId: firstCard });
+    expect(engine.getState().flippedThisTurn).toEqual([firstCard]);
+    // Not their turn anymore once two cards are resolved by someone else.
+    expect(() =>
+      room.handleGameAction(p1.id, { type: 'DRAW' }),
+    ).toThrow();
+
+    // Snapshot round-trip keeps the running pair-one game.
+    const snap = serializeRoom(room);
+    expect(snap.engineState).not.toBeNull();
+    const restored = Room.fromSnapshot(snap);
+    expect(restored.gameId).toBe('pairone');
+    expect(restored.engine!.gameId).toBe('pairone');
+    // The flip is preserved: same card still face-up mid-turn.
+    expect(restored.engine!.getState().flippedThisTurn).toEqual([firstCard]);
+  });
+
+  it('play again works after a pair-one round completes', () => {
+    const room = new Room({ roomId: 'PAIR02' });
+    const { player: p1 } = room.addPlayer('A');
+    room.addPlayer('B');
+    room.selectGame(p1.id, 'pairone');
+    room.startGame(p1.id);
+    const engine = room.engine as unknown as { finishRound(reason?: string): void; isGameFinished(): boolean };
+    engine.finishRound();
+    expect(engine.isGameFinished()).toBe(true);
+    // Non-host cannot start the next round.
+    const p2 = [...room.players.values()].find((p) => p.id !== p1.id)!;
+    expect(() => room.playAgain(p2.id)).toThrow(/host/);
+    room.playAgain(p1.id);
+    expect(room.engine!.gameId).toBe('pairone');
+    expect(room.engine!.isGameFinished()).toBe(false);
+    expect(room.lobbyState().inGame).toBe(true);
   });
 });
 
