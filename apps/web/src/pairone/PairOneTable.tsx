@@ -120,46 +120,56 @@ export default function PairOneTable({ room, view }: Props) {
     return () => ro.disconnect();
   }, []);
 
-  // ---- Reveal windows ------------------------------------------------------
-  // Knowledge-delta flashes arrive via room.peekFlash (managed in useRoom);
-  // cards explicitly face-up mid-turn always render face-up too.
-  const flashActive = (cardId: string): boolean => {
-    const f = room.peekFlash[cardId];
-    return !!f && Date.now() - f.at < f.ms;
-  };
-  const [, forceTick] = useState(0);
-  // Re-render when the earliest pending flash expires so cards flip back down.
-  useEffect(() => {
-    const iv = setInterval(() => forceTick((n) => n + 1), 500);
-    return () => clearInterval(iv);
-  }, []);
-
-  const isFaceUp = (cardId: string): boolean =>
-    view.faceUpCardIds.includes(cardId) || flashActive(cardId);
-  // ---- Miss shake -----------------------------------------------------------
-  const [missMarks, setMissMarks] = useState<Record<string, number>>({});
+  // ---- Turn reveal lifecycle (deterministic, event-driven) -----------------
+  // The server resolves a turn's second flip INSTANTLY, so faceUpCardIds is
+  // empty again by the time clients see the resolution. Everything a viewer
+  // must still SEE is reconstructed here from the event log:
+  //   • miss  → BOTH cards stay face-up for MISS_HOLD_MS, then close together
+  //   • match → face-up collected ghosts + flights (see below)
+  const MISS_HOLD_MS = 1700;
+  /** My own in-flight flips — open instantly on click, no round-trip wait. */
+  const [myFlips, setMyFlips] = useState<string[]>([]);
+  /** A failed pair: both ids held face-up until one shared timer closes them. */
+  const [missPair, setMissPair] = useState<{ ids: string[]; at: number } | null>(null);
   const handledMisses = useRef<Set<number>>(new Set());
   useEffect(() => {
     const fresh = view.events.filter(
       (e) => e.type === 'PAIR_MISSED' && !handledMisses.current.has(e.seq),
     );
     if (fresh.length === 0) return;
-    fresh.forEach((e) => handledMisses.current.add(e.seq));
-    const ids = (fresh[0]!.payload as { cardIds?: string[] }).cardIds ?? [];
-    const at = Date.now();
-    setMissMarks((cur) => {
-      const next = { ...cur };
-      for (const id of ids) if (id) next[id] = at;
-      return next;
-    });
-    setTimeout(() => {
-      setMissMarks((cur) => {
-        const next: typeof cur = {};
-        for (const [id, t] of Object.entries(cur)) if (at - t < 3000) next[id] = t;
-        return next;
-      });
-    }, 3100);
+    for (const e of fresh) handledMisses.current.add(e.seq);
+    const last = fresh[fresh.length - 1]!;
+    const ids = ((last.payload as { cardIds?: string[] }).cardIds ?? []).filter(Boolean);
+    if (ids.length === 0) return;
+    setMissPair({ ids, at: Date.now() });
   }, [view.events]);
+  useEffect(() => {
+    if (!missPair) return;
+    const t = setTimeout(() => setMissPair(null), MISS_HOLD_MS);
+    return () => clearTimeout(t);
+  }, [missPair]);
+  // Clear my optimistic flips once the server has caught up (resolution seen,
+  // or its faceUp set emptied/matched my clicks).
+  useEffect(() => {
+    if (myFlips.length === 0) return;
+    const resolved =
+      view.faceUpCardIds.length === 0 ||
+      view.events.some((e) => e.type === 'PAIR_MISSED' || e.type === 'PAIR_COLLECTED');
+    if (!resolved) return;
+    const t = setTimeout(() => setMyFlips([]), 250);
+    return () => clearTimeout(t);
+  }, [view.events, view.faceUpCardIds.length, myFlips.length]);
+
+  const flashActive = (cardId: string): boolean => {
+    const f = room.peekFlash[cardId];
+    return !!f && Date.now() - f.at < f.ms;
+  };
+  const [, forceTick] = useState(0);
+  // Re-render when pending windows expire so cards flip back down.
+  useEffect(() => {
+    const iv = setInterval(() => forceTick((n) => n + 1), 300);
+    return () => clearInterval(iv);
+  }, []);
 
   // ---- Match collection flights -------------------------------------------
   const handledCollections = useRef<Set<number>>(new Set());
@@ -226,6 +236,7 @@ export default function PairOneTable({ room, view }: Props) {
   const currentName = current?.name ?? '…';
   const statusText = useMemo((): { text: string; urgent: boolean } => {
     if (error) return { text: error, urgent: true };
+    if (missPair) return { text: 'No match!', urgent: true };
     if (roundOver) return { text: 'Round over — check the scores!', urgent: false };
     if (view.faceUpCardIds.length === 1) {
       return isMyTurn
@@ -234,14 +245,18 @@ export default function PairOneTable({ room, view }: Props) {
     }
     if (isMyTurn) return { text: 'Your turn — flip any two cards', urgent: true };
     return { text: `${currentName} is flipping…`, urgent: false };
-  }, [error, roundOver, view.faceUpCardIds.length, isMyTurn, currentName]);
+  }, [error, missPair, roundOver, view.faceUpCardIds.length, isMyTurn, currentName]);
 
   const act = useCallback(
     (cardId: string) => {
+      // Optimistic: show MY flip the instant I click — the server view will
+      // confirm it moments later. Roll back if the action is rejected.
+      setMyFlips((cur) => (cur.includes(cardId) ? cur : [...cur, cardId]));
       void room.sendAction({ type: 'FLIP_CARD', cardId }).then((res) => {
         if (!res.ok && res.error) {
           playSound('error');
           setError(res.error);
+          setMyFlips((cur) => cur.filter((id) => id !== cardId));
         }
       });
     },
@@ -344,10 +359,18 @@ export default function PairOneTable({ room, view }: Props) {
               // Face-up when: flipped this turn, still inside its reveal
               // window, or Test Mode (which exposes every value server-side).
               const midTurnUp = !isEmpty && view.faceUpCardIds.includes(slotId);
-              const faceUp = !isEmpty && (midTurnUp || flashActive(slotId) || room.testMode);
-              const missed = !!missMarks[slotId] && Date.now() - missMarks[slotId]! < 3000;
+              const missHeld = !!missPair && missPair.ids.includes(slotId);
+              const faceUp =
+                !isEmpty &&
+                (midTurnUp || myFlips.includes(slotId) || missHeld || flashActive(slotId) || room.testMode);
+              const missed = missHeld;
               const clickable =
-                !isEmpty && !roundOver && isMyTurn && view.faceUpCardIds.length < 2 && !midTurnUp;
+                !isEmpty &&
+                !roundOver &&
+                isMyTurn &&
+                view.faceUpCardIds.length < 2 &&
+                !midTurnUp &&
+                !myFlips.includes(slotId);
               const ghostEntry = collectedGhosts[index];
               const ghostCard =
                 isEmpty && ghostEntry && Date.now() - ghostEntry.at < 850
