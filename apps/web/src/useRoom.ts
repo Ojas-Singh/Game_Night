@@ -281,13 +281,25 @@ export function useRoom(): RoomApi {
     // skip the join-time mega-flash; its flips flash via the normal path.
     if (!prev && next.gameId === 'pairone') return;
     const before = new Set(prev ? Object.keys(prev.knownCards) : []);
-    const fresh = Object.keys(next.knownCards).filter((id) => !before.has(id));
-    if (fresh.length === 0) return;
+    const ids = new Set(Object.keys(next.knownCards).filter((id) => !before.has(id)));
+    // Also re-flash EVERY card a fresh CARD_FLIPPED event reveals, EVEN IF we
+    // already knew it. Pair One players flip already-open cards constantly
+    // (that's how memory works), and without this such a card would snap back
+    // face-down the instant the turn resolved instead of staying up for the
+    // shared reveal window.
+    const lastSeq = prev && prev.events.length > 0 ? prev.events[prev.events.length - 1]!.seq : 0;
+    for (const e of next.events) {
+      if (e.seq <= lastSeq || e.type !== 'CARD_FLIPPED') continue;
+      for (const id of (e.payload?.cardIds as string[] | undefined) ?? []) {
+        if (id) ids.add(id);
+      }
+    }
+    if (ids.size === 0) return;
     const ms = prev ? PEEK_FLASH_MS : START_FLASH_MS;
     const at = Date.now();
     setPeekFlash((cur) => {
       const updated = { ...cur };
-      for (const id of fresh) updated[id] = { at, ms };
+      for (const id of ids) updated[id] = { at, ms };
       return updated;
     });
     // Flip back down after the reveal window.
