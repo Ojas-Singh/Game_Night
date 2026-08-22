@@ -2192,7 +2192,9 @@
   color: var(--ink);
 }
 
-/* The felt panel holding the grid. */
+/* The felt panel holding the grid. It NEVER scrolls: the layout solver fits
+   every card inside the visible area, because moving cards would destroy
+   players' memory of where each one lies. */
 .po-board-wrap {
   position: relative;
   height: calc(100% - 132px);
@@ -2209,26 +2211,30 @@
 }
 .po-felt {
   height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
   border-radius: 26px;
   border: 2px solid rgba(255, 220, 160, 0.16);
   background:
     radial-gradient(ellipse 60% 50% at 50% 20%, rgba(255, 220, 150, 0.09), transparent 70%),
     radial-gradient(ellipse at 50% 40%, var(--felt-1), var(--felt-2) 78%);
   box-shadow: 0 26px 60px rgba(0, 0, 0, 0.55), inset 0 0 90px rgba(0, 0, 0, 0.5);
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 18px;
+  padding: 16px;
 }
-/* The grid: --po-cols columns; slots keep their place when pairs leave. */
+/* The grid: card size is solved from BOTH felt dimensions (see
+   computeLayout), so all 104 cards are always on screen at once. Slots keep
+   their exact spot when pairs are collected — gaps stay where they were. */
 .po-grid {
-  --po-gap: 9px;
   display: grid;
-  grid-template-columns: repeat(var(--po-cols), 1fr);
-  gap: var(--po-gap);
-  justify-items: stretch;
+  grid-template-columns: repeat(var(--po-cols, 13), var(--po-card-w, 64px));
+  gap: var(--po-gap, 9px);
+  justify-content: center;
 }
 .po-slot {
   position: relative;
+  width: var(--po-card-w, 64px);
   aspect-ratio: 5 / 7;
 }
 /* Card sizing derives from slot size so any column count fits. */
@@ -2274,7 +2280,7 @@
   place-items: center;
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: clamp(20px, 4.2vw, 42px);
+  font-size: calc(var(--po-card-w, 64px) * 0.48);
   line-height: 1;
   color: #241409;
   padding-bottom: 6%;
@@ -2290,7 +2296,7 @@
 }
 .po-corner {
   position: absolute;
-  font-size: clamp(9px, 1.2vw, 13px);
+  font-size: calc(var(--po-card-w, 64px) * 0.22);
   font-weight: 700;
   color: #241409;
   opacity: 0.85;
@@ -2320,10 +2326,14 @@
   bottom: 7%;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 8.5px;
+  font-size: calc(var(--po-card-w, 64px) * 0.13);
   font-weight: 700;
   letter-spacing: 0.3em;
   color: rgba(215, 195, 255, 0.55);
+}
+/* Unknown-value placeholder scales with the solved card size. */
+.po-front .unknown {
+  font-size: calc(var(--po-card-w, 64px) * 0.34);
 }
 /* A just-missed pair: red glow + shake while everyone gets a last look. */
 .po-card.missed .pcard-inner {
@@ -2379,8 +2389,7 @@
 
 @media (max-width: 900px) {
   .po-chip-name { max-width: 90px; }
-  .po-felt { padding: 12px; }
-  .po-grid { --po-gap: 6px; }
+  .po-felt { padding: 10px; }
 }
 @media (max-width: 640px) {
   .po-players { gap: 6px; }

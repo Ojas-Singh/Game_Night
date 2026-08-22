@@ -30,14 +30,42 @@ interface CollectFx {
   cardB: Card;
 }
 
-/** Column counts by available board width — keeps all 104 cards readable. */
-function columnsFor(width: number): number {
-  if (width >= 1020) return 13;
-  if (width >= 880) return 12;
-  if (width >= 740) return 10;
-  if (width >= 600) return 9;
-  if (width >= 480) return 8;
-  return 6;
+/** Total cards on the table (two decks). */
+const GRID_CARDS = 104;
+/** Card height = width × this (matches the 5/7 slot aspect ratio in CSS). */
+const CARD_ASPECT = 1.4;
+
+export interface PoLayout {
+  cols: number;
+  cardW: number;
+  gap: number;
+}
+
+/**
+ * Fit ALL 104 cards inside the visible felt — never scroll, never reflow
+ * mid-round. Only column counts that divide 104 are considered (26×4, 13×8,
+ * 8×13, 4×26 …), so the grid is ALWAYS a perfect, unchanging rectangle: the
+ * same wall from deal to finish, which is what makes positions memorable.
+ * Among those, whichever layout yields the largest card wins.
+ */
+const GRID_COL_OPTIONS = [26, 13, 8, 4]; // divisors of 104, wide → tall
+
+function computeLayout(width: number, height: number): PoLayout {
+  const w = Math.max(120, width);
+  const h = Math.max(120, height);
+  const gap = Math.max(3, Math.min(12, Math.sqrt((w * h) / GRID_CARDS) * 0.16));
+  let best: PoLayout = { cols: 13, cardW: 0, gap };
+  for (const cols of GRID_COL_OPTIONS) {
+    const rows = GRID_CARDS / cols;
+    const byWidth = (w - (cols - 1) * gap) / cols;
+    const byHeight = (h - (rows - 1) * gap) / rows / CARD_ASPECT;
+    const cardW = Math.min(byWidth, byHeight);
+    if (cardW > best.cardW) best = { cols, cardW, gap };
+  }
+  // Integer size (what CSS renders) and a cap so huge screens get a centred
+  // table, not giant cards.
+  best.cardW = Math.floor(Math.min(best.cardW, 96));
+  return best;
 }
 
 /**
@@ -71,14 +99,23 @@ export default function PairOneTable({ room, view }: Props) {
     [vpCenter],
   );
 
-  // ---- Responsive column count --------------------------------------------
-  const [cols, setCols] = useState(() => columnsFor(typeof window === 'undefined' ? 1200 : window.innerWidth));
+  // ---- Fit-the-whole-grid layout (no scrolling, ever) ----------------------
+  const feltRef = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState<PoLayout>(() =>
+    computeLayout(
+      typeof window === 'undefined' ? 1200 : window.innerWidth * 0.94,
+      typeof window === 'undefined' ? 700 : Math.max(320, window.innerHeight - 190),
+    ),
+  );
   useLayoutEffect(() => {
-    const el = boardRef.current;
+    const el = feltRef.current;
     if (!el) return;
-    const update = () => setCols(columnsFor(el.clientWidth));
-    update();
-    const ro = new ResizeObserver(update);
+    // ResizeObserver fires once on observe — its contentRect excludes the
+    // felt's padding, which is exactly the space the grid may occupy.
+    const ro = new ResizeObserver((entries) => {
+      const box = entries[entries.length - 1]?.contentRect;
+      if (box && box.width > 0 && box.height > 0) setLayout(computeLayout(box.width, box.height));
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -269,11 +306,15 @@ export default function PairOneTable({ room, view }: Props) {
 
       {/* the grid */}
       <div className={`po-board-wrap ${isMyTurn && !roundOver ? 'my-turn' : ''}`}>
-        <div className="po-felt">
+        <div className="po-felt" ref={feltRef}>
           <div
             className="po-grid"
             ref={boardRef}
-            style={{ ['--po-cols' as string]: cols }}
+            style={{
+              ['--po-cols' as string]: layout.cols,
+              ['--po-card-w' as string]: `${Math.floor(layout.cardW)}px`,
+              ['--po-gap' as string]: `${layout.gap}px`,
+            }}
           >
             {slots.map(({ slotId, index }) => {
               const isEmpty = slotId.startsWith('__empty__');
