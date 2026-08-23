@@ -6,9 +6,10 @@ import sys
 
 try:
     from rulezero.cabo_env import CaboGame
+    from rulezero.compliance import run_compliance
 except ImportError:  # direct script execution
     from cabo_env import CaboGame
-from compliance import run_compliance
+    from compliance import run_compliance
 
 
 def _cabo_privacy_checker():
@@ -55,3 +56,20 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def test_gamespec_specduel_passes_compliance():
+    """§32 acceptance: a GameSpec game is accepted only via compliance."""
+    from rulezero.gamespec_compile import register_gamespec
+    from rulezero.compliance import run_compliance
+
+    game, digest, _rules = register_gamespec({
+        "name": "specduel",
+        "ante": 1,
+        "deck": {"ranks": [2, 3, 4, 5, 6, 7, 8, 9, 10], "copiesPerRank": 1},
+        "firstDecision": {"actor": "first", "raiseAmount": 1},
+        "secondDecision": {"actor": "second", "raiseAmount": 1},
+    })
+    assert len(digest) == 64  # SHA-256
+    fails = run_compliance(game, episodes=20)
+    assert not fails, fails[:6]

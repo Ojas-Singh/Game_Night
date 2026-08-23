@@ -1,9 +1,12 @@
 """GameSpec v0 — bounded declarative schema for tiny card games (Phase 23/24).
 
+specVersion 1 semantics (see gamespec_compile): chance nodes expose card
+identities and are consumed verbatim; states hold no RNG.
+
 v0 deliberately supports ONLY mechanics needed for the seed experiment:
 fixed-size deck of ranked cards, hidden one-card deal per player, an
 alternating check/bet-fold showdown tree, lowest-to-highest player counts.
-No arbitrary code. Every spec canonicalizes to stable JSON + sha1 so every
+No arbitrary code. Every spec canonicalizes to stable JSON + SHA-256 so every
 trajectory can cite the exact rule set it was generated under.
 
 Compiler target is OpenSpiel (python-subclassed Game), NOT a homegrown engine.
@@ -70,8 +73,9 @@ class GameSpecV0:
         }
 
     def spec_hash(self) -> str:
+        """SHA-256 of the canonical JSON (Phase-2 §11: away from SHA-1)."""
         canon = json.dumps(self.canonical(), sort_keys=True, separators=(",", ":"))
-        return hashlib.sha1(canon.encode()).hexdigest()
+        return hashlib.sha256(canon.encode()).hexdigest()
 
     def rules_text(self) -> str:
         d = self.canonical()

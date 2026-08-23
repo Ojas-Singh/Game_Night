@@ -1,71 +1,114 @@
-"""GameSpec → OpenSpiel compiler (Phase 25 seed experiment).
+"""GameSpec → OpenSpiel interpreter (Phase-2 Milestone 3, §9).
 
-Compiles a GameSpecV0 into a registered OpenSpiel game (python-subclassed
-Game/State). The interpreter is deterministic given the spec + game seed:
-chance deals come from random.Random(seed) — injectable for differential
-testing later.
+ONE generic data-driven runtime. The spec is DATA; this module interprets it.
+No generated Python source per game, no embedded code execution.
 
-Seed game: two-player one-card bet ("specduel"). Exercises everything the
-pipeline needs: explicit chance, imperfect information, sequential decisions,
-folds, showdown, zero-sum returns.
+§9 compliance fixes over v0:
+- chance_outcomes() returns the remaining CARD IDENTITIES uniformly and
+  apply_action(card) consumes exactly that action — no hidden internal draw;
+- clone() is an exact deep copy (the state holds no RNG at all);
+- every advertised legal action is genuinely applicable;
+- static validation runs before instantiation (§11 subset).
+
+v1 semantics (specVersion 1): deal stage exposes one chance node per player,
+each uniform over the not-yet-dealt cards of the deck.
 """
 
 from __future__ import annotations
 
-import random
+import hashlib
+import json
 
 import pyspiel
 
 from .gamespec_schema import GameSpecV0, parse_spec
 
 _PASS, _RAISE, _FOLD, _CALL = 0, 1, 2, 3
+_ACTION_NAMES = {_PASS: "PASS", _RAISE: "RAISE", _FOLD: "FOLD", _CALL: "CALL"}
 
+
+# --------------------------------------------------------------------------
+# §11 static validation (subset that applies to this spec family)
+# --------------------------------------------------------------------------
+
+def validate_spec_doc(doc: dict) -> list[str]:
+    """Return a list of human-readable problems; empty == valid."""
+    errs: list[str] = []
+    try:
+        spec = parse_spec(doc)
+    except ValueError as e:
+        return [f"parse: {e}"]
+
+    if spec.players_min < 2 or spec.players_max > 6:
+        errs.append("players must be within [2, 6]")
+    if spec.players_min > spec.players_max:
+        errs.append("players.min exceeds players.max")
+    if spec.ante <= 0:
+        errs.append("ante must be > 0")
+    if spec.first_decision.raise_amount <= 0:
+        errs.append("firstDecision.raiseAmount must be > 0")
+    if spec.second_decision is not None and spec.second_decision.raise_amount <= 0:
+        errs.append("secondDecision.raiseAmount must be > 0")
+    if spec.deck.total() < 2 * spec.players_min:
+        errs.append("deck smaller than two cards per minimum player count")
+    if len(spec.deck.ranks) > 13:
+        errs.append("more than 13 ranks unsupported (card identity space)")
+    # Terminal rule is structural in this family (showdown/fold always ends),
+    # so nothing further to check here; kept explicit for future families.
+    return errs
+
+
+# --------------------------------------------------------------------------
+# Generic interpreter
+# --------------------------------------------------------------------------
 
 def compile_spec(spec: GameSpecV0) -> pyspiel.Game:
     if spec.players_min != 2 or spec.players_max != 2:
-        raise ValueError("v0 compiler supports exactly 2 players")
+        raise ValueError("this interpreter currently supports exactly 2 players")
 
     class SpecState(pyspiel.State):
+        """Interpreted state. Holds NO RNG: all randomness is chance nodes."""
+
         def __init__(self, game):
             super().__init__(game)
             self._game: SpecGame = game
-            self.rng = random.Random(game.get_parameters().get("seed", 12345))
+            g = game.spec
+            self.pool: list[int] = sorted(
+                r for r in g.deck.ranks for _ in range(g.deck.copies_per_rank))
             self.hands: list[int | None] = [None, None]
-            self.deck: list[int] = []
-            self.stage = 0  # 0=deal p0,1=deal p1,2..=bet tree,3=showdown
-            self.contrib = [game.spec.ante, game.spec.ante]
-            self.folded: bool | None = None
+            self.stage = 0          # 0..1 = deals, 2..3 = bet tree, >=4 showdown
+            self.contrib = [float(g.ante), float(g.ante)]
+            self.folded: int | None = None
             self.raises_seen = 0
 
-        # --- chance -----------------------------------------------------
-        def _deal(self):
-            if not self.deck:
-                self.deck = [
-                    r for r in self._game.spec.deck.ranks
-                    for _ in range(self._game.spec.deck.copies_per_rank)
-                ]
-                self.rng.shuffle(self.deck)
-            card = self.deck.pop()
-            self.hands[self.stage] = card
-            self.stage += 1
+        # --- §9 chance: identities, uniform, consumed verbatim -------------
+        def is_chance_node(self):
+            return self.stage < 2 and self.folded is None
 
-        # --- OpenSpiel interface ----------------------------------------
+        def chance_outcomes(self):
+            n = len(self.pool)
+            p = 1.0 / n
+            return [(c, p) for c in self.pool]
+
         def current_player(self):
-            if self.stage < 2:
+            if self.is_terminal():
+                return pyspiel.PlayerId.TERMINAL
+            if self.is_chance_node():
                 return pyspiel.PlayerId.CHANCE
             return (self.stage - 2) % 2
 
         def legal_actions(self, player):
-            if self.stage < 2:
-                return []  # chance handled via chance_outcomes
-            nd = self._decision_node(self.stage - 2)
-            if player != self.current_player():
+            if self.is_terminal() or self.is_chance_node():
                 return []
-            if self.folded is not None:
+            if player != self.current_player() or self.folded is not None:
                 return []
             acts = [_PASS]
-            if nd and self.raises_seen == 0:
-                acts.append(_RAISE if self.stage - 2 == 0 else _CALL)
+            nd = self._decision_node(self.stage - 2)
+            if self.stage - 2 == 0 and self.raises_seen == 0:
+                acts.append(_RAISE)
+            elif (self.stage - 2 == 1 and self.raises_seen == 0
+                  and nd is not None):
+                acts.append(_CALL)
             return acts
 
         def _decision_node(self, idx: int):
@@ -77,48 +120,42 @@ def compile_spec(spec: GameSpecV0) -> pyspiel.Game:
             return None
 
         def apply_action(self, action: int):
-            if self.stage < 2:
-                self._deal()
+            if self.is_chance_node():
+                card = int(action)
+                if card not in self.pool:
+                    raise ValueError(f"chance action {card} not in pool")
+                self.pool.remove(card)
+                self.hands[self.stage] = card
+                self.stage += 1
                 return
-            if self.stage >= 4 or self.folded is not None:
+            if self.folded is not None or self.stage >= 4:
                 raise ValueError("no actions at terminal")
+            if action not in self.legal_actions(self.current_player()):
+                raise ValueError(f"illegal action {action}")
             nd = self._decision_node(self.stage - 2)
             actor = self.current_player()
             if action == _PASS:
                 pass
             elif action == _RAISE:
-                self.contrib[actor] += nd.raise_amount
+                self.contrib[actor] += float(nd.raise_amount)
                 self.raises_seen += 1
             elif action == _CALL:
                 to_call = self.contrib[1 - actor] - self.contrib[actor]
                 self.contrib[actor] += max(0.0, to_call)
                 self.raises_seen += 1
-            elif action == _FOLD:
+            else:  # _FOLD
                 self.folded = actor
-            else:
-                raise ValueError(f"bad action {action}")
             self.stage += 1
 
-        def chance_outcomes(self):
-            ranks = sorted({
-                *self._game.spec.deck.ranks,
-            })
-            # Deal uniformly over distinct rank cards (v0 abstraction).
-            n = len(ranks)
-            probs = 1.0 / n
-            return [(i, probs) for i in range(n)]
-
         def returns(self):
-            # Everyone loses what they put in unless they win the pot.
             pot = sum(self.contrib)
             out = [-c for c in self.contrib]
             if self.folded is not None:
-                out[self.folded] = -self.contrib[self.folded]
                 w = 1 - self.folded
                 out[w] = pot - self.contrib[w]
                 return out
             a, b = self.hands
-            if a == b:  # unreachable with distinct ranks; kept for safety
+            if a == b:
                 return [0.0, 0.0]
             w = 0 if a > b else 1
             out[w] = pot - self.contrib[w]
@@ -127,25 +164,30 @@ def compile_spec(spec: GameSpecV0) -> pyspiel.Game:
         def is_terminal(self):
             return self.folded is not None or self.stage >= 4
 
-        def legal_actions_mask(self):  # convenience for tensors
-            return []
-
         def __str__(self):
-            return f"stage={self.stage} hands={self.hands} contrib={self.contrib} folded={self.folded}"
+            return (f"stage={self.stage} hands={self.hands} "
+                    f"contrib={self.contrib} folded={self.folded}")
 
         def observation_string(self, player):
             own = self.hands[player]
-            opp = "hidden" if not self.is_terminal() else str(self.hands[1 - player])
-            return f"your_card={own} opponent_card={opp} pot={sum(self.contrib)} stage={self.stage}"
+            opp = ("hidden" if not self.is_terminal()
+                   else str(self.hands[1 - player]))
+            return f"your_card={own} opponent_card={opp} pot={sum(self.contrib)}"
+
+        def information_state_string(self, player):
+            base = self.observation_string(player)
+            hist = "".join(
+                _ACTION_NAMES.get(a, str(a)) for _p, a in self.history()
+                if isinstance(_p, int))
+            return f"{base} history={hist}"
 
         def action_to_string(self, player, action):
-            return {_PASS: "PASS", _RAISE: "RAISE", _FOLD: "FOLD", _CALL: "CALL"}[action]
+            return _ACTION_NAMES[action]
 
         def clone(self):
             st = SpecState(self._game)
-            st.rng = random.Random(self.rng.random())
+            st.pool = list(self.pool)
             st.hands = list(self.hands)
-            st.deck = list(self.deck)
             st.stage = self.stage
             st.contrib = list(self.contrib)
             st.folded = self.folded
@@ -156,7 +198,7 @@ def compile_spec(spec: GameSpecV0) -> pyspiel.Game:
         def __init__(self, params: dict):
             game_type = pyspiel.GameType(
                 short_name="spec_" + params["spec_name"],
-                long_name=f"GameSpec v0: {params['spec_name']}",
+                long_name=f"GameSpec v1: {params['spec_name']}",
                 dynamics=pyspiel.GameType.Dynamics.SEQUENTIAL,
                 chance_mode=pyspiel.GameType.ChanceMode.EXPLICIT_STOCHASTIC,
                 information=pyspiel.GameType.Information.IMPERFECT_INFORMATION,
@@ -170,47 +212,53 @@ def compile_spec(spec: GameSpecV0) -> pyspiel.Game:
                 provides_observation_tensor=False,
                 parameter_specification={"seed": -1, "spec_name": ""},
             )
-            max_pot = spec.ante + spec.first_decision.raise_amount
+            max_pot = 2.0 * spec.ante + spec.first_decision.raise_amount
             game_info = pyspiel.GameInfo(
                 num_distinct_actions=4,
-                max_chance_outcomes=len(spec.deck.ranks),
+                max_chance_outcomes=max(2, spec.deck.total()),
                 num_players=2,
                 min_utility=-max_pot,
                 max_utility=max_pot,
                 utility_sum=0.0,
-                max_game_length=6,
+                max_game_length=8,
             )
             super().__init__(game_type, game_info, params)
-            self.spec = spec  # closure reference; params stay JSON-safe
+            self.spec = spec
 
         def num_players(self):
             return 2
 
         def max_game_length(self):
-            return 6
+            return 8
 
         def new_initial_state(self, seed: int | None = None):
-            st = SpecState(self)
-            if seed is not None:
-                st.rng = random.Random(seed)
-            return st
+            # seed retained for API compatibility; randomness lives ONLY in
+            # chance nodes now, so the initial state is always identical.
+            return SpecState(self)
 
         def min_utility(self):
-            return -float(self.spec.ante + self.spec.first_decision.raise_amount)
+            return -float(2 * self.spec.ante
+                          + self.spec.first_decision.raise_amount)
 
         def max_utility(self):
-            return float(self.spec.ante + self.spec.first_decision.raise_amount)
+            return float(2 * self.spec.ante
+                         + self.spec.first_decision.raise_amount)
 
-    game = SpecGame({
+    return SpecGame({
         "seed": int(spec.seed),
         "spec_name": str(spec.name),
     })
-    return game
 
 
+def register_gamespec(spec_doc: dict):
+    """Validate → parse → instantiate. Returns (game, sha256, rules_text).
 
-
-def register_gamespec(spec_doc: dict) -> pyspiel.Game:
-    """Parse, validate, canonicalize (hash), and instantiate the compiled game."""
+    Raises ValueError listing every validation problem before compiling.
+    """
+    errs = validate_spec_doc(spec_doc)
+    if errs:
+        raise ValueError("invalid GameSpec: " + "; ".join(errs))
     spec = parse_spec(spec_doc)
-    return compile_spec(spec), spec.spec_hash(), spec.rules_text()
+    canon = json.dumps(spec.canonical(), sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(canon.encode()).hexdigest()
+    return compile_spec(spec), digest, spec.rules_text()
