@@ -30,8 +30,8 @@ interface CollectFx {
   cardB: Card;
 }
 
-/** Total cards on the table (two decks). */
-const GRID_CARDS = 104;
+/** Total cards on the table (one deck). */
+const GRID_CARDS = 52;
 /** Card height = width × this (matches the 5/7 slot aspect ratio in CSS). */
 const CARD_ASPECT = 1.4;
 
@@ -42,13 +42,13 @@ export interface PoLayout {
 }
 
 /**
- * Fit ALL 104 cards inside the visible felt — never scroll, never reflow
- * mid-round. Only column counts that divide 104 are considered (26×4, 13×8,
- * 8×13, 4×26 …), so the grid is ALWAYS a perfect, unchanging rectangle: the
- * same wall from deal to finish, which is what makes positions memorable.
+ * Fit ALL 52 cards inside the visible felt — never scroll, never reflow
+ * mid-round. Only column counts that divide 52 are considered (26×2, 13×4),
+ * so the grid is ALWAYS a perfect, unchanging rectangle: the same wall from
+ * deal to finish, which is what makes positions memorable.
  * Among those, whichever layout yields the largest card wins.
  */
-const GRID_COL_OPTIONS = [26, 13, 8, 4]; // divisors of 104, wide → tall
+const GRID_COL_OPTIONS = [26, 13, 4]; // divisors of 52, wide → tall
 
 function computeLayout(width: number, height: number): PoLayout {
   const w = Math.max(120, width);
@@ -69,7 +69,7 @@ function computeLayout(width: number, height: number): PoLayout {
 }
 
 /**
- * Pair One — two decks shuffled into one big face-down grid. Flip two cards
+ * Pair One — one deck shuffled into one face-down grid. Flip two cards
  * (everyone sees them): matching numbers → collect the pair and go again;
  * a miss flips them back and passes the turn. Most pairs when the grid
  * empties wins.

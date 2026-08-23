@@ -93,6 +93,9 @@ export class PairOneEngine {
     const seats = [...players].sort((a, b) => a.seat - b.seat);
     this.rng = createRng(options.seed);
 
+    // House rule: Pair One is played with EXACTLY ONE deck. Any configured
+    // value is clamped so stale clients cannot grow the grid again.
+    if (rules.decks !== 1) rules.decks = 1;
     const gridCards: Card[] = options.forcedGrid
       ? options.forcedGrid.slice()
       : shuffle(multiDeck(rules.decks), this.rng);

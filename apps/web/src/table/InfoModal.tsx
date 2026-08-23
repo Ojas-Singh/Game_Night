@@ -140,7 +140,7 @@ function PairOneRules() {
       <section className="info-section">
         <h4>Setup</h4>
         <p>
-          <strong>Two full decks</strong> (104 cards) are shuffled together and laid out face-down
+          <strong>One full deck</strong> (52 cards) is shuffled and laid out face-down
           in one big grid. Every rank appears <strong>eight times</strong>, so there is always
           another match out there.
         </p>

@@ -197,7 +197,7 @@ describe('Room', () => {
     expect(room.chat.some((m) => m.text.includes('OFF'))).toBe(true);
   });
 
-  it('supports Pair One: host selects it, start deals the 104-card grid', () => {
+  it('supports Pair One: host selects it, start deals the 52-card single-deck grid', () => {
     const room = new Room({ roomId: 'PAIR01' });
     const { player: p1 } = room.addPlayer('A');
     const { player: p2 } = room.addPlayer('B');
@@ -211,13 +211,13 @@ describe('Room', () => {
     const engine = room.engine!;
     expect(engine.gameId).toBe('pairone');
     const state = engine.getState();
-    expect(state.grid.length).toBe(104);
+    expect(state.grid.length).toBe(52);
     expect(state.phase).toBe('TURN');
 
     // Filtered views flow for pair one viewers too.
     const view = room.gameView(p1.id)!;
     expect(view.gameId).toBe('pairone');
-    expect(view.gridCardIds.filter((id) => !id.startsWith('__empty__'))).toHaveLength(104);
+    expect(view.gridCardIds.filter((id) => !id.startsWith('__empty__'))).toHaveLength(52);
 
     // A flip works through the room action path.
     const firstCard = state.grid[0]!.id;
