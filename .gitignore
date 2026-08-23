@@ -8,3 +8,7 @@ coverage/
 .DS_Store
 apps/arena/trajectories/
 apps/arena/ladder.json
+research/rulezero/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
