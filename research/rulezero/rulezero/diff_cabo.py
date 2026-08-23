@@ -200,7 +200,7 @@ def compare(ts_sem: dict, py_sem: dict) -> list[str]:
 
 
 def run_episode(game: CaboGame, bridge: Bridge, seed: int, rng: random.Random,
-                max_steps: int = 4000) -> tuple[str, list[str]]:
+                max_steps: int = 6000) -> tuple[str, list[str]]:
     """Drive BOTH engines through one identical episode.
 
     Phase-2 §6 protocol: card randomness lives in OpenSpiel chance nodes.
@@ -212,7 +212,8 @@ def run_episode(game: CaboGame, bridge: Bridge, seed: int, rng: random.Random,
     Reaction windows (§5) exist only on the python side: PASS maps to a
     no-op on TS; window flushes are applied to TS directly.
     """
-    bridge.ask({"op": "new", "seed": seed})
+    n_players = game.num_players()
+    bridge.ask({"op": "new", "seed": seed, "players": n_players})
     st = game.new_initial_state(seed)
 
     # ---- bootstrap: initial deal via chance ----
@@ -231,7 +232,7 @@ def run_episode(game: CaboGame, bridge: Bridge, seed: int, rng: random.Random,
         if done["done"] or st.is_terminal():
             sc_ts = done.get("scores") or {}
             if st.is_terminal() and sc_ts:
-                ts_vals = [int(sc_ts[f"p{i}"]) for i in range(2)]
+                ts_vals = [int(sc_ts[f"p{i}"]) for i in range(n_players)]
                 py_vals = [int(x) for x in st.final_scores]
                 if ts_vals != py_vals:
                     return "SCORE_MISMATCH", [f"ts {ts_vals} vs py {py_vals}"]
@@ -318,8 +319,8 @@ def _py_expects_pass(st) -> bool:
             and isinstance(cp, int) and st.window is not None)
 
 
-def main(episodes: int = 100, seed0: int = 1):
-    game = CaboGame({"seed": 1})
+def main(episodes: int = 100, seed0: int = 1, players: int = 2):
+    game = CaboGame({"seed": 1, "players": players})
     bridge = Bridge()
     outcomes: dict[str, int] = {}
     first_fail: list[str] = []
@@ -335,7 +336,8 @@ def main(episodes: int = 100, seed0: int = 1):
                 break
     finally:
         bridge.close()
-    print(json.dumps({"episodes": episodes, "outcomes": outcomes}, indent=2))
+    print(json.dumps({"episodes": episodes, "players": players,
+                      "outcomes": outcomes}, indent=2))
     if first_fail:
         print("FIRST FAILURE:")
         for line in first_fail:
@@ -347,6 +349,9 @@ def main(episodes: int = 100, seed0: int = 1):
 if __name__ == "__main__":
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 50
     s0 = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+    players = 2
+    if "--players" in sys.argv:
+        players = int(sys.argv[sys.argv.index("--players") + 1])
     DEBUG = "--debug" in sys.argv
     globals()["DEBUG"] = DEBUG
-    main(n, s0)
+    main(n, s0, players)

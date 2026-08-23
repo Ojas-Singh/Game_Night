@@ -14,10 +14,14 @@ import { CaboEngine } from '@game-night/engine-cabo';
 import type { CaboState } from '@game-night/engine-cabo';
 import { enumerateLegalActions } from '@game-night/agent-core';
 
-const SEATS = [
+let SEATS = [
   { id: 'p0', name: 'P0', seat: 0 },
   { id: 'p1', name: 'P1', seat: 1 },
 ];
+
+function setPlayerCount(n: number): void {
+  SEATS = Array.from({ length: n }, (_, i) => ({ id: `p${i}`, name: `P${i}`, seat: i }));
+}
 
 let engine: CaboEngine | null = null;
 
@@ -83,6 +87,7 @@ async function handle(line: string): Promise<void> {
     const msg = JSON.parse(line) as Record<string, unknown>;
     switch (msg.op) {
       case 'new': {
+        setPlayerCount(Number(msg.players ?? 2));
         engine = new CaboEngine();
         engine.createGame(SEATS, { seed: msg.seed as number });
         out({ ok: true });

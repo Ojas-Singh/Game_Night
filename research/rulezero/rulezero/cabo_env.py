@@ -316,9 +316,10 @@ class CaboState(pyspiel.State):
         Raw hand point totals remain available separately via final_scores
         for trajectory metadata; they are deliberately NOT the utility.
         """
+        n = self.get_game().num_players()
         if self.winner is None:
-            return [0.0, 0.0]
-        out = [-1.0, -1.0]
+            return [0.0] * n
+        out = [-1.0] * n
         out[self.winner] = 1.0
         return list(out)
 
@@ -469,6 +470,47 @@ class CaboState(pyspiel.State):
         return (
             f"{self.observation_string(player)}\n"
             f"your_history={self.history_str()}"
+        )
+
+    def clone(self):
+        """Exact deep copy: independent mutable state, same game."""
+        st = CaboState(self.get_game())
+        st.pool = list(self.pool)
+        st.phase = self.phase
+        st.hands = [list(h) for h in self.hands]
+        st.knowledge = [set(k) for k in self.knowledge]
+        st.discard = list(self.discard)
+        st.current_turn = self.current_turn
+        st.drawn_card = self.drawn_card
+        st.pending_power = self.pending_power
+        st.pending_transfer = self.pending_transfer
+        st.cabo_caller = self.cabo_caller
+        st.taken_final = list(self.taken_final)
+        st.initial_peeks_remaining = list(self.initial_peeks_remaining)
+        st.scores = None if self.scores is None else list(self.scores)
+        st.final_scores = None if self.final_scores is None else list(self.final_scores)
+        st.winner = self.winner
+        st._pre_transfer_phase = self._pre_transfer_phase
+        st.window = None if self.window is None else {
+            "queue": tuple(self.window["queue"]),
+            "i": self.window["i"],
+            "resume": self.window["resume"],
+        }
+        st.chance_ctx = self.chance_ctx
+        st._post_penalty = self._post_penalty
+        st._deal_queue = list(self._deal_queue)
+        return st
+
+    def __str__(self):
+        if self.is_terminal():
+            return (
+                f"cabo(n={len(self.hands)},phase=COMPLETE,scores={self.final_scores},"
+                f"winner={self.winner})"
+            )
+        return (
+            f"cabo(n={len(self.hands)},phase={self.phase},turn={self.current_turn},"
+            f"pool={len(self.pool)},discard={len(self.discard)},"
+            f"hands={[sum(1 for c in h if c is not None) for h in self.hands]})"
         )
 
     # -- mutations -----------------------------------------------------------
@@ -784,10 +826,16 @@ def _subsets(items: list[int], size: int, acc: list[int], out: list[list[int]]):
 
 
 class CaboGame(pyspiel.Game):
-    """Cabo, 2 players, default house rules, seed-parameterised deals."""
+    """Cabo, 2-6 players (default 2), default house rules.
+
+    parameters: {"seed": int, "players": int in [2, 6]}
+    """
 
     def __init__(self, params: dict | None = None):
-        params = params or {}
+        params = dict(params or {})
+        self._n_players = int(params.get("players", 2))
+        if not 2 <= self._n_players <= 6:
+            raise ValueError("cabo_research supports 2-6 players")
         game_type = pyspiel.GameType(
             short_name="cabo_research",
             long_name="Cabo (research twin, default house rules)",
@@ -796,18 +844,18 @@ class CaboGame(pyspiel.Game):
             information=pyspiel.GameType.Information.IMPERFECT_INFORMATION,
             utility=pyspiel.GameType.Utility.ZERO_SUM,
             reward_model=pyspiel.GameType.RewardModel.TERMINAL,
-            max_num_players=2,
+            max_num_players=6,
             min_num_players=2,
             provides_information_state_string=True,
             provides_information_state_tensor=False,
             provides_observation_string=True,
             provides_observation_tensor=False,
-            parameter_specification={"seed": -1},
+            parameter_specification={"seed": -1, "players": 2},
         )
         game_info = pyspiel.GameInfo(
-            num_distinct_actions=13 * 64 ** 3,
-            max_chance_outcomes=1,
-            num_players=2,
+            num_distinct_actions=14 * 64 ** 3,
+            max_chance_outcomes=52,
+            num_players=self._n_players,
             min_utility=-40.0,
             max_utility=40.0,
             utility_sum=0.0,
@@ -816,7 +864,7 @@ class CaboGame(pyspiel.Game):
         super().__init__(game_type, game_info, params)
 
     def num_players(self):
-        return 2
+        return self._n_players
 
     def max_game_length(self):
         return 4000

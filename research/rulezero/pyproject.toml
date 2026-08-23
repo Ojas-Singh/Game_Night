@@ -3,7 +3,11 @@ name = "rulezero"
 version = "0.1.0"
 description = "RuleZero research stack: OpenSpiel-first general strategic intelligence"
 requires-python = ">=3.10"
-dependencies = ["open_spiel>=2.0", "numpy"]
+dependencies = [
+    # Pinned to the tested release (Phase-2 §20 reproducibility policy).
+    "open_spiel==2.0.2",
+    "numpy>=1.26,<3",
+]
 
 [project.optional-dependencies]
 dev = ["pytest"]
