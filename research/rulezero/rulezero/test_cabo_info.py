@@ -30,6 +30,23 @@ def _labels_in(text: str) -> set[str]:
     return set(re.findall(r"\b(?:A|2|3|4|5|6|7|8|9|10|J|Q|K)[SHDC]\b", text))
 
 
+def _drive_random(st, rng, cap=3000):
+    """Chance-aware random playout used by all Cabo tests."""
+    steps = 0
+    while not st.is_terminal() and steps < cap:
+        steps += 1
+        if st.is_chance_node():
+            aids, _probs = zip(*st.chance_outcomes())
+            st.apply_action(rng.choice(aids))
+            continue
+        p = st.current_player()
+        legal = st.legal_actions(p)
+        if not legal:
+            break
+        st.apply_action(rng.choice(legal))
+    return steps
+
+
 def test_no_leakage_across_random_reachable_states():
     g = CaboGame({"seed": 1})
     rng = random.Random(2024)
@@ -38,6 +55,10 @@ def test_no_leakage_across_random_reachable_states():
         st = g.new_initial_state(eps * 17 + 3)
         steps = 0
         while not st.is_terminal() and steps < 400:
+            if st.is_chance_node():
+                aids, _probs = zip(*st.chance_outcomes())
+                st.apply_action(rng.choice(aids))
+                continue
             for p in range(2):
                 allowed = {card_label(c) for c in st.knowledge[p]}
                 if st.discard:
@@ -46,7 +67,6 @@ def test_no_leakage_across_random_reachable_states():
                     allowed.add(card_label(st.drawn_card))
                 obs = st.observation_string(p)
                 leaked = _labels_in(obs) - allowed - {"_"}
-                # '?' placeholders are fine; any real label must be justified
                 assert not leaked, (
                     f"LEAK ep={eps} step={steps} player={p} leaked={leaked} "
                     f"obs={obs!r} knowledge={sorted(st.knowledge[p])}"
@@ -63,6 +83,10 @@ def test_no_leakage_across_random_reachable_states():
 def test_fixture_starting_peek_shows_only_learned_slots():
     g = CaboGame({"seed": 42})
     st = g.new_initial_state()
+    rng = random.Random(1)
+    while st.is_chance_node():  # resolve the 8 chance deals first
+        aids, _p = zip(*st.chance_outcomes())
+        st.apply_action(rng.choice(aids))
     # p0 peeks slots [0,1]
     st.apply_action(next(a for a in st.legal_actions(0)
                          if decode_action(a) == (3, (0, 1))))
@@ -79,15 +103,24 @@ def test_fixture_failed_flush_reveals_publicly():
     g = CaboGame({"seed": 21})
     st = g.new_initial_state(21)
     rng = random.Random(9)
-    while st.phase == "INITIAL_PEEK":
-        st.apply_action(rng.choice(st.legal_actions(st.current_player())))
+    while st.is_chance_node() or st.phase == "INITIAL_PEEK":
+        if st.is_chance_node():
+            aids, _p = zip(*st.chance_outcomes())
+            st.apply_action(rng.choice(aids))
+        else:
+            st.apply_action(rng.choice(st.legal_actions(st.current_player())))
     guard = 0
     while st.phase not in ("TURN_DRAW", "TURN_END") or st.discard == []:
+        if st.is_chance_node():
+            aids, _p = zip(*st.chance_outcomes())
+            st.apply_action(rng.choice(aids))
+            guard += 1
+            continue
         legal = st.legal_actions(st.current_player())
         acts = [a for a in legal if decode_action(a)[0] != K_FLUSH_OWN]
         st.apply_action(rng.choice(acts or legal))
         guard += 1
-        assert guard < 300
+        assert guard < 400
     actor = st.current_turn
     top = st.discard[-1]
     wrong = next((i for i, c in enumerate(st.hands[actor])
@@ -145,9 +178,13 @@ def test_indistinguishable_worlds_identical_information_state():
     learned must produce byte-identical information-state strings."""
     g = CaboGame({"seed": 123})
     st = g.new_initial_state(123)
-    # complete peeks so we reach a stable mid-game state
-    while st.phase == "INITIAL_PEEK":
-        st.apply_action(next(iter(st.legal_actions(st.current_player()))))
+    rng = random.Random(2)
+    while st.is_chance_node() or st.phase == "INITIAL_PEEK":
+        if st.is_chance_node():
+            aids, _p = zip(*st.chance_outcomes())
+            st.apply_action(rng.choice(aids))
+        else:
+            st.apply_action(rng.choice(st.legal_actions(st.current_player())))
     viewer = 0
     learned = set(st.knowledge[viewer])
     # find an unseen live card in p1's hand

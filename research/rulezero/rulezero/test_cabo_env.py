@@ -25,6 +25,23 @@ from rulezero.cabo_env import (  # noqa: E402
 )
 
 
+def _drive_random(st, rng, cap=3000):
+    """Chance-aware random playout used by all Cabo tests."""
+    steps = 0
+    while not st.is_terminal() and steps < cap:
+        steps += 1
+        if st.is_chance_node():
+            aids, _probs = zip(*st.chance_outcomes())
+            st.apply_action(rng.choice(aids))
+            continue
+        p = st.current_player()
+        legal = st.legal_actions(p)
+        if not legal:
+            break
+        st.apply_action(rng.choice(legal))
+    return steps
+
+
 def test_rng_matches_ts_semantics():
     """Determinism + basic range/uniqueness sanity for the replicated RNG."""
     a, b = TsRng(12345), TsRng(12345)
@@ -70,11 +87,25 @@ def test_power_bands_default_rules():
 
 def test_deal_is_deterministic_round_robin_four_cards():
     g = CaboGame({"seed": 99})
+    rng = random.Random(0)
     s1 = g.new_initial_state()
+    while s1.is_chance_node():
+        aids, _p = zip(*s1.chance_outcomes())
+        s1.apply_action(rng.choice(aids))
     s2 = g.new_initial_state()
-    assert [list(h) for h in s1.hands] == [list(h) for h in s2.hands]
+    while s2.is_chance_node():
+        aids, _p = zip(*s2.chance_outcomes())
+        s2.apply_action(rng.choice(aids))
+    # Same deal decisions -> identical hands (deterministic application).
+    # Deterministic application property (§6): feeding the SAME chance
+    # outcomes (round-robin deal order) reproduces the exact deal.
+    s3 = g.new_initial_state()
+    feed = [s1.hands[seat][k] for k in range(4) for seat in range(2)]
+    for card in feed:
+        s3.apply_action(card)
+    assert [list(h) for h in s1.hands] == [list(h) for h in s3.hands]
     assert all(len(h) == 4 for h in s1.hands)
-    assert len(s1.deck) == 44 and s1.discard == []
+    assert len(s1.pool) == 44 and s1.discard == []
     assert s1.phase == "INITIAL_PEEK"
 
 
@@ -84,15 +115,7 @@ def test_full_random_episodes_terminal_zero_margin_scores_consistent():
     finished = 0
     for eps in range(60):
         st = g.new_initial_state(eps)
-        steps = 0
-        while not st.is_terminal():
-            p = st.current_player()
-            legal = st.legal_actions(p)
-            if not legal:
-                break
-            st.apply_action(rng.choice(legal))
-            steps += 1
-            assert steps < 3000, "episode runaway"
+        steps = _drive_random(st, rng)
         if st.is_terminal():
             finished += 1
             r = st.returns()
@@ -126,6 +149,11 @@ def test_cabo_caller_wins_ties_and_final_turn_budget():
 
     steps = 0
     while not st.is_terminal():
+        if st.is_chance_node():
+            aids, _p = zip(*st.chance_outcomes())
+            st.apply_action(rng.choice(aids))
+            steps += 1
+            continue
         legal = st.legal_actions(st.current_player())
         if not legal:
             break
@@ -147,24 +175,29 @@ def test_wrong_own_flush_reveals_and_penalises():
     g = CaboGame({"seed": 21})
     st = g.new_initial_state(21)
     rng = random.Random(9)
-    # finish peeks
-    while st.phase == "INITIAL_PEEK":
-        st.apply_action(rng.choice(st.legal_actions(st.current_player())))
+    # finish peeks (chance deals first)
+    while st.is_chance_node() or st.phase == "INITIAL_PEEK":
+        if st.is_chance_node():
+            aids, _p = zip(*st.chance_outcomes())
+            st.apply_action(rng.choice(aids))
+        else:
+            st.apply_action(rng.choice(st.legal_actions(st.current_player())))
     assert st.phase == "TURN_DRAW"
     # get to a point where someone can flush; find any WRONG flush action by
     # scanning: we instead craft one directly — encode flush of a slot whose
     # rank differs from discard top once a discard exists.
     guard = 0
     while st.phase not in ("TURN_DRAW", "TURN_END") or st.discard == []:
+        if st.is_chance_node():
+            aids, _p = zip(*st.chance_outcomes())
+            st.apply_action(rng.choice(aids))
+            guard += 1
+            continue
         legal = st.legal_actions(st.current_player())
-        acts = [
-            a
-            for a in legal
-            if decode_action(a)[0] not in (K_FLUSH_OWN, K_FLUSH_OTHER)
-        ]
+        acts = [a for a in legal if decode_action(a)[0] != K_FLUSH_OWN]
         st.apply_action(rng.choice(acts or legal))
         guard += 1
-        assert guard < 300, f"no flushable moment; phase={st.phase}"
+        assert guard < 400, f"no flushable moment; phase={st.phase}"
     top = st.discard[-1]
     actor = st.current_turn
     wrong_slot = next(

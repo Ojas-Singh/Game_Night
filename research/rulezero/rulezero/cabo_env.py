@@ -142,7 +142,8 @@ class TsRng:
 # ---------------------------------------------------------------------------
 # Internal action tuples -> packed ints. Fields are < 64 unless noted.
 K_DRAW, K_KEEP, K_DISCARD_DRAWN, K_PEEK, K_POWER_PO, K_POWER_PT, K_POWER_BS, \
-    K_POWER_SO, K_FLUSH_OWN, K_FLUSH_OTHER, K_TRANSFER, K_CALL, K_END = range(13)
+    K_POWER_SO, K_FLUSH_OWN, K_FLUSH_OTHER, K_TRANSFER, K_CALL, K_END, \
+    K_PASS = range(14)
 
 _KIND_NAMES = {
     K_DRAW: "DRAW", K_KEEP: "KEEP_DRAWN", K_DISCARD_DRAWN: "DISCARD_DRAWN",
@@ -150,7 +151,7 @@ _KIND_NAMES = {
     K_POWER_PT: "POWER_APPLY/PEEK_OTHER", K_POWER_BS: "POWER_APPLY/BLIND_SWAP",
     K_POWER_SO: "POWER_APPLY/SWAP_OTHERS", K_FLUSH_OWN: "FLUSH_OWN",
     K_FLUSH_OTHER: "FLUSH_OTHER", K_TRANSFER: "TRANSFER_CARD",
-    K_CALL: "CALL_CABO", K_END: "END_TURN",
+    K_CALL: "CALL_CABO", K_END: "END_TURN", K_PASS: "PASS",
 }
 
 
@@ -164,7 +165,7 @@ def encode_action(kind: int, *fields: int) -> int:
 def decode_action(action: int) -> tuple[int, tuple[int, ...]]:
     fields: list[int] = []
     v = action
-    while v >= 13:
+    while v >= 64:
         fields.append(v % 64)
         v //= 64
     kind = v
@@ -193,12 +194,13 @@ class CaboState(pyspiel.State):
         super().__init__(game)
         g: CaboGame = game
         n = g.num_players()
-        self.rng = TsRng(g.get_parameters().get("seed", 1))
-        deck = self.rng.shuffle(make_deck())
+        # Canonical stochasticity (Phase-2 §6): NO internal RNG. Card
+        # uncertainty lives in OpenSpiel chance nodes over the remaining
+        # pool; the seed only names the episode.
+        self.pool = sorted(make_deck())
         self.phase = PHASE_INITIAL_PEEK
         self.hands: list[list[int | None]] = [[] for _ in range(n)]
         self.knowledge: list[set[int]] = [set() for _ in range(n)]
-        self.deck = deck
         self.discard: list[int] = []
         self.current_turn = 0
         self.drawn_card: int | None = None
@@ -211,17 +213,18 @@ class CaboState(pyspiel.State):
         self.final_scores: list[float] | None = None
         self.winner: int | None = None
         self._pre_transfer_phase = PHASE_TURN_DRAW
-        self._pre_transfer_phase = PHASE_TURN_DRAW
-        # Deal startingCards round-robin, popping from the END like TS.
-        for _ in range(4):
-            for p in range(n):
-                self.hands[p].append(self.deck.pop())
+        # §5 reaction window: deterministic seat-order pass-through.
+        self.window = None  # {'queue': tuple(seats), 'i': int, 'resume': str}
+        # §6 chance context: ('deal',seat) | ('draw',seat,'turn'|'penalty')
+        self.chance_ctx = None
+        self._post_penalty = None
+        self._deal_queue = [(pp, k) for k in range(4) for pp in range(n)]
+        self.chance_ctx = ("deal",) + self._deal_queue[0]
 
     def _reseed_deal(self, seed: int):
-        """Re-run the whole initial shuffle+deal under an explicit seed."""
+        """Reset to the initial chance-deal state; seed names the episode."""
         n = len(self.hands)
-        self.rng = TsRng(seed & 0xFFFFFFFF)
-        self.deck = self.rng.shuffle(make_deck())
+        self.pool = sorted(make_deck())
         self.phase = PHASE_INITIAL_PEEK
         self.hands = [[] for _ in range(n)]
         self.knowledge = [set() for _ in range(n)]
@@ -234,10 +237,14 @@ class CaboState(pyspiel.State):
         self.taken_final = []
         self.initial_peeks_remaining = list(range(n))
         self.scores = None
+        self.final_scores = None
+        self.winner = None
         self._pre_transfer_phase = PHASE_TURN_DRAW
-        for _ in range(4):
-            for p in range(n):
-                self.hands[p].append(self.deck.pop())
+        self.window = None
+        self.chance_ctx = None
+        self._post_penalty = None
+        self._deal_queue = [(pp, k) for k in range(4) for pp in range(n)]
+        self.chance_ctx = ("deal",) + self._deal_queue[0]
 
     # -- helpers ------------------------------------------------------------
     def _live(self, p: int) -> int:
@@ -271,9 +278,23 @@ class CaboState(pyspiel.State):
         return [i for i in range(len(self.hands)) if i != p]
 
     # -- OpenSpiel queries ---------------------------------------------------
+    def is_chance_node(self):
+        return self.chance_ctx is not None
+
+    def chance_outcomes(self):
+        """§6: card uncertainty as explicit finite distributions (uniform
+        over the remaining pool)."""
+        assert self.chance_ctx is not None
+        n = len(self.pool)
+        return [(c, 1.0 / n) for c in self.pool]
+
     def current_player(self):
         if self.is_terminal():
             return pyspiel.PlayerId.TERMINAL
+        if self.chance_ctx is not None:
+            return pyspiel.PlayerId.CHANCE
+        if self.window is not None:
+            return self.window["queue"][self.window["i"]]
         if self.phase == PHASE_INITIAL_PEEK:
             return self.initial_peeks_remaining[0]
         return self.current_turn
@@ -303,7 +324,14 @@ class CaboState(pyspiel.State):
 
     def legal_actions(self, player):
         acts: list[int] = []
-        if self.is_terminal():
+        if self.is_terminal() or self.chance_ctx is not None:
+            return acts
+        if self.window is not None:
+            # §5: the queued seat decides PASS or one flush attempt.
+            if player != self.window["queue"][self.window["i"]]:
+                return acts
+            acts.append(encode_action(K_PASS))
+            acts.extend(self._flush_actions(player))
             return acts
         if self.phase == PHASE_INITIAL_PEEK:
             if player != self.initial_peeks_remaining[0]:
@@ -313,17 +341,16 @@ class CaboState(pyspiel.State):
                 for j in range(i + 1, min(hand_len, MAX_SLOTS)):
                     acts.append(encode_action(K_PEEK, i, j))
             return acts
-        # Flush interrupts: TS allows FLUSH_OWN in any active phase
-        # (including while a power or transfer is owed), and FLUSH_OTHER in
-        # any active phase EXCEPT while a transfer is pending.
+        # §5: off-turn flushes are explicit window decisions now; while a
+        # transfer is pending only the flusher may act.
         if player != self.current_turn:
-            if self.phase == PHASE_INITIAL_PEEK:
-                return acts
-            acts.extend(self._flush_actions(player, include_other=self.phase != PHASE_TRANSFER_PENDING))
             return acts
         # Current player actions by phase.
         if self.phase == PHASE_TURN_DRAW:
-            acts.append(encode_action(K_DRAW))
+            if self.pool or len(self.discard) > 1 or (not self.pool and self.discard):
+                # A card must actually be obtainable (deck pool, or a
+                # reshufflable discard beyond its top) before DRAW is legal.
+                acts.append(encode_action(K_DRAW))
             acts.extend(self._flush_actions(player))
             return acts
         if self.phase == PHASE_DRAW_DECISION:
@@ -430,7 +457,7 @@ class CaboState(pyspiel.State):
             scores = " scores=" + ",".join(str(int(x)) for x in self.final_scores)
         return (
             f"phase={self.phase} turn=p{self.current_turn} you=p{player} "
-            f"hand=[{own}] opponents=[{opp_counts}] deck={len(self.deck)} "
+            f"hand=[{own}] opponents=[{opp_counts}] deck={len(self.pool)} "
             f"discard_top={top}{drawn} known={known} cabo={self.cabo_caller}"
             f"{pp}{pt}{scores}"
         )
@@ -447,7 +474,14 @@ class CaboState(pyspiel.State):
     # -- mutations -----------------------------------------------------------
     def apply_action(self, action: int):
         kind, f = decode_action(action)
+        if self.chance_ctx is not None:
+            self._apply_chance(int(action))
+            return
         me = self.current_player()
+        in_window = self.window is not None and kind != K_PASS
+        if kind == K_PASS:
+            self._window_next()
+            return
         if kind == K_PEEK:
             i, j = f
             for idx in (i, j):
@@ -459,7 +493,8 @@ class CaboState(pyspiel.State):
                 self.phase = PHASE_TURN_DRAW
             return
         if kind == K_DRAW:
-            self._draw(me)
+            # §6: card identity is a chance outcome, not an internal draw.
+            self._enter_turn_draw_chance(me)
             return
         if kind == K_KEEP:
             drawn = self.drawn_card
@@ -521,6 +556,8 @@ class CaboState(pyspiel.State):
                 self.hands[actor][i] = None
                 self._forget_all(card)
                 self.discard.append(card)
+            if in_window and self.window is not None:
+                self._window_next()
             return
         if kind == K_FLUSH_OTHER:
             actor, o, slot = f
@@ -536,6 +573,8 @@ class CaboState(pyspiel.State):
                 self.phase = PHASE_TRANSFER_PENDING
             else:
                 self._wrong_flush_penalty(actor)
+            if in_window and self.window is not None:
+                self._window_next()
             return
         if kind == K_TRANSFER:
             src, dst = self.pending_transfer
@@ -565,15 +604,75 @@ class CaboState(pyspiel.State):
             return
         raise ValueError(f"unhandled action kind {kind}")
 
-    def _draw(self, me: int):
-        if not self.deck:
-            top = self.discard.pop()
-            self.deck = self.rng.shuffle(self.discard)
+    def _enter_turn_draw_chance(self, me: int):
+        """Turn-draw chance context; recycle discard if the pool is empty."""
+        if not self.pool:
+            top = self.discard.pop() if self.discard else None
+            self.pool = sorted(self.discard)
             self.discard = [top] if top is not None else []
-        card = self.deck.pop()
-        self.drawn_card = card
-        self._learn(me, card)
-        self.phase = PHASE_DRAW_DECISION
+            if not self.pool:
+                # Nothing anywhere: keep the game consistent by treating the
+                # draw as a pass-through end of turn.
+                self.phase = PHASE_TURN_END
+                self._open_window(me, PHASE_TURN_END)
+                return
+        self.chance_ctx = ("draw", me, "turn")
+
+    def _apply_chance(self, card: int):
+        ctx = self.chance_ctx
+        assert ctx is not None and card in self.pool
+        self.pool.remove(card)
+        if ctx[0] == "deal":
+            seat = ctx[1]
+            self.hands[seat].append(card)
+            dealt = sum(len(h) for h in self.hands)
+            total = 4 * len(self.hands)
+            self.chance_ctx = (
+                ("deal",) + self._deal_queue[dealt] if dealt < total else None
+            )
+            return
+        who, kind = ctx[1], ctx[2]
+        if kind == "turn":
+            self.drawn_card = card
+            self._learn(who, card)
+            self.phase = PHASE_DRAW_DECISION
+            self.chance_ctx = None
+            return
+        # penalty draw: face-down, NOT learned (TS parity)
+        self._place_card(who, card)
+        post = self._post_penalty
+        self._post_penalty = None
+        self.chance_ctx = None
+        if post is not None and post[0] == "window":
+            _, i, queue, resume = post
+            if i < len(queue):
+                self.window = {"queue": tuple(queue), "i": i, "resume": resume}
+            else:
+                self.window = None
+                self.phase = resume
+        elif post is not None:
+            self.phase = post[1]
+
+    # ---------- §5 reaction-window machinery -------------------------------
+    def _open_window(self, actor: int, resume: str):
+        """resolutionOrder (canonical): seats ascending after the actor;
+        each live seat takes ONE decision (PASS or a single flush attempt);
+        when the pass completes, the suspended phase resumes exactly."""
+        n = len(self.hands)
+        queue = tuple((actor + k) % n for k in range(1, n)
+                      if self._live((actor + k) % n) > 0)
+        if queue and self.discard:
+            self.window = {"queue": queue, "i": 0, "resume": resume}
+
+    def _window_next(self):
+        w = self.window
+        assert w is not None
+        if w["i"] + 1 < len(w["queue"]):
+            w["i"] += 1
+        else:
+            resume = w["resume"]
+            self.window = None
+            self.phase = resume
 
     def _after_discard(self, me: int, card: int):
         power = power_for_rank(rank_of(card))
@@ -590,11 +689,22 @@ class CaboState(pyspiel.State):
             self._end_turn_if_active(me)
 
     def _wrong_flush_penalty(self, me: int):
-        if not self.deck:
-            return
-        card = self.deck.pop()
-        self._place_card(me, card)
-        # Deliberately NOT learned (secret to everyone, per TS).
+        """Penalty draws are chance transitions; the card stays secret."""
+        if not self.pool:
+            if len(self.discard) > 1:
+                top = self.discard[-1]
+                self.pool = sorted(self.discard[:-1])
+                self.discard = [top]
+            else:
+                return
+        if self.window is not None:
+            w = self.window
+            nxt = min(w["i"] + 1, len(w["queue"]))
+            self._post_penalty = ("window", nxt, w["queue"], w["resume"])
+            self.window = None
+        else:
+            self._post_penalty = ("normal", self.phase)
+        self.chance_ctx = ("draw", me, "penalty")
 
     def _end_turn_if_active(self, me: int):
         if me != self.current_turn:
@@ -606,6 +716,7 @@ class CaboState(pyspiel.State):
             return
         self.phase = PHASE_TURN_END
         self.drawn_card = None
+        self._open_window(me, PHASE_TURN_END)
 
     def _advance_turn(self):
         n = len(self.hands)

@@ -34,6 +34,7 @@ from rulezero.cabo_env import (  # noqa: E402
     K_POWER_PT,
     K_POWER_SO,
     K_TRANSFER,
+    K_PASS,
     encode_action,
 )
 
@@ -176,7 +177,7 @@ def py_semantic(st) -> dict:
         "phase": st.phase,
         "currentTurn": st.current_turn,
         "handsIdx": {f"p{i}": hand(h) for i, h in enumerate(st.hands)},
-        "deckLen": len(st.deck),
+        "deckLen": len(st.pool),
         "discard": {
             "top": discard_top,
             "len": len(st.discard),
@@ -199,48 +200,105 @@ def compare(ts_sem: dict, py_sem: dict) -> list[str]:
 
 
 def run_episode(game: CaboGame, bridge: Bridge, seed: int, rng: random.Random,
-                max_steps: int = 3000) -> tuple[str, list[str]]:
+                max_steps: int = 4000) -> tuple[str, list[str]]:
+    """Drive BOTH engines through one identical episode.
+
+    Phase-2 §6 protocol: card randomness lives in OpenSpiel chance nodes.
+    The TS engine keeps its seeded internal RNG, so the driver syncs the two
+    by feeding pyspiel exactly the cards TS used:
+      - initial deal: read TS handsIdx once, feed round-robin;
+      - turn draw   : apply TS DRAW first, read drawnIdx, then chance-feed;
+      - penalty draw: diff the flusher's hand across the flush application.
+    Reaction windows (§5) exist only on the python side: PASS maps to a
+    no-op on TS; window flushes are applied to TS directly.
+    """
     bridge.ask({"op": "new", "seed": seed})
     st = game.new_initial_state(seed)
+
+    # ---- bootstrap: initial deal via chance ----
+    snap_resp = bridge.ask({"op": "snap"})
+    snap = snap_resp["snap"]
+    while st.is_chance_node():
+        _, seat, slot = st.chance_ctx
+        card = snap["handsIdx"][f"p{seat}"][slot]
+        if card is None:
+            return "deal_sync_failed", [f"missing deal card seat={seat} slot={slot}"]
+        st.apply_action(int(card))
+
+    pre_snap = snap  # last snapshot before the most recent applied action
     for step in range(max_steps):
         done = bridge.ask({"op": "done"})
         if done["done"] or st.is_terminal():
-            # final scores must match
             sc_ts = done.get("scores") or {}
             if st.is_terminal() and sc_ts:
                 ts_vals = [int(sc_ts[f"p{i}"]) for i in range(2)]
                 py_vals = [int(x) for x in st.final_scores]
                 if ts_vals != py_vals:
-                    return "SCORE_MISMATCH", [f"ts scores {ts_vals} vs py {py_vals}"]
+                    return "SCORE_MISMATCH", [f"ts {ts_vals} vs py {py_vals}"]
             return "finished", []
+
         resp = bridge.ask({"op": "legalAll"})
         actions = resp["actions"]
         if not actions:
             return "stalled_ts", [f"step {step}: TS has no legal actions; py terminal={st.is_terminal()}"]
         snap_resp = bridge.ask({"op": "snap"})
         snap = snap_resp["snap"]
+
+        # candidate set: translated TS actions (+PASS when python expects one)
         translated = []
         for entry in actions:
             pa = translate(entry["action"], entry["player"], snap)
             if pa is not None:
                 translated.append((entry, pa))
-        if not translated:
-            return "translation_empty", [f"step {step}: no TS action mapped to python"]
-        chosen, packed = rng.choice(translated)
-        # python legality superset check
-        actor = int(chosen["player"][1:])
-        legal_py = st.legal_actions(actor)
+        actor_now = st.current_player()
+        # Only offer candidates python accepts RIGHT NOW: reaction-window
+        # passes are py-side no-ops that let TS's still-valid offers wait
+        # until the window resolves (deterministic priority).
+        legal_py = st.legal_actions(st.current_player())
+        candidates = [(e, pa) for e, pa in translated if pa in legal_py]
+        if _py_expects_pass(st):
+            candidates.append(
+                ({"player": f"p{actor_now}", "action": {"type": "_PASS"}},
+                 encode_action(K_PASS)))
+        if not candidates:
+            return "translation_empty", [
+                f"step {step}: no mutually-legal candidate "
+                f"(py legal={len(legal_py)} phase={st.phase})"]
+
+        chosen, packed = rng.choice(candidates)
         if packed not in legal_py:
             return "ILLEGAL_IN_PY", [
-                f"step {step}: ts action {chosen['action']} -> {chosen['player']} "
+                f"step {step}: ts {chosen['action']} -> {chosen['player']} "
                 f"packed={packed} not in py legal ({len(legal_py)}) phase={st.phase}"
             ]
-        if DEBUG:
-            print(f"[step {step}] {chosen['player']} -> {json.dumps(chosen['action'])[:160]}")
-        r = bridge.ask({"op": "apply", "player": chosen["player"], "action": chosen["action"]})
-        if not r.get("ok"):
-            return "TS_REJECT", [f"step {step}: TS rejected own legal action: {r.get('error')}"]
+        pre_snap = snap
+        if chosen["action"].get("type") != "_PASS":
+            r = bridge.ask({"op": "apply", "player": chosen["player"], "action": chosen["action"]})
+            if not r.get("ok"):
+                return "TS_REJECT", [f"step {step}: TS rejected: {r.get('error')}"]
         st.apply_action(packed)
+
+        # ---- §6 chance sync: feed TS's card into the python chance node ----
+        if st.is_chance_node():
+            ctx = st.chance_ctx
+            if ctx[0] == "deal":
+                seat, slot = ctx[1], ctx[2] if len(ctx) > 2 else 0
+            if ctx[2] == "turn":
+                after0 = bridge.ask({"op": "snap"})["snap"]
+                card = after0.get("drawnIdx")
+            else:  # penalty: appended card found by hand diff
+                actor_id = f"p{ctx[1]}"
+                before = pre_snap["handsIdx"][actor_id]
+                after0 = bridge.ask({"op": "snap"})["snap"]
+                added = [c for c in after0["handsIdx"][actor_id]
+                         if c is not None and c not in before]
+                card = added[-1] if added else None
+            if card is None:
+                return "chance_sync_failed", [f"step {step}: ctx={ctx}"]
+            if int(card) not in {c for c, _p in st.chance_outcomes()}:
+                return "chance_card_invalid", [f"step {step}: card={card}"]
+            st.apply_action(int(card))
+
         after = bridge.ask({"op": "snap"})
         diffs = compare(semantic_snap(after["snap"]), py_semantic(st))
         if diffs:
@@ -248,7 +306,17 @@ def run_episode(game: CaboGame, bridge: Bridge, seed: int, rng: random.Random,
     return "step_cap", []
 
 
-DEBUG = False
+_PASS_SENTINEL = {"type": "_PASS"}
+
+
+def _py_expects_pass(st) -> bool:
+    """True when python's current node is a reaction-window decision."""
+    import pyspiel as _sp
+
+    cp = st.current_player()
+    return (not st.is_terminal() and not st.is_chance_node()
+            and isinstance(cp, int) and st.window is not None)
+
 
 def main(episodes: int = 100, seed0: int = 1):
     game = CaboGame({"seed": 1})
