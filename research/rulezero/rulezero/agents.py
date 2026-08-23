@@ -96,6 +96,8 @@ class OpenAIAgent(Agent):
         self.invalid_ids = 0
         self.retries = 0
         self.latency_ms_total = 0
+        self.thinking_chars_total = 0
+        self.thinking_decisions = 0
 
     def describe(self) -> dict:
         return {
@@ -115,9 +117,14 @@ class OpenAIAgent(Agent):
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
         }).encode()
-        return self._post(body)
+        content, _chars = self._post(body)
+        return content
 
-    def _post(self, body: bytes) -> str:
+    def _post(self, body: bytes) -> tuple[str, int]:
+        """Returns (content, reasoning_chars). Handles both llama.cpp layouts:
+        reasoning in message.reasoning_content, or inline <think>...</think>."""
+        import re
+
         req = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=body,
@@ -125,7 +132,23 @@ class OpenAIAgent(Agent):
         )
         with urllib.request.urlopen(req, timeout=self.timeout_s) as res:
             payload = json.loads(res.read())
-        return payload["choices"][0]["message"]["content"]
+        msg = payload["choices"][0]["message"]
+        content = msg.get("content") or ""
+        reasoning = msg.get("reasoning_content") or ""
+        if "<think>" in content:  # inline layout
+            m = re.search(r"<think>([\s\S]*?)</think>", content)
+            if m:
+                reasoning += m.group(1)
+                content = re.sub(r"<think>[\s\S]*?</think>", "", content)
+        elif not reasoning and content.startswith("<think>"):
+            # unterminated think block that consumed everything
+            reasoning += content
+            content = ""
+        chars = len(reasoning.strip())
+        if chars:
+            self.thinking_chars_total += chars
+            self.thinking_decisions += 1
+        return content.strip(), chars
 
     @staticmethod
     def _extract_json(text: str) -> Optional[dict]:
@@ -191,6 +214,9 @@ class OpenAIAgent(Agent):
         return {
             "decisions": self.decisions,
             "parseFailures": self.parse_failures,
+            "thinkingCharsTotal": self.thinking_chars_total,
+            "avgThinkingChars": round(self.thinking_chars_total / max(1, self.thinking_decisions)),
+            "thinkingDecisions": self.thinking_decisions,
             "invalidActionIds": self.invalid_ids,
             "retries": self.retries,
             "avgLatencyMs": round(self.latency_ms_total / d),

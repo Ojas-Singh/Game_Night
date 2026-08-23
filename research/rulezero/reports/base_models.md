@@ -68,3 +68,35 @@ opponent takes half a blind per game from it while it never breaks a rule.
 This answers week-question 3 affirmatively ("how far from equilibrium" — very)
 and question 2 negatively for the untrained 1.7B (no evidence of play above
 random).
+
+## Thinking mode vs /no_think (measured; full A/B deferred to GPU)
+
+Direct measurements on this CPU-only box:
+
+| Arm | Decision latency | Reasoning output | Notes |
+|---|---|---|---|
+| `/no_think` | **3.3 s**/decision | none (0 chars) | clean JSON every time |
+| thinking | **67.3 s**/decision | ~2,850 chars (~700 tok) first probe | needs max_tokens 3500 |
+
+≈ **20× slower with thinking on CPU**, and a full 24-seat-episode Kuhn run
+projected past 2 hours, so the paired A/B was parked at 11/24 seat-episodes
+(preserved as `kuhn_poker-llm-think-seats.partial.jsonl`).
+
+What we already know from the probes:
+
+- With enough token budget, thinking mode produces well-formed final JSON
+  after its `</think>` block — parsing works via the `reasoning_content`
+  field (inline `<think>` fallback also handled).
+- The quality question (does ~700 tokens of deliberation beat random more
+  often than 3-second answers?) remains OPEN until the GPU rerun.
+- Everything is staged for that rerun: same seeds/opponent/seat rotation,
+  one flag different —
+
+```
+# GPU rerun, both arms:
+python -m rulezero run --game kuhn_poker --episodes 12 --candidate llm       --url $ENDPOINT --model qwen3-1.7b
+python -m rulezero run --game kuhn_poker --episodes 12 --candidate llm-think --url $ENDPOINT --model qwen3-1.7b
+```
+
+Fresh complete no_think baseline on identical seeds (this session):
+−0.292 ± 0.507 mean return, 33% win rate, 0 strict failures, 3.28 s/decision.

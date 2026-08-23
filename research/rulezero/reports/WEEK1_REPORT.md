@@ -100,8 +100,11 @@ OpenSpiel random episodes: >100/s single process. CFR 300 iters Kuhn: seconds.
 - Remaining Cabo scope: 3–6 player seats (mechanics are seat-generic; the
   differential bridge currently fixes 2), and exposing Cabo through the
   rules registry/serializer for LLM seats.
-- Thinking-mode arm of the model comparison: pending (reasoning tokens were
-  unparsed content on CPU; needs longer budgets or template support).
+- Thinking-mode arm of the model comparison: infrastructure DONE and verified
+  (reasoning_content extraction, inline <think> fallback, 3500-token budget,
+  per-decision reasoning-length metrics); CPU cost measured at ~20x latency
+  (67 s vs 3.3 s per decision) making the full paired A/B impractical locally
+  -> deferred to GPU. Rerun commands staged in reports/base_models.md.
 - Pair One in OpenSpiel: intentionally skipped per plan priorities.
 
 ## GameSpec v0 (started)

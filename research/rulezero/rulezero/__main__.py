@@ -46,12 +46,20 @@ def benchmark(game_id: str, episodes: int, candidate: str, base_url: str | None,
             seeds=seeds,
             out_jsonl=jsonl,
         )
-    elif candidate == "llm":
+    elif candidate in ("llm", "llm-think"):
         assert model and base_url, "--model and --url required for llm candidate"
+        think = candidate == "llm-think"
         summary = evaluate_candidate(
             game_id,
             opponent_factory=lambda eps, seat: RandomAgent(random.Random(eps * 1000003 + seat * 7919 + 13)),
-            candidate_factory=lambda eps, seat: OpenAIAgent(base_url, model),
+            candidate_factory=lambda eps, seat: OpenAIAgent(
+                base_url,
+                model,
+                no_think=not think,
+                max_tokens=(3500 if think else 500),
+                timeout_s=(600.0 if think else 60.0),
+                name_suffix=("-think" if think else ""),
+            ),
             seeds=seeds,
             out_jsonl=jsonl,
         )

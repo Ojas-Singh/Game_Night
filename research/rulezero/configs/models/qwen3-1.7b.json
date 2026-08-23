@@ -13,9 +13,20 @@
   "sampling": {
     "temperature": 0.2,
     "topP": 0.9,
-    "maxTokens": 200,
-    "thinkingMode": false,
-    "note": "reasoning/non-reasoning comparison pending; /no_think system prefix used for non-thinking arm"
+    "arms": {
+      "noThink": {
+        "systemSuffix": "/no_think",
+        "maxTokens": 500,
+        "timeoutS": 60
+      },
+      "think": {
+        "thinkingEnabled": true,
+        "maxTokens": 3500,
+        "timeoutS": 600,
+        "reasoningHandling": "llama.cpp reasoning_content field, inline <think> fallback stripped before JSON parse; reasoning length recorded per decision"
+      }
+    },
+    "note": "both arms share seeds/opponent/seat rotation via `rulezero run --candidate llm|llm-think` for paired A/B"
   },
   "role": "week1 day-3 baseline stand-in for planned Qwen3.5-2B (not yet published); >1B instruction model per plan fallback rule"
 }
