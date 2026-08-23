@@ -43,6 +43,10 @@ export interface RoomPlayer {
   name: string;
   /** Customizable avatar (skribbl-style), shown around the table. */
   avatar: Avatar;
+  /** 'ai' seats are driven by the server's agent loop, never by sockets. */
+  kind: 'human' | 'ai';
+  /** Strategy persona for AI seats (agent-llm PERSONAS id). */
+  persona?: string;
   /** Secret token stored in the player's browser; never broadcast. */
   token: string;
   ready: boolean;
@@ -115,9 +119,12 @@ export class Room {
         id: sp.id,
         name: sp.name,
         avatar: isValidAvatar(sp.avatar) ? sp.avatar : randomAvatar(),
+        kind: sp.kind === 'ai' ? 'ai' : 'human',
+        persona: sp.persona,
         token: sp.token,
-        ready: sp.ready,
-        connected: false,
+        ready: sp.kind === 'ai' ? true : sp.ready,
+        // AI seats are always "connected" — the agent loop speaks for them.
+        connected: sp.kind === 'ai' ? true : false,
         sockets: new Set(),
         disconnectedAt: sp.disconnectedAt,
         joinedAt: sp.joinedAt,
@@ -167,6 +174,7 @@ export class Room {
       id: randomUUID(),
       name: sanitizeName(name) ?? randomName(),
       avatar: randomAvatar(),
+      kind: 'human',
       token: randomBytes(24).toString('base64url'),
       ready: false,
       connected: true,
@@ -182,6 +190,42 @@ export class Room {
       this.system(`${player.name} joined`);
     }
     return { player, reconnected: false };
+  }
+
+  /** Host seats an AI player (lobby only). The agent loop drives its turns. */
+  addAiPlayer(hostId: string, persona?: string): RoomPlayer {
+    if (hostId !== this.hostId) throw new RoomError('only the host can add AI players');
+    if (this.engine) throw new RoomError('game already in progress');
+    if (this.players.size >= GAME_REGISTRY[this.gameId].maxPlayers) {
+      throw new RoomError('room is full');
+    }
+    const clean = sanitizeAiPersona(persona);
+    const names = ['Ada', 'Byron', 'Cortez', 'Dijkstra', 'Erdos', 'Fibonacci'];
+    const used = new Set([...this.players.values()].map((p) => p.name));
+    const base = `AI ${clean.label}`;
+    let name = base;
+    for (const n of names) {
+      if (!used.has(`${base} ${n}`)) {
+        name = used.has(base) ? `${base} ${n}` : base;
+        break;
+      }
+    }
+    const player: RoomPlayer = {
+      id: randomUUID(),
+      name,
+      avatar: randomAvatar(),
+      kind: 'ai',
+      persona: clean.id,
+      token: randomBytes(24).toString('base64url'),
+      ready: true,
+      connected: true,
+      sockets: new Set(),
+      disconnectedAt: null,
+      joinedAt: Date.now(),
+    };
+    this.players.set(player.id, player);
+    this.system(`${player.name} (AI) joined the table`);
+    return player;
   }
 
   removePlayer(playerId: string, reason: 'left' | 'kicked by the host' = 'left'): void {
@@ -413,6 +457,8 @@ export class Room {
           isHost: p.id === this.hostId,
           ready: p.ready,
           connected: p.connected,
+          kind: p.kind,
+          aiPersona: p.kind === 'ai' ? (p.persona ?? 'balanced') : undefined,
           isYou: false, // client marks its own player
         })),
       inGame: !!this.engine,
@@ -485,4 +531,19 @@ function sanitizeName(name: string | undefined): string | null {
   if (!name) return null;
   const clean = name.trim().replace(/\s+/g, ' ').slice(0, 24);
   return clean.length >= 1 ? clean : null;
+}
+
+const AI_PERSONA_IDS = ['balanced', 'baiter', 'conservative', 'aggressor', 'scholar'];
+const AI_PERSONA_LABELS: Record<string, string> = {
+  balanced: 'Balanced',
+  baiter: 'Baiter',
+  conservative: 'Conservative',
+  aggressor: 'Aggressor',
+  scholar: 'Scholar',
+};
+
+/** Validate a requested AI persona; unknown/absent → balanced. */
+export function sanitizeAiPersona(persona?: string): { id: string; label: string } {
+  const id = persona && AI_PERSONA_IDS.includes(persona) ? persona : 'balanced';
+  return { id, label: AI_PERSONA_LABELS[id] ?? 'Balanced' };
 }

@@ -34,6 +34,9 @@ export interface LobbyPlayer {
   connected: boolean;
   isYou: boolean;
   avatar: Avatar;
+  /** 'ai' players are driven by the server's agent loop. */
+  kind?: 'human' | 'ai';
+  aiPersona?: string;
 }
 
 export interface RoomLobbyState {

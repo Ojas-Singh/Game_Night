@@ -17,9 +17,12 @@ interface SocketData {
 }
 
 /** Grace window before a dropped socket marks a player disconnected. */
+import { AgentLoops } from './agents/loop.js';
+
 const PRESENCE_DEBOUNCE_MS = 5_000;
 
 export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): void {
+  // eslint note: AgentLoops imported statically below the io type import.
   const persistRoom = (room: Room): void => rooms.persistNow(room);
   const lobbyOf = (room: Room, forPlayerId?: string): RoomLobbyState => {
     const state = room.lobbyState();
@@ -50,10 +53,17 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
     }
   };
 
-  const syncPlayer = (room: Room, playerId: string): void => {
+  // AI seats are driven here: the loop re-enters through afterChange.
+  const agents = new AgentLoops(io, { afterChange: (room) => afterChange(room) });
+  const afterChange = (room: Room): void => {
     broadcastLobby(room);
     broadcastGame(room);
     persistRoom(room);
+    agents.notify(room);
+  };
+  const syncPlayer = (room: Room, playerId: string): void => {
+    afterChange(room);
+    void playerId;
   };
 
   const system = (room: Room, text: string): void => {
@@ -311,9 +321,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         ack?.({ ok: true });
         const last = room.chat[room.chat.length - 1]!;
         io.to(room.id).emit('room:chat', last);
-        broadcastLobby(room);
-        broadcastGame(room);
-        persistRoom(room);
+        afterChange(room);
       } catch (err) {
         ack?.(fail(err));
       }
@@ -322,6 +330,19 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
     // -----------------------------------------------------------------
     // Chat
     // -----------------------------------------------------------------
+
+    // Host seats an AI player (lobby only). The agent loop drives its turns.
+    socket.on('room:add_ai', ({ persona }: { persona?: string }, ack) => {
+      try {
+        const { room, playerId } = requireRoom();
+        const player = room.addAiPlayer(playerId, typeof persona === 'string' ? persona : undefined);
+        log.info('ai_added', { roomId: room.id, aiId: player.id, persona: player.persona });
+        ack?.({ ok: true as const, playerId: player.id });
+        afterChange(room);
+      } catch (err) {
+        ack?.(fail(err));
+      }
+    });
 
     socket.on('room:chat', ({ text }) => {
       try {
@@ -357,8 +378,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         const { room, playerId } = requireRoom();
         room.handleGameAction(playerId, action);
         ack?.({ ok: true });
-        broadcastGame(room);
-        persistRoom(room);
+        afterChange(room);
       } catch (err) {
         ack?.(fail(err));
       }

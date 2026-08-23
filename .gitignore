@@ -6,3 +6,5 @@ coverage/
 .env
 .env.local
 .DS_Store
+apps/arena/trajectories/
+apps/arena/ladder.json

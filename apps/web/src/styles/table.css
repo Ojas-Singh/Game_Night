@@ -241,6 +241,28 @@
 .badge.host { background: rgba(232, 165, 75, 0.18); color: var(--accent-strong); }
 .badge.you { background: rgba(127, 191, 122, 0.16); color: var(--success); }
 .badge.dc { background: rgba(224, 108, 90, 0.16); color: var(--danger); }
+.badge.ai { background: rgba(140, 120, 255, 0.18); color: #b9aaff; }
+
+/* Lobby: host Add-AI control */
+.add-ai-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.persona-select {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel-2, #241d33);
+  color: var(--text, #eee);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  padding: 7px 9px;
+  font-size: 13px;
+}
+.add-ai-btn {
+  white-space: nowrap;
+}
 .lobby-count {
   color: var(--ink-dim);
   font-size: 13px;

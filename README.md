@@ -40,6 +40,28 @@ apps/web                # React client (round-table Cabo + memory-grid Pair One,
 - Per-player filtered views: hidden card values never leave the server.
 - Debug endpoints (`/debug/*`) and the 🛠 overlay exist only in non-production builds.
 
+## AI players & self-play
+
+- **AI seats in live games**: the host clicks "Seat AI" in the lobby and picks a
+  persona (Balanced / Baiter / Conservative / Aggressor / Scholar). AI turns run
+  through the server's agent loop with human-like think delays. Without any
+  model configured they use built-in heuristic bots; point `AGENT_API_URL`
+  (OpenAI-compatible: vLLM, Ollama, …), `AGENT_API_KEY`, `AGENT_MODEL` at your
+  own GPU box to make them LLM-driven.
+- **Self-play arena** (`apps/arena`): headless engine-level episodes with an
+  ELO ladder and JSONL trajectory recording:
+
+  ```
+  pnpm --filter @game-night/arena arena --game pairone --episodes 200 \
+      --seats heuristic,heuristic,random --record
+  ```
+
+- **Packages**: `agent-core` (agent contract, legal-action enumeration,
+  view serializers, trajectory recorder), `agent-bots` (random, heuristics,
+  flat Monte-Carlo search over a `SearchWorld` port), `agent-llm` (persona
+  prompts + strict-JSON action protocol with corrective retry and heuristic
+  fallback). Training scripts land in Phase 3 (`apps/trainer`).
+
 ## Tests
 
 ```bash

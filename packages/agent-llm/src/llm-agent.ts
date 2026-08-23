@@ -1,0 +1,157 @@
+/**
+ * LlmAgent — a reasoning card player over any OpenAI-compatible endpoint.
+ *
+ * Prompt = rules + persona + serialized view + candidate actions. The model
+ * answers with strict JSON: {"thought": "...", "action": {...}}. The action
+ * is validated against the candidate list; on garbage we re-ask ONCE with
+ * the error fed back, then fall back to a heuristic bot so a live table
+ * never stalls on a hallucinating model.
+ */
+
+import {
+  enumerateLegalActions,
+  RULES_TEXT,
+  serializeView,
+  AgentError,
+  type AnyGameAction,
+  type AgentContext,
+  type AgentDecision,
+  type AgentObservation,
+  type GameAgent,
+} from '@game-night/agent-core';
+import { CaboHeuristicBot, PairOneHeuristicBot } from '@game-night/agent-bots';
+import { chat, type ChatMessage } from './chat.js';
+import { personaOr, type Persona } from './personas.js';
+
+export interface LlmAgentOptions {
+  baseUrl: string;
+  apiKey?: string;
+  model: string;
+  persona?: string;
+  idSuffix?: string;
+  /** Extra sampling knobs. */
+  temperature?: number;
+  maxTokens?: number;
+  timeoutMs?: number;
+  /** Cap on serialized candidate list (large power menus get sampled). */
+  maxCandidates?: number;
+}
+
+function buildPrompt(obs: AgentObservation, persona: Persona, candidates: AnyGameAction[], maxCandidates: number): ChatMessage[] {
+  let list = candidates;
+  if (list.length > maxCandidates) list = list.slice(0, maxCandidates);
+  const system = [
+    `You are "${persona.label}", a world-class card player in a game night app.`,
+    persona.prompt,
+    `GAME RULES:\n${RULES_TEXT[obs.gameId]}`,
+    `Respond with ONE json object and nothing else: {"thought": "<=2 sentences of reasoning", "action": <one action object copied EXACTLY from the candidates list>}`,
+  ].join('\n\n');
+  const user = [
+    `CURRENT SITUATION (you are "YOU", id ${obs.selfId}):`,
+    serializeView(obs.view, obs.selfId),
+    '',
+    `CANDIDATE ACTIONS (pick one, copy verbatim):`,
+    JSON.stringify(list, null, 0),
+  ].join('\n');
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
+}
+
+function extractJson(text: string): { thought?: string; action?: unknown } | null {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const raw = fenced ? fenced[1]! : text;
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(raw.slice(start, end + 1)) as { thought?: string; action?: unknown };
+  } catch {
+    return null;
+  }
+}
+
+function actionMatches(candidate: unknown, list: AnyGameAction[]): AnyGameAction | null {
+  if (candidate == null || typeof candidate !== 'object') return null;
+  const c = candidate as Record<string, unknown>;
+  return (
+    list.find((a) => {
+      const ac = a as unknown as Record<string, unknown>;
+      if (ac.type !== c.type || ac.playerId !== c.playerId) return false;
+      const keys = new Set([...Object.keys(ac), ...Object.keys(c)]);
+      for (const k of keys) {
+        if (k === 'clientTs') continue;
+        if (JSON.stringify(ac[k]) !== JSON.stringify(c[k])) return false;
+      }
+      return true;
+    }) ?? null
+  );
+}
+
+export class LlmAgent implements GameAgent {
+  readonly id: string;
+  readonly label: string;
+  private readonly opts: LlmAgentOptions & Required<Pick<LlmAgentOptions, 'baseUrl' | 'model'>>;
+  private readonly persona: Persona;
+  private readonly fallback: GameAgent;
+
+  constructor(opts: LlmAgentOptions) {
+    this.opts = { ...opts, baseUrl: opts.baseUrl, model: opts.model };
+    this.persona = personaOr(opts.persona);
+    this.id = `llm:${this.persona.id}${opts.idSuffix ?? ''}`;
+    this.label = `AI ${this.persona.label}`;
+    this.fallback = new CaboHeuristicBot();
+    // fallback swapped per-decision by gameId (see decide)
+  }
+
+  async decide(obs: AgentObservation, ctx: AgentContext): Promise<AgentDecision> {
+    const candidates = enumerateLegalActions(obs.view, obs.selfId);
+    if (candidates.length === 0) throw new AgentError('no candidates for LLM');
+    const maxCandidates = this.opts.maxCandidates ?? 40;
+
+    const ask = async (messages: ChatMessage[]): Promise<AgentDecision> => {
+      const res = await chat({
+        baseUrl: this.opts.baseUrl,
+        apiKey: this.opts.apiKey,
+        model: this.opts.model,
+        messages,
+        temperature: this.opts.temperature ?? 0.4,
+        maxTokens: this.opts.maxTokens ?? 400,
+        timeoutMs: this.opts.timeoutMs ?? 20_000,
+      });
+      const parsed = extractJson(res.content);
+      const matched = parsed ? actionMatches(parsed.action, candidates) : null;
+      if (!matched) throw new Error(`unusable model answer: ${res.content.slice(0, 160)}`);
+      const action = matched;
+      const thought = parsed ? String(parsed.thought ?? '').slice(0, 300) : undefined;
+      return { action, thought: thought || undefined };
+    };
+
+    try {
+      return await ask(buildPrompt(obs, this.persona, candidates, maxCandidates));
+    } catch (err) {
+      // One corrective retry, feeding the error back.
+      try {
+        const messages = buildPrompt(obs, this.persona, candidates, maxCandidates);
+        messages.push({
+          role: 'assistant',
+          content: `{"thought":"...","action":{}}`,
+        });
+        messages.push({
+          role: 'user',
+          content: `Your previous answer was rejected: ${String(err).slice(0, 160)}. Reply again with valid JSON choosing EXACTLY one candidate action.`,
+        });
+        return await ask(messages);
+      } catch {
+        // Live tables must never stall on the model: heuristic fallback.
+        const fb =
+          obs.view.gameId === 'cabo'
+            ? new CaboHeuristicBot({ idSuffix: '-fb' })
+            : new PairOneHeuristicBot('-fb');
+        const d = fb.decide(obs, ctx);
+        return { action: d.action, thought: `[fallback] ${String(err).slice(0, 120)}` };
+      }
+    }
+  }
+}

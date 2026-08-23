@@ -9,8 +9,17 @@ import { loadAvatar, saveAvatar } from '../avatar.js';
 import { AVATAR_COLORS, EYE_STYLES, MOUTH_STYLES, HAT_STYLES } from '../avatar.js';
 import type { Avatar as AvatarModel } from '../server-protocol.js';
 
+const AI_PERSONA_LABELS: Record<string, string> = {
+  balanced: 'Balanced',
+  baiter: 'Baiter',
+  conservative: 'Conservative',
+  aggressor: 'Aggressor',
+  scholar: 'Scholar',
+};
+
 export default function LobbyView({ room }: { room: RoomApi }) {
   const lobby = room.lobby!;
+  const [persona, setPersona] = useState('balanced');
   const me = lobby.players.find((p) => p.isYou);
   const isHost = me?.isHost ?? false;
   const [name, setName] = useState(me?.name ?? loadName());
@@ -82,7 +91,18 @@ export default function LobbyView({ room }: { room: RoomApi }) {
               {lobby.players.map((p) => (
                 <li key={p.id} className={`player-row ${p.connected ? '' : 'disconnected'}`}>
                   <Avatar avatar={p.avatar ?? { color: 0, eyes: 0, mouth: 0, hat: 0 }} size={38} />
-                  <span className="player-name">{p.name}</span>
+                  <span className="player-name">
+                    {p.kind === 'ai' ? '🤖 ' : ''}
+                    {p.name}
+                  </span>
+                  {p.kind === 'ai' && (
+                    <span
+                      className="badge ai"
+                      title={`AI player — ${AI_PERSONA_LABELS[p.aiPersona ?? 'balanced'] ?? 'Balanced'} strategy`}
+                    >
+                      {AI_PERSONA_LABELS[p.aiPersona ?? 'balanced'] ?? 'AI'}
+                    </span>
+                  )}
                   {p.isHost && <span className="badge host">Host</span>}
                   {p.isYou && <span className="badge you">You</span>}
                   {!p.connected && <span className="badge dc">reconnecting…</span>}
@@ -149,6 +169,31 @@ export default function LobbyView({ room }: { room: RoomApi }) {
                     </label>
                   </div>
                 )}
+                <div className="add-ai-row">
+                  <label className="rule-label" htmlFor="ai-persona">
+                    🤖 Add AI player
+                  </label>
+                  <select
+                    id="ai-persona"
+                    className="persona-select"
+                    value={persona}
+                    onChange={(e) => setPersona(e.target.value)}
+                  >
+                    {Object.entries(AI_PERSONA_LABELS).map(([id, label]) => (
+                      <option key={id} value={id}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="ghost add-ai-btn"
+                    disabled={lobby.players.length >= 6}
+                    title={lobby.players.length >= 6 ? 'Table is full' : 'Seat an AI opponent'}
+                    onClick={() => void room.addAiPlayer(persona)}
+                  >
+                    + Seat AI
+                  </button>
+                </div>
                 <button
                   className="start-btn"
                   disabled={!canStart}

@@ -51,6 +51,8 @@ export function serializeRoom(room: Room): RoomSnapshot {
       id: p.id,
       name: p.name,
       avatar: p.avatar,
+      kind: p.kind,
+      persona: p.persona,
       token: p.token,
       ready: p.ready,
       // Restored players begin disconnected; they reconnect with their token.

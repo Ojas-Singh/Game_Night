@@ -19,6 +19,11 @@ export const config = {
   reconnectGraceMs: intEnv('RECONNECT_GRACE_MINUTES', 2) * 60_000,
   /** Debug capabilities are only ever enabled outside production. */
   debugEnabled: (process.env.NODE_ENV ?? 'development') !== 'production',
+  /** LLM agent backend (OpenAI-compatible: vLLM / Ollama / cloud). When unset,
+   *  AI seats play with built-in heuristic bots. */
+  agentApiUrl: process.env.AGENT_API_URL ?? '',
+  agentApiKey: process.env.AGENT_API_KEY ?? '',
+  agentModel: process.env.AGENT_MODEL ?? 'qwen3-8b',
 };
 
 export type AppConfig = typeof config;
