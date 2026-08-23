@@ -73,6 +73,15 @@ def power_for_rank(rank: int) -> str | None:
 def make_deck() -> list[int]:
     return list(range(52))
 
+_RANK_LABELS = {1: "A", 11: "J", 12: "Q", 13: "K"}
+_SUIT_LABELS = ("S", "H", "D", "C")
+
+
+def card_label(card: int) -> str:
+    """Public textual identity, e.g. 7H / KS / AD."""
+    r = rank_of(card)
+    return f"{_RANK_LABELS.get(r, str(r))}{_SUIT_LABELS[suit_of(card)]}"
+
 
 # ---------------------------------------------------------------------------
 # TS RNG replica (shared/src/rng.ts): splitmix32 seeding + xoshiro128**
@@ -200,6 +209,7 @@ class CaboState(pyspiel.State):
         self.initial_peeks_remaining = list(range(n))
         self.scores: list[float] | None = None
         self.final_scores: list[float] | None = None
+        self.winner: int | None = None
         self._pre_transfer_phase = PHASE_TURN_DRAW
         self._pre_transfer_phase = PHASE_TURN_DRAW
         # Deal startingCards round-robin, popping from the END like TS.
@@ -272,12 +282,24 @@ class CaboState(pyspiel.State):
         return self.phase == PHASE_ROUND_COMPLETE
 
     def returns(self):
-        # Cabo point totals are NOT zero-sum (both players can score high).
-        # OpenSpiel utilities here project onto the zero-sum winning margin:
-        # positive return = you beat your opponent, magnitude = point gap.
-        assert self.scores is not None
-        gap = float(self.scores[1] - self.scores[0])
-        return [-gap, gap]
+        """Bounded strategic utility (Phase-2 §4).
+
+        Cabo point totals are NOT zero-sum and must not leak into the game
+        utility: lower hand score wins, ties go to the Cabo caller (TS
+        endRound semantics). Utility here is strictly outcome-shaped:
+
+            win  = +1
+            tie (no decided winner) = 0
+            loss = -1
+
+        Raw hand point totals remain available separately via final_scores
+        for trajectory metadata; they are deliberately NOT the utility.
+        """
+        if self.winner is None:
+            return [0.0, 0.0]
+        out = [-1.0, -1.0]
+        out[self.winner] = 1.0
+        return list(out)
 
     def legal_actions(self, player):
         acts: list[int] = []
@@ -378,16 +400,49 @@ class CaboState(pyspiel.State):
         return f"{name}{f if f else ''}"
 
     def observation_string(self, player: int) -> str:
-        own = ",".join(str(rank_of(c)) if c is not None else "_" for c in self.hands[player])
-        known = sorted(self.knowledge[player])
+        """PRIVATE observation (Phase-2 §3).
+
+        Shows ONLY what this player has legitimately learned plus public
+        information. Unknown face-down slots render as '?' — never their
+        rank, never their stable id. Opponent hands appear as counts.
+        """
+        ks = self.knowledge[player]
+
+        def slot(c: int | None) -> str:
+            if c is None:
+                return "_"
+            return card_label(c) if c in ks else "?"
+
+        own = ",".join(slot(c) for c in self.hands[player])
+        opp_counts = ",".join(str(self._live(o)) for o in self._others(player))
+        top = card_label(self.discard[-1]) if self.discard else "-"
+        known = ",".join(card_label(c) for c in sorted(ks))
+        drawn = ""
+        if (self.phase == PHASE_DRAW_DECISION
+                and self.drawn_card is not None
+                and player == self.current_turn):
+            # The just-drawn card is private to the drawer until resolved.
+            drawn = f" drawn={card_label(self.drawn_card)}"
+        pp = f" power_pending=p{self.pending_power[0]}:{self.pending_power[1]}" if self.pending_power else ""
+        pt = f" transfer=p{self.pending_transfer[0]}->p{self.pending_transfer[1]}" if self.pending_transfer else ""
+        scores = ""
+        if self.is_terminal():
+            scores = " scores=" + ",".join(str(int(x)) for x in self.final_scores)
         return (
-            f"phase={self.phase} you=p{player} hand=[{own}] "
-            f"known={known} deck={len(self.deck)} discard_top={rank_of(self.discard[-1]) if self.discard else '-'} "
-            f"turn=p{self.current_turn} cabo={self.cabo_caller}"
+            f"phase={self.phase} turn=p{self.current_turn} you=p{player} "
+            f"hand=[{own}] opponents=[{opp_counts}] deck={len(self.deck)} "
+            f"discard_top={top}{drawn} known={known} cabo={self.cabo_caller}"
+            f"{pp}{pt}{scores}"
         )
 
     def information_state_string(self, player: int) -> str:
-        return self.observation_string(player)
+        """Perfect-recall information state: private observation plus this
+        player's full action/observation history (their decisions carry the
+        timing of everything they have ever seen)."""
+        return (
+            f"{self.observation_string(player)}\n"
+            f"your_history={self.history_str()}"
+        )
 
     # -- mutations -----------------------------------------------------------
     def apply_action(self, action: int):
@@ -599,9 +654,10 @@ class CaboState(pyspiel.State):
         ]
         self.scores = list(self.final_scores)
         best = min(self.scores)
-        winners = [i for i, s in enumerate(self.scores) if s == best]
+        winners = [i for i, v in enumerate(self.scores) if v == best]
         if len(winners) > 1 and self.cabo_caller is not None and self.cabo_caller in winners:
             winners = [self.cabo_caller]
+        self.winner = winners[0] if len(winners) == 1 else None
 
 
 def _subsets(items: list[int], size: int, acc: list[int], out: list[list[int]]):

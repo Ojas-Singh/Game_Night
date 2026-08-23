@@ -95,10 +95,18 @@ def test_full_random_episodes_terminal_zero_margin_scores_consistent():
             assert steps < 3000, "episode runaway"
         if st.is_terminal():
             finished += 1
-            gap = abs(st.final_scores[0] - st.final_scores[1])
             r = st.returns()
-            assert abs(r[0] + r[1]) < 1e-9           # zero-sum projection
-            assert abs(abs(r[0]) - gap) < 1e-9       # magnitude = point gap
+            assert abs(r[0] + r[1]) < 1e-9           # exactly zero-sum
+            assert all(x in (-1.0, 0.0, 1.0) for x in r)  # bounded utility
+            a, b = st.final_scores
+            if st.winner is None:
+                assert r == [0.0, 0.0] and a == b    # undecided tie
+            elif st.winner == 0:
+                assert r == [1.0, -1.0]
+                assert a < b or (a == b and st.cabo_caller == 0)
+            else:
+                assert r == [-1.0, 1.0]
+                assert b < a or (a == b and st.cabo_caller == 1)
     assert finished >= 55
 
 

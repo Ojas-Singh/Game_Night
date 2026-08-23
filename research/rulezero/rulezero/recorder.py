@@ -59,6 +59,7 @@ class EpisodeRecorder:
         rationale: str | None = None,
         latency_ms: int | None = None,
         teacher: dict | None = None,
+        candidate_id: str | None = None,
     ):
         row = {
             "decisionId": f"{self.record['episodeId']}-d{step}",
@@ -66,8 +67,10 @@ class EpisodeRecorder:
             "selfId": f"p{seat}",
             "agentId": agent_name,
             "decisionKind": "agent",
+            # environment-level integer action (OpenSpiel semantics)
             "proposedAction": str(action_id),
             "executedAction": str(action_id),
+            **({"candidateId": candidate_id} if candidate_id else {}),
             "actionString": action_str,
             "proposalWasLegal": True,  # OpenSpiel agents choose from legal_actions
             "fallbackUsed": False,

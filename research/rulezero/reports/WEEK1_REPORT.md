@@ -1,5 +1,17 @@
 # RuleZero Week 1 Report
 
+> **PRELIMINARY — superseded by Phase-2 validity repair (Milestone 1).**
+> Cabo numbers/claims below predate four environment corrections:
+> 1. player observations exposed hidden hand ranks (information leakage);
+> 2. utility sign/magnitude used raw point gaps, not bounded win/loss;
+> 3. off-turn interrupts were permissive actions, not explicit reaction
+>    decision nodes in the game tree;
+> 4. chance (deals/draws) came from an internal seeded RNG instead of proper
+>    OpenSpiel chance nodes.
+> Retained for provenance; do not cite as authoritative results.
+
+
+
 Branch: `research/rulezero-openspiel` · Base: production `main` (untouched)
 Commits this week: `d8d970a` → `3bd0501` → `ec198ae` → `4f2d2bd` → (+ final)
 

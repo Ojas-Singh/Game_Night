@@ -22,22 +22,34 @@ def game_metadata(game) -> str:  # pyspiel.Game
 
 
 def information_state(game, state, player: int) -> str:
-    """Best available per-player view; falls back to public history."""
+    """Best available per-player view.
+
+    Priority (Phase-2 §7): perfect-recall information state FIRST, plain
+    observation second, public history last. Observation and information
+    state are distinct concepts; agents train on information states.
+    """
+    try:
+        s = state.information_state_string(player)
+        if s and s.strip():
+            return s
+    except Exception:
+        pass
     try:
         s = state.observation_string(player)
         if s and s.strip():
             return s
     except Exception:
         pass
-    try:
-        return state.information_state_string(player)
-    except Exception:
-        return state.history_str() or "(no history yet)"
+    return state.history_str() or "(no history yet)"
 
 
 def render_observation(game, state, player: int) -> str:
-    """Full prompt body: metadata + explicit rules + view + legal actions."""
-    legal = state.legal_actions(player)
+    """Full prompt body: metadata + explicit rules + view + legal actions.
+
+    Candidate ids are DENSE (A0..An over the sorted legal-action list);
+    raw environment action integers are never shown to a model (§8).
+    """
+    legal = sorted(state.legal_actions(player))
     lines = [
         "GAME METADATA:",
         f"  {game_metadata(game)}",
@@ -50,14 +62,14 @@ def render_observation(game, state, player: int) -> str:
         "",
         "LEGAL ACTIONS (pick exactly one id):",
     ]
-    for aid in legal:
-        lines.append(f"A{aid}: {state.action_to_string(player, aid)}")
+    for i, aid in enumerate(legal):
+        lines.append(f"A{i}: {state.action_to_string(player, aid)}")
     return "\n".join(lines)
 
 
 def candidate_map(legal_actions: list[int]) -> dict[str, int]:
-    """A0..An ids map to real action ids (identity here; stable interface)."""
-    return {f"A{aid}": aid for aid in legal_actions}
+    """Dense candidate id -> environment action id, e.g. {"A0": 17, ...}."""
+    return {f"A{i}": aid for i, aid in enumerate(sorted(legal_actions))}
 
 
 def describe_game(game) -> dict[str, Any]:

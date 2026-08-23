@@ -97,11 +97,13 @@ def play_episode(game, seed: int, agents: list[Agent], candidate_seat: int,
             if recorder and (seat == candidate_seat or teach):
                 recorder.step(step, seat, agent.name, aid,
                               state.action_to_string(seat, aid), ohash,
+                              candidate_id=getattr(agent, 'last_candidate_id', None),
                               latency_ms=lat if seat == candidate_seat else None,
                               teacher=teach)
             elif recorder:
                 recorder.step(step, seat, agent.name, aid,
-                              state.action_to_string(seat, aid), ohash)
+                              state.action_to_string(seat, aid), ohash,
+                              candidate_id=getattr(agent, 'last_candidate_id', None))
             state.apply_action(aid)
         except StrictFailure as e:
             failures += 1

@@ -98,6 +98,7 @@ class OpenAIAgent(Agent):
         self.latency_ms_total = 0
         self.thinking_chars_total = 0
         self.thinking_decisions = 0
+        self.last_candidate_id: str | None = None
 
     def describe(self) -> dict:
         return {
@@ -166,7 +167,9 @@ class OpenAIAgent(Agent):
 
     def act(self, game, state, seat: int) -> int:
         legal = set(state.legal_actions(seat))
-        cmap = {f"A{aid}": aid for aid in legal}
+        from .serialize import candidate_map
+
+        cmap = candidate_map(sorted(legal))  # dense A0..An -> env action ids
         observation = render_observation(game, state, seat)
         system = (
             "You are a world-class strategic card player. You will receive game rules, "
@@ -198,6 +201,7 @@ class OpenAIAgent(Agent):
             else:
                 aid_raw = parsed.get("action_id")
                 if isinstance(aid_raw, str) and aid_raw.strip() in cmap:
+                    self.last_candidate_id = aid_raw.strip()
                     return int(cmap[aid_raw.strip()])
                 self.invalid_ids += 1
                 last_err = f"invalid action_id: {aid_raw!r}"
