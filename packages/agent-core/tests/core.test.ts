@@ -29,7 +29,7 @@ describe('legal action enumeration', () => {
     const who = s.players[s.currentTurn]!.id;
     const v = pairOneView(s, who);
     const acts = enumerateLegalActions(v, who).filter((a) => a.type === 'FLIP_CARD');
-    expect(acts.length).toBe(104);
+    expect(acts.length).toBe(52);
     for (const a of acts) expect(e.validateAction(a)).toBe(true);
   });
 
@@ -61,6 +61,6 @@ describe('view serialization', () => {
     const text = serializeView(v, 'p0');
     expect(text).toContain('r00|');
     expect(text.match(/\?/g)?.length ?? 0).toBeGreaterThan(50);
-    expect(RULES_TEXT.pairone).toMatch(/104 cards/);
+    expect(RULES_TEXT.pairone).toMatch(/52 cards/);
   });
 });
