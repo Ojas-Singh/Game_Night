@@ -1,7 +1,7 @@
 /**
  * Pair One — state, phases and action types.
  *
- * A public-information memory game: two decks are shuffled into one big
+ * A public-information memory game: one deck is shuffled into one big
  * face-down grid. On your turn you flip any two cards (EVERYONE sees them).
  * Matching numbers → you collect the pair and flip again. A miss flips both
  * back and passes the turn. The round ends when the grid is empty.
@@ -19,14 +19,14 @@ import type { Card, GameEvent, GamePlayer } from '@game-night/shared';
 export type PairOnePhase = 'TURN' | 'ROUND_COMPLETE';
 
 export interface PairOneRules {
-  /** How many standard 52-card decks are shuffled into the grid. */
+  /** Always 1 — Pair One uses exactly one standard 52-card deck (locked). */
   decks: number;
   minPlayers: number;
   maxPlayers: number;
 }
 
 export const DEFAULT_PAIRONE_RULES: PairOneRules = {
-  decks: 2,
+  decks: 1,
   minPlayers: 2,
   maxPlayers: 6,
 };

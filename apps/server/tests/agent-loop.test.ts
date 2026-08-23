@@ -81,7 +81,7 @@ describe('AgentLoops', () => {
     expect(room.engine!.isGameFinished()).toBe(true);
     const scores = room.engine!.calculateScore();
     const total = Object.values(scores).reduce((a, b) => a + b, 0);
-    expect(total).toBe(52); // every pair collected
+    expect(total).toBe(26); // every pair collected (single 52-card deck)
   }, 70_000);
 
   it('AI fills its initial peek then draws in Cabo (progress check)', async () => {

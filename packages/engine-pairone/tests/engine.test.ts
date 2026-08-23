@@ -51,17 +51,17 @@ function mustFail(engine: PairOneEngine, action: Parameters<PairOneEngine['handl
 const flip = (playerId: string, cardId: string) => ({ type: 'FLIP_CARD' as const, playerId, cardId });
 
 describe('Pair One — setup', () => {
-  it('deals two full decks into a 104-card grid', () => {
+  it('deals exactly one deck into a 52-card grid (single-deck house rule)', () => {
     const engine = new PairOneEngine();
     engine.createGame(players(3), {});
     const s = engine.getState();
-    expect(s.grid.length).toBe(104);
+    expect(s.grid.length).toBe(52);
     expect(s.grid.every((card) => card !== null)).toBe(true);
-    // Unique ids: two decks → 104 distinct cards.
+    // Unique ids: one deck → 52 distinct cards.
     const ids = new Set(s.grid.map((card) => card!.id));
-    expect(ids.size).toBe(104);
-    expect(multiDeck(2).length).toBe(104);
-    expect(engine.remainingCount()).toBe(104);
+    expect(ids.size).toBe(52);
+    expect(multiDeck(1).length).toBe(52);
+    expect(engine.remainingCount()).toBe(52);
     // First player to act is seat 0.
     expect(s.players[s.currentTurn]!.id).toBe('p1');
     expect(s.phase).toBe('TURN');
