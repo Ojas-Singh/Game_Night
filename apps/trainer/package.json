@@ -1,5 +1,5 @@
 {
-  "name": "@game-night/arena",
+  "name": "@game-night/trainer",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,11 +7,15 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "arena": "tsx src/cli.ts"
+    "dataset": "tsx src/dataset.ts",
+    "train": "tsx src/train.ts",
+    "eval": "tsx src/eval.ts"
   },
   "dependencies": {
     "@game-night/agent-bots": "workspace:*",
     "@game-night/agent-core": "workspace:*",
+    "@game-night/agent-llm": "workspace:*",
+    "@game-night/arena": "workspace:*",
     "@game-night/engine-cabo": "workspace:*",
     "@game-night/engine-pairone": "workspace:*",
     "@game-night/shared": "workspace:*"
@@ -21,13 +25,5 @@
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
-  },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
   }
 }

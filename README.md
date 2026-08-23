@@ -60,7 +60,32 @@ apps/web                # React client (round-table Cabo + memory-grid Pair One,
   view serializers, trajectory recorder), `agent-bots` (random, heuristics,
   flat Monte-Carlo search over a `SearchWorld` port), `agent-llm` (persona
   prompts + strict-JSON action protocol with corrective retry and heuristic
-  fallback). Training scripts land in Phase 3 (`apps/trainer`).
+  fallback).
+- **Self-play training loop** (`apps/trainer`, runs on your own GPU box):
+
+  ```
+  # 1. record episodes with raw views
+  pnpm --filter @game-night/arena arena --game pairone --episodes 500 \
+      --seats llm,llm,heuristic --record --raw --out trajectories
+
+  # 2. build SFT dataset (winner moves only, deduped, chat format)
+  pnpm --filter @game-night/trainer dataset --in trajectories/pairone-episodes.jsonl \
+      --out sft-data --include-bots
+
+  # 3. QLoRA fine-tune (transformers+peft+bitsandbytes, ~32 GB card)
+  cp apps/trainer/python/train.config.example.json train.config.json  # edit it
+  pnpm --filter @game-night/trainer train --config train.config.json
+
+  # 4. serve the adapter and evaluate head-to-head vs bots
+  vllm serve Qwen/Qwen3-8B --enable-lora --lora-modules gen1=adapters/gen1
+  pnpm --filter @game-night/trainer eval --url http://localhost:8000/v1 \
+      --model gen1 --game pairone --episodes 20 --opponent heuristic
+  ```
+
+  Training prompts are byte-identical to live inference prompts (shared
+  `buildLlmPrompt`), so the model improves at exactly the task the server
+  asks of it. Each generation: record → filter winners → tune → eval →
+  repeat; the arena ELO ladder tracks progress across generations.
 
 ## Tests
 

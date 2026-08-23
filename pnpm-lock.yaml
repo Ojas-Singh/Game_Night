@@ -101,6 +101,43 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.1)
 
+  apps/trainer:
+    dependencies:
+      '@game-night/agent-bots':
+        specifier: workspace:*
+        version: link:../../packages/agent-bots
+      '@game-night/agent-core':
+        specifier: workspace:*
+        version: link:../../packages/agent-core
+      '@game-night/agent-llm':
+        specifier: workspace:*
+        version: link:../../packages/agent-llm
+      '@game-night/arena':
+        specifier: workspace:*
+        version: link:../arena
+      '@game-night/engine-cabo':
+        specifier: workspace:*
+        version: link:../../packages/engine-cabo
+      '@game-night/engine-pairone':
+        specifier: workspace:*
+        version: link:../../packages/engine-pairone
+      '@game-night/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.1
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.12
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)
+
   apps/web:
     dependencies:
       '@game-night/engine-cabo':

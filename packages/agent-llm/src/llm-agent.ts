@@ -37,7 +37,27 @@ export interface LlmAgentOptions {
   maxCandidates?: number;
 }
 
-function buildPrompt(obs: AgentObservation, persona: Persona, candidates: AnyGameAction[], maxCandidates: number): ChatMessage[] {
+export interface PromptOptions {
+  /** Full Pair One grids enumerate >100 flips; keep every candidate visible. */
+  maxCandidates?: number;
+}
+
+/**
+ * Build the EXACT chat messages an LlmAgent sends at decision time. Exported
+ * so the training pipeline can render byte-identical prompts from recorded
+ * episodes — distribution match between SFT data and live inference.
+ */
+export function buildLlmPrompt(
+  obs: AgentObservation,
+  persona: Persona,
+  candidates: AnyGameAction[],
+  opts: PromptOptions = {},
+): ChatMessage[] {
+  const maxCandidates = opts.maxCandidates ?? 200;
+  return buildPromptInner(obs, persona, candidates, maxCandidates);
+}
+
+function buildPromptInner(obs: AgentObservation, persona: Persona, candidates: AnyGameAction[], maxCandidates: number): ChatMessage[] {
   let list = candidates;
   if (list.length > maxCandidates) list = list.slice(0, maxCandidates);
   const system = [
@@ -108,7 +128,7 @@ export class LlmAgent implements GameAgent {
   async decide(obs: AgentObservation, ctx: AgentContext): Promise<AgentDecision> {
     const candidates = enumerateLegalActions(obs.view, obs.selfId);
     if (candidates.length === 0) throw new AgentError('no candidates for LLM');
-    const maxCandidates = this.opts.maxCandidates ?? 40;
+    const maxCandidates = this.opts.maxCandidates ?? 200;
 
     const ask = async (messages: ChatMessage[]): Promise<AgentDecision> => {
       const res = await chat({
@@ -129,11 +149,11 @@ export class LlmAgent implements GameAgent {
     };
 
     try {
-      return await ask(buildPrompt(obs, this.persona, candidates, maxCandidates));
+      return await ask(buildLlmPrompt(obs, this.persona, candidates, { maxCandidates }));
     } catch (err) {
       // One corrective retry, feeding the error back.
       try {
-        const messages = buildPrompt(obs, this.persona, candidates, maxCandidates);
+        const messages = buildLlmPrompt(obs, this.persona, candidates, { maxCandidates });
         messages.push({
           role: 'assistant',
           content: `{"thought":"...","action":{}}`,

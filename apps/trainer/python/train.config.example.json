@@ -1,0 +1,12 @@
+{
+  "baseModel": "Qwen/Qwen3-8B",
+  "dataDir": "sft-data",
+  "outputDir": "adapters/gen1",
+  "epochs": 3,
+  "learningRate": 0.0002,
+  "maxSeqLen": 3072,
+  "batchSize": 2,
+  "gradAccum": 8,
+  "loraR": 16,
+  "loraAlpha": 32
+}
