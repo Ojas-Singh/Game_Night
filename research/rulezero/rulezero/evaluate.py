@@ -67,7 +67,7 @@ class CandidateReport:
 
 
 def play_episode(game, seed: int, agents: list[Agent], candidate_seat: int,
-                 recorder: EpisodeRecorder | None, rng) -> tuple[list[float], int]:
+                 recorder: EpisodeRecorder | None, rng, teacher=None) -> tuple[list[float], int]:
     """Play one episode; returns (returns, strict_failure_count)."""
     state = game.new_initial_state()
     failures = 0
@@ -86,9 +86,19 @@ def play_episode(game, seed: int, agents: list[Agent], candidate_seat: int,
             t0 = _now()
             aid = agent.act(game, state, seat)
             lat = _since(t0)
-            if recorder and seat == candidate_seat:
+            teach = None
+            if teacher is not None:
+                probs = teacher.policy(game, state, seat)
+                teach = {
+                    "name": teacher.name,
+                    "policy": {f"A{a}": round(p, 4) for a, p in sorted(probs.items())},
+                    "action": max(probs.items(), key=lambda kv: kv[1])[0],
+                }
+            if recorder and (seat == candidate_seat or teach):
                 recorder.step(step, seat, agent.name, aid,
-                              state.action_to_string(seat, aid), ohash, latency_ms=lat)
+                              state.action_to_string(seat, aid), ohash,
+                              latency_ms=lat if seat == candidate_seat else None,
+                              teacher=teach)
             elif recorder:
                 recorder.step(step, seat, agent.name, aid,
                               state.action_to_string(seat, aid), ohash)
@@ -125,6 +135,7 @@ def evaluate_candidate(
     *,
     out_jsonl: Path | None = None,
     record_all_seats: bool = False,
+    teacher=None,
 ) -> dict:
     """Rotate the candidate through every seat for every seed.
 
@@ -152,7 +163,7 @@ def evaluate_candidate(
                 if out_jsonl and (record_all_seats or seat == 0)
                 else None
             )
-            returns, failures = play_episode(game, seed, agents, seat, recorder, rng)
+            returns, failures = play_episode(game, seed, agents, seat, recorder, rng, teacher=teacher)
             report.add(seat, game.num_players(), returns[seat])
             report.strict_failures += failures
             m = getattr(cand, "metrics", None)

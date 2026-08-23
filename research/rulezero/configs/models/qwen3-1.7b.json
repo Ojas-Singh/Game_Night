@@ -1,0 +1,21 @@
+{
+  "name": "qwen3-1.7b",
+  "family": "qwen3",
+  "parameters": "1.7B",
+  "quantization": "Q8_0",
+  "source": "huggingface://Qwen/Qwen3-1.7B-GGUF/Qwen3-1.7B-Q8_0.gguf",
+  "serving": {
+    "endpointType": "llama.cpp llama-server (OpenAI-compatible)",
+    "port": 8914,
+    "contextTokens": 4096,
+    "threads": -1
+  },
+  "sampling": {
+    "temperature": 0.2,
+    "topP": 0.9,
+    "maxTokens": 200,
+    "thinkingMode": false,
+    "note": "reasoning/non-reasoning comparison pending; /no_think system prefix used for non-thinking arm"
+  },
+  "role": "week1 day-3 baseline stand-in for planned Qwen3.5-2B (not yet published); >1B instruction model per plan fallback rule"
+}

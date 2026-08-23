@@ -58,6 +58,7 @@ class EpisodeRecorder:
         observation_hash: str,
         rationale: str | None = None,
         latency_ms: int | None = None,
+        teacher: dict | None = None,
     ):
         row = {
             "decisionId": f"{self.record['episodeId']}-d{step}",
@@ -73,6 +74,7 @@ class EpisodeRecorder:
             "observationHash": observation_hash,
             **({"rationale": rationale} if rationale else {}),
             **({"latencyMs": latency_ms} if latency_ms is not None else {}),
+            **({"teacher": teacher} if teacher else {}),
         }
         self.record["steps"].append(row)
 

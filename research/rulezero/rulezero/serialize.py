@@ -15,7 +15,7 @@ from .rules_registry import rules_hash, rules_text, rules_version
 def game_metadata(game) -> str:  # pyspiel.Game
     t = game.get_type()
     return (
-        f"game={t.name} players={game.num_players()} "
+        f"game={t.short_name} players={game.num_players()} "
         f"dynamics={t.dynamics.name} chance={t.chance_mode.name} "
         f"information={t.information.name} utility={t.utility.name}"
     )
@@ -43,7 +43,7 @@ def render_observation(game, state, player: int) -> str:
         f"  {game_metadata(game)}",
         "",
         "RULES:",
-        rules_text(game.get_name()),
+        rules_text(game.get_type().short_name),
         "",
         f"CURRENT SITUATION (you are player {player}):",
         information_state(game, state, player),

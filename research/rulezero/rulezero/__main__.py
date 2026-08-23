@@ -15,6 +15,7 @@ from .agents import OpenAIAgent, RandomAgent
 from .evaluate import evaluate_candidate
 from .rules_registry import RULES
 from .serialize import describe_game
+from .teachers import CFRTeacher
 
 REPO = Path(__file__).resolve().parents[3]  # Game_Night/
 ARTIFACTS = REPO / "artifacts" / "evaluations"
@@ -67,6 +68,13 @@ def main():
     insp = sub.add_parser("inspect")
     insp.add_argument("--game", required=True)
 
+    lab = sub.add_parser("label")
+    lab.add_argument("--game", required=True)
+    lab.add_argument("--episodes", type=int, default=50)
+    lab.add_argument("--iterations", type=int, default=400)
+    lab.add_argument("--out")
+    lab.add_argument("--report", action="store_true", help="print teacher quality metrics")
+
     bench = sub.add_parser("run")
     bench.add_argument("--game", required=True)
     bench.add_argument("--episodes", type=int, default=20)
@@ -77,8 +85,34 @@ def main():
     args = ap.parse_args()
     if args.cmd == "inspect":
         inspect_game(args.game)
-    else:
-        benchmark(args.game, args.episodes, args.candidate, args.url, args.model)
+        return
+
+    if args.cmd == "label":
+        import random as _r
+        from pathlib import Path as _P
+        from .recorder import EpisodeRecorder, append_jsonl
+        from .evaluate import play_episode
+
+        game = pyspiel.load_game(args.game)
+        desc = describe_game(game)
+        teacher = CFRTeacher(args.game, iterations=args.iterations)
+        out = _P(args.out) if args.out else ARTIFACTS.parents[1] / "artifacts" / "datasets" / "labelled" / f"{args.game}-{teacher.name}.jsonl"
+        seeds = [9000 + i for i in range(args.episodes)]
+        n_steps = 0
+        for eps in seeds:
+            agents = [RandomAgent(_r.Random(eps * 1000003 + s * 31 + 5)) for s in range(game.num_players())]
+            rec = EpisodeRecorder(desc, eps, [{"name": a.name} for a in agents])
+            rets, _ = play_episode(game, eps, agents, 0, rec, _r.Random(eps), teacher=teacher)
+            append_jsonl(out, rec.finish(rets))
+            n_steps += len(rec.record["steps"])
+        q = teacher.quality()
+        print(json.dumps({"out": str(out), "episodes": len(seeds), "labelledSteps": n_steps, "teacherQuality": q}, indent=2))
+        if args.report:
+            REPORTS.mkdir(parents=True, exist_ok=True)
+            (REPORTS / "teacher_quality.json").write_text(json.dumps(q, indent=2))
+        return
+
+    benchmark(args.game, args.episodes, args.candidate, args.url, args.model)
 
 
 if __name__ == "__main__":

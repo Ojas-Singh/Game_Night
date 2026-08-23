@@ -60,10 +60,11 @@ class OpenAIAgent(Agent):
         *,
         api_key: str = "",
         temperature: float = 0.2,
-        max_tokens: int = 200,
+        max_tokens: int = 500,
         timeout_s: float = 60.0,
         mode: str = "research-strict",
         name_suffix: str = "",
+        no_think: bool = True,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -72,6 +73,7 @@ class OpenAIAgent(Agent):
         self.max_tokens = max_tokens
         self.timeout_s = timeout_s
         assert mode == "research-strict", "live-safe fallback does not exist in research"
+        self.no_think = no_think
         self.name = f"llm:{model}{name_suffix}"
         # metrics
         self.decisions = 0
@@ -87,6 +89,7 @@ class OpenAIAgent(Agent):
             "baseUrl": self.base_url,
             "temperature": self.temperature,
             "maxTokens": self.max_tokens,
+            "noThink": self.no_think,
             "mode": "research-strict",
         }
 
@@ -97,6 +100,9 @@ class OpenAIAgent(Agent):
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
         }).encode()
+        return self._post(body)
+
+    def _post(self, body: bytes) -> str:
         req = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=body,
@@ -129,6 +135,8 @@ class OpenAIAgent(Agent):
             'your situation, and a list of legal actions with ids A0..An. Respond with ONE '
             'json object and nothing else: {"thought": "<=2 sentences", "action_id": "A<n>"}.'
         )
+        if self.no_think:
+            system += " /no_think"
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": observation},
