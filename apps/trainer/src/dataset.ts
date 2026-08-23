@@ -27,9 +27,13 @@ import { buildLlmPrompt, personaOr, PERSONAS } from '@game-night/agent-llm';
 export interface RawEpisode {
   gameId: GameId;
   seed: number;
-  players: Array<{ id: string; name: string; agentId: string }>;
+  /** Trajectory v2 provenance (present on new recordings). */
+  schemaVersion?: number;
+  episodeId?: string;
+  rulesHash?: string;
+  players: Array<{ id: string; name: string; seat?: number; agentId: string }>;
   startedAt?: string;
-  result: { scores: Record<string, number>; winnerIds: string[]; normalized?: Record<string, number> } | null;
+  result: { scores: Record<string, number>; winnerIds: string[]; returns?: Record<string, number>; normalized?: Record<string, number> } | null;
   steps: Array<{
     step: number;
     selfId: string;
@@ -37,6 +41,7 @@ export interface RawEpisode {
     executedAction: AnyGameAction;
     rationale?: string;
     thought?: string;
+    observationHash?: string;
     rawView?: unknown;
   }>;
 }
@@ -46,6 +51,8 @@ export interface DatasetSample {
   meta: {
     gameId: GameId;
     seed: number;
+    episodeId: string;
+    rulesHash?: string;
     episodeAgent: string;
     selfId: string;
     step: number;
@@ -58,6 +65,12 @@ export interface BuildOptions {
   /** Keep losing seats' moves too (off by default). */
   includeLosers?: boolean;
   maxCandidates?: number;
+  /**
+   * 'action_only' (default, preferred first experiment): assistant emits
+   * {"action_id":"A12"} — minimal tokens, no chain-of-thought dependency.
+   * 'rationale_action': auxiliary thought included for comparison studies.
+   */
+  outputMode?: 'action_only' | 'rationale_action';
 }
 
 const isRandomAgent = (agentId: string): boolean => agentId.startsWith('random');
@@ -107,11 +120,15 @@ export function buildSamples(episodes: RawEpisode[], opts: BuildOptions = {}): {
       const shown = all.slice(0, cap);
       if (!shown.some((a) => JSON.stringify(a) === JSON.stringify(chosen))) continue;
 
-      const hash = createHash('sha1')
-        .update(JSON.stringify([ep.gameId, step.selfId, view.revision, view.phase]))
-        .digest('hex');
-      if (seen.has(hash)) continue;
-      seen.add(hash);
+      // Dedupe WITHIN an episode (re-ingested recordings collapse) but NEVER
+      // across episodes: in hidden-information games two different deals can
+      // present byte-identical observations while their correct actions
+      // differ — collapsing them would corrupt supervision.
+      const episodeKey = ep.episodeId
+        ?? `ep-${createHash('sha1').update(JSON.stringify([ep.gameId, ep.seed, startedAtKey(ep)])).digest('hex').slice(0, 10)}`;
+      const decisionKey = `${episodeKey}:${step.observationHash ?? createHash('sha1').update(JSON.stringify([step.selfId, view.revision, view.phase])).digest('hex')}`;
+      if (seen.has(decisionKey)) continue;
+      seen.add(decisionKey);
 
       const personaId = personaOf(step.agentId);
       const messages = buildLlmPrompt(
@@ -120,7 +137,12 @@ export function buildSamples(episodes: RawEpisode[], opts: BuildOptions = {}): {
         all,
         { maxCandidates: opts.maxCandidates },
       );
-      const target = JSON.stringify({ thought: step.rationale ?? step.thought ?? '', action: chosen });
+      const shownRefs = shown.map((a, i) => ({ id: `A${i}`, action: a }));
+      const ref = shownRefs.find((r) => JSON.stringify(r.action) === JSON.stringify(chosen))!;
+      const target =
+        (opts.outputMode ?? 'action_only') === 'action_only'
+          ? JSON.stringify({ action_id: ref.id })
+          : JSON.stringify({ thought: step.rationale ?? step.thought ?? '', action: chosen });
       samples.push({
         messages: [
           ...messages.slice(0, 2),
@@ -129,6 +151,8 @@ export function buildSamples(episodes: RawEpisode[], opts: BuildOptions = {}): {
         meta: {
           gameId: ep.gameId,
           seed: ep.seed,
+          episodeId: episodeKey,
+          rulesHash: ep.rulesHash,
           episodeAgent: step.agentId,
           selfId: step.selfId,
           step: step.step,
@@ -139,7 +163,55 @@ export function buildSamples(episodes: RawEpisode[], opts: BuildOptions = {}): {
   return { samples, stats: { episodes: episodes.length, usableEpisodes: usable, candidates: candidatesSeen, deduped: samples.length } };
 }
 
-/** Shuffle deterministically then split into train/val. */
+/**
+ * Episode-level split — the minimum safe unit. Positions from one episode
+ * must never straddle train/val or the validation set leaks correlated
+ * context (same game, same deal, same opponents).
+ */
+export function splitByEpisode<T extends { meta: { episodeId: string } }>(
+  samples: T[],
+  valFraction: number,
+  seed: number,
+): { train: T[]; val: T[] } {
+  const byEpisode = new Map<string, T[]>();
+  for (const s of samples) {
+    const list = byEpisode.get(s.meta.episodeId) ?? [];
+    list.push(s);
+    byEpisode.set(s.meta.episodeId, list);
+  }
+  const ids = [...byEpisode.keys()];
+  const shuffled = shuffle(ids, seed);
+  const nVal = Math.max(1, Math.floor(shuffled.length * valFraction));
+  const valIds = new Set(shuffled.slice(0, nVal));
+  const train: T[] = [];
+  const val: T[] = [];
+  for (const id of shuffled) (valIds.has(id) ? val : train).push(...byEpisode.get(id)!);
+  return { train, val };
+}
+
+function startedAtKey(ep: RawEpisode): string {
+  return String(ep.startedAt ?? '');
+}
+
+/** Deterministic Fisher-Yates over a copy. */
+function shuffle<T>(items: T[], seed: number): T[] {
+  const arr = [...items];
+  let a = seed >>> 0;
+  const rnd = (): number => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
+  }
+  return arr;
+}
+
+/** Position-level split kept ONLY for non-episode-grouped data (tests). */
 export function split<T>(items: T[], valFraction: number, seed: number): { train: T[]; val: T[] } {
   const arr = [...items];
   let a = seed >>> 0;
@@ -194,12 +266,15 @@ function main(): void {
   }
   const outDir = get('out') ?? 'sft-data';
   const episodes = parseEpisodesFile(input);
-  const { samples, stats } = buildSamples(episodes, {
+  const buildOpts: BuildOptions = {
     includeRandom: argv.includes('--include-random'),
     includeBots: argv.includes('--include-bots'),
     includeLosers: argv.includes('--include-losers'),
-  });
-  const { train, val } = split(samples, Number(get('val') ?? 0.05), Number(get('seed') ?? 7));
+  };
+  const modeIdx = argv.indexOf('--output-mode');
+  if (modeIdx >= 0) buildOpts.outputMode = argv[modeIdx + 1] as 'action_only' | 'rationale_action';
+  const { samples, stats } = buildSamples(episodes, buildOpts);
+  const { train, val } = splitByEpisode(samples, Number(get('val') ?? 0.05), Number(get('seed') ?? 7));
   mkdirSync(outDir, { recursive: true });
   writeJsonl(join(outDir, 'train.jsonl'), train);
   writeJsonl(join(outDir, 'val.jsonl'), val);

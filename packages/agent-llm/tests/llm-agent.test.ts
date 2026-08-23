@@ -4,8 +4,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { PairOneEngine, buildPlayerView as pairOneView } from '@game-night/engine-pairone';
-import { createAgentRng, type AgentObservation } from '@game-night/agent-core';
+import { createAgentRng, enumerateLegalActions, type AgentObservation } from '@game-night/agent-core';
 import { LlmAgent, PERSONAS } from '../src/index.js';
+import { AgentError } from '@game-night/agent-core';
 
 let server: Server | undefined;
 let baseUrl = '';
@@ -54,6 +55,45 @@ describe('LlmAgent', () => {
     const d = await agent.decide(obs, { rng: createAgentRng(1) });
     expect(d.action).toMatchObject({ type: 'FLIP_CARD', cardId: 'c-0' });
     expect(requests).toBe(1);
+  });
+
+  it('research-strict mode throws AgentError instead of falling back', async () => {
+    responses = ['garbage {{{ one', 'garbage {{{ two'];
+    requests = 0;
+    const agent = new LlmAgent({ baseUrl, model: 'test-model', mode: 'research-strict' });
+    await expect(agent.decide(makeObs(), { rng: createAgentRng(1) })).rejects.toThrow(AgentError);
+    expect(requests).toBe(2); // corrective retry happened, then strict failure
+  });
+
+  it('accepts action_id selection (A0..An protocol)', async () => {
+    const obs = makeObs();
+    const expected = enumerateLegalActions(obs.view, obs.selfId)[1]!;
+    responses = ['{"thought":"second slot","action_id":"A1"}'];
+    const agent = new LlmAgent({ baseUrl, model: 'test-model', mode: 'research-strict' });
+    const d = await agent.decide(obs, { rng: createAgentRng(1) });
+    expect(JSON.stringify(d.action)).toBe(JSON.stringify(expected));
+  });
+
+  it('prompts enumerate candidates as A0..An lines', async () => {
+    let capturedUser = '';
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (_u: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: string }> };
+      capturedUser = body.messages.find((m) => m.role === 'user')!.content;
+      return new Response(
+        JSON.stringify({ choices: [{ message: { role: 'assistant', content: '{"thought":"t","action_id":"A0"}' } }] }),
+        { headers: { 'content-type': 'application/json' } },
+      ) as unknown as Response;
+    }) as typeof fetch;
+    try {
+      const obs = makeObs();
+      const agent = new LlmAgent({ baseUrl, model: 'test-model' });
+      await agent.decide(obs, { rng: createAgentRng(1) });
+      expect(capturedUser).toContain('LEGAL ACTIONS (pick exactly one id):');
+      expect(capturedUser).toMatch(/A0: \{"type":"FLIP_CARD"/);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
   });
 
   it('retries once on garbage then falls back to a legal heuristic move', async () => {

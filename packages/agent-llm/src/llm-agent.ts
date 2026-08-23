@@ -35,6 +35,13 @@ export interface LlmAgentOptions {
   timeoutMs?: number;
   /** Cap on serialized candidate list (large power menus get sampled). */
   maxCandidates?: number;
+  /**
+   * 'live-safe' (default): after a failed retry, silently fall back to the
+   *   built-in heuristic so a multiplayer table never stalls.
+   * 'research-strict': rethrow as AgentError — the runner records the model's
+   *   failure verbatim; no heuristic strength may be credited to the model.
+   */
+  mode?: 'live-safe' | 'research-strict';
 }
 
 export interface PromptOptions {
@@ -57,21 +64,32 @@ export function buildLlmPrompt(
   return buildPromptInner(obs, persona, candidates, maxCandidates);
 }
 
+export interface CandidateRef {
+  id: string;
+  action: AnyGameAction;
+}
+
+/** Label candidates A0, A1, ... — small models select an ID far more reliably
+ *  than they reproduce nested JSON. Both answer styles remain valid. */
+export function labelCandidates(candidates: AnyGameAction[], max?: number): CandidateRef[] {
+  const list = max != null && candidates.length > max ? candidates.slice(0, max) : candidates;
+  return list.map((action, i) => ({ id: `A${i}`, action }));
+}
+
 function buildPromptInner(obs: AgentObservation, persona: Persona, candidates: AnyGameAction[], maxCandidates: number): ChatMessage[] {
-  let list = candidates;
-  if (list.length > maxCandidates) list = list.slice(0, maxCandidates);
+  const refs = labelCandidates(candidates, maxCandidates);
   const system = [
     `You are "${persona.label}", a world-class card player in a game night app.`,
     persona.prompt,
     `GAME RULES:\n${RULES_TEXT[obs.gameId]}`,
-    `Respond with ONE json object and nothing else: {"thought": "<=2 sentences of reasoning", "action": <one action object copied EXACTLY from the candidates list>}`,
+    `Respond with ONE json object and nothing else: {"thought": "<=2 sentences of reasoning", "action_id": "<one candidate id, e.g. A7>"}. Copying the full action object as "action" instead of action_id is also acceptable.`,
   ].join('\n\n');
   const user = [
     `CURRENT SITUATION (you are "YOU", id ${obs.selfId}):`,
     serializeView(obs.view, obs.selfId),
     '',
-    `CANDIDATE ACTIONS (pick one, copy verbatim):`,
-    JSON.stringify(list, null, 0),
+    `LEGAL ACTIONS (pick exactly one id):`,
+    ...refs.map((r) => `${r.id}: ${JSON.stringify(r.action)}`),
   ].join('\n');
   return [
     { role: 'system', content: system },
@@ -79,7 +97,7 @@ function buildPromptInner(obs: AgentObservation, persona: Persona, candidates: A
   ];
 }
 
-function extractJson(text: string): { thought?: string; action?: unknown } | null {
+function extractJson(text: string): { thought?: string; action?: unknown; action_id?: string } | null {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   const raw = fenced ? fenced[1]! : text;
   const start = raw.indexOf('{');
@@ -141,7 +159,16 @@ export class LlmAgent implements GameAgent {
         timeoutMs: this.opts.timeoutMs ?? 20_000,
       });
       const parsed = extractJson(res.content);
-      const matched = parsed ? actionMatches(parsed.action, candidates) : null;
+      let matched: AnyGameAction | null = null;
+      if (parsed) {
+        if (typeof parsed.action_id === 'string') {
+          const ref = labelCandidates(candidates, maxCandidates).find(
+            (r) => r.id.toLowerCase() === parsed!.action_id!.trim().toLowerCase(),
+          );
+          matched = ref ? ref.action : null;
+        }
+        matched = matched ?? actionMatches(parsed.action, candidates);
+      }
       if (!matched) throw new Error(`unusable model answer: ${res.content.slice(0, 160)}`);
       const action = matched;
       const thought = parsed ? String(parsed.thought ?? '').slice(0, 300) : undefined;
@@ -163,14 +190,18 @@ export class LlmAgent implements GameAgent {
           content: `Your previous answer was rejected: ${String(err).slice(0, 160)}. Reply again with valid JSON choosing EXACTLY one candidate action.`,
         });
         return await ask(messages);
-      } catch {
+      } catch (retryErr) {
+        if ((this.opts.mode ?? 'live-safe') === 'research-strict') {
+          // Research metrics must see the failure, not a heuristic rescue.
+          throw new AgentError(`strict violation: ${String(retryErr).slice(0, 200)}`);
+        }
         // Live tables must never stall on the model: heuristic fallback.
         const fb =
           obs.view.gameId === 'cabo'
             ? new CaboHeuristicBot({ idSuffix: '-fb' })
             : new PairOneHeuristicBot('-fb');
         const d = fb.decide(obs, ctx);
-        return { action: d.action, thought: `[fallback] ${String(err).slice(0, 120)}` };
+        return { action: d.action, thought: `[fallback] ${String(retryErr).slice(0, 120)}` };
       }
     }
   }

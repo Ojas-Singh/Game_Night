@@ -12,6 +12,11 @@ Chat-formatted JSONL in, LoRA adapter out. The adapter is served with:
 import json
 import math
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
+from masking import build_labels  # noqa: E402
 
 try:
     import torch
@@ -47,12 +52,26 @@ def main() -> None:
         tok.pad_token = tok.eos_token
 
     def to_features(ex):
-        text = tok.apply_chat_template(ex["messages"], tokenize=False)
-        ids = tok(text, truncation=True, max_length=max_len)
-        ids["labels"] = [
-            (i if i != tok.pad_token_id else -100) for i in ids["input_ids"]
-        ]
-        return ids
+        msgs = ex["messages"]
+        assert msgs[-1]["role"] == "assistant", "SFT sample must end with assistant turn"
+        full = tok(
+            tok.apply_chat_template(msgs, tokenize=False),
+            truncation=True,
+            max_length=max_len,
+        )
+        # Assistant-only loss: tokenize system+user with the generation prompt
+        # and mask everything up to (and including) it. The model is graded on
+        # its move, not on reciting the rules back.
+        prefix = tok(
+            tok.apply_chat_template(msgs[:-1], tokenize=False, add_generation_prompt=True),
+            truncation=True,
+            max_length=max_len,
+        )
+        full["labels"] = build_labels(full["input_ids"], len(prefix["input_ids"]), tok.pad_token_id)
+        n_sup = sum(1 for x in full["labels"] if x != -100)
+        if n_sup == 0:
+            raise ValueError("conversation truncated before any supervised token")
+        return full
 
     ds = load_dataset("json", data_files={
         "train": f"{data_dir}/train.jsonl",

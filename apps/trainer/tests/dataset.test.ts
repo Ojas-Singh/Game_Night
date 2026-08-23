@@ -9,7 +9,7 @@ import { runEpisode } from '@game-night/arena';
 import { enumerateLegalActions, type AnyGameView } from '@game-night/agent-core';
 import { buildLlmPrompt, LlmAgent, personaOr } from '@game-night/agent-llm';
 import { PairOneHeuristicBot } from '@game-night/agent-bots';
-import { buildSamples, split, parseEpisodesFile, writeJsonl, type RawEpisode } from '../src/dataset.js';
+import { buildSamples, split, splitByEpisode, parseEpisodesFile, writeJsonl, type RawEpisode } from '../src/dataset.js';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -37,15 +37,20 @@ describe('buildSamples', () => {
       expect(s.messages[1]!.role).toBe('user');
       expect(s.messages[2]!.role).toBe('assistant');
       const target = JSON.parse(s.messages[2]!.content) as {
-        thought: string;
-        action: Record<string, unknown>;
+        thought?: string;
+        action?: Record<string, unknown>;
+        action_id?: string;
       };
-      expect(typeof target.thought).toBe('string');
-      // The action must be one of the candidates embedded in the user turn.
-      const cands = JSON.parse((s.messages[1]!.content.match(/CANDIDATE ACTIONS \(pick one, copy verbatim\):\n(\[.*\])$/s) ?? [])[1] ?? '[]') as unknown[];
-      if (cands.length > 0) {
-        expect(cands.some((c) => JSON.stringify(c) === JSON.stringify(target.action))).toBe(true);
-      }
+      // Default output mode is action-only (rationale is auxiliary).
+      expect(typeof target.action_id).toBe('string');
+      // Resolve the id against the LEGAL ACTIONS list embedded in the prompt.
+      const lines = s.messages[1]!.content
+        .split('\n')
+        .filter((l) => /^A\d+: /.test(l));
+      const byId = new Map(lines.map((l) => [l.slice(0, l.indexOf(':')), JSON.parse(l.slice(l.indexOf(':') + 2))] as Record<string, unknown>));
+      expect(byId.size).toBeGreaterThan(0);
+      const resolved = byId.get(target.action_id!);
+      expect(resolved).toBeDefined();
     }
   });
 
@@ -62,6 +67,13 @@ describe('buildSamples', () => {
     // feeding the same episode twice must not double the count
     const again = buildSamples([episode, episode], { includeBots: true });
     expect(again.samples.length).toBe(samples.length);
+  });
+
+  it('rationale_action mode keeps the thought and full action', async () => {
+    const { samples } = buildSamples([episode], { includeBots: true, outputMode: 'rationale_action' });
+    const t = JSON.parse(samples[0]!.messages[2]!.content) as { thought?: string; action?: unknown };
+    expect(typeof t.thought).toBe('string');
+    expect(t.action).toBeDefined();
   });
 
   it('excludes random-bot steps unless explicitly included', () => {
@@ -133,6 +145,37 @@ function createRng(): import('@game-night/agent-core').Rng {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+describe('episode-level splitting', () => {
+  it('never places samples of one episode on both sides', async () => {
+    const epB = JSON.parse(JSON.stringify(episode)) as RawEpisode;
+    epB.seed = 4242; // distinct episode content
+    epB.episodeId = `${episode.episodeId}-b`; // distinct split unit
+    const { samples } = buildSamples([episode, epB], { includeBots: true });
+    const { train, val } = splitByEpisode(samples, 0.5, 13);
+    expect(train.length).toBeGreaterThan(0);
+    expect(val.length).toBeGreaterThan(0);
+    const trainEps = new Set(train.map((s) => s.meta.episodeId));
+    for (const s of val) expect(trainEps.has(s.meta.episodeId)).toBe(false);
+    // deterministic
+    const again = splitByEpisode(samples, 0.5, 13);
+    expect(again.val.map((s) => s.meta.step)).toEqual(val.map((s) => s.meta.step));
+  });
+
+  it('dedupes identical decisions across duplicate episodes via observation hash', () => {
+    // v2-style records carry observationHash; two copies must collapse.
+    const withHash: RawEpisode = {
+      ...JSON.parse(JSON.stringify(episode)),
+      episodeId: 'pairone-s9-deadbeef00-1',
+      rulesHash: 'a'.repeat(40),
+      steps: episode.steps.map((st) => ({ ...st, observationHash: `h-${st.step}` })),
+    };
+    const one = buildSamples([withHash], { includeBots: true });
+    const two = buildSamples([withHash, JSON.parse(JSON.stringify(withHash))], { includeBots: true });
+    expect(one.samples.length).toBeGreaterThan(10);
+    expect(two.samples.length).toBe(one.samples.length); // dedupe held
+  });
+});
 
 describe('split + file IO round trip', () => {
   it('deterministic shuffle keeps train+val == total', () => {
