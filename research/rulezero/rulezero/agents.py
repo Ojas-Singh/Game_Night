@@ -45,6 +45,21 @@ class RandomAgent(Agent):
         return int(legal[self.rng.randrange(len(legal))])
 
 
+class TeacherAgent(Agent):
+    """Plays the argmax of a Teacher policy — how strong teachers are in play."""
+
+    def __init__(self, teacher):
+        self.teacher = teacher
+        self.name = f"teacher:{teacher.name}"
+
+    def describe(self) -> dict:
+        return {"kind": "teacher", **self.teacher.quality()}
+
+    def act(self, game, state, seat: int) -> int:
+        probs = self.teacher.policy(game, state, seat)
+        return max(probs.items(), key=lambda kv: kv[1])[0]
+
+
 class OpenAIAgent(Agent):
     """OpenAI-compatible strict agent for local endpoints (Ollama/vLLM/llama.cpp).
 

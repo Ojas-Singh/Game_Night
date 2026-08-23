@@ -15,6 +15,7 @@ from .agents import OpenAIAgent, RandomAgent
 from .evaluate import evaluate_candidate
 from .rules_registry import RULES
 from .serialize import describe_game
+from .agents import TeacherAgent
 from .teachers import CFRTeacher
 
 REPO = Path(__file__).resolve().parents[3]  # Game_Night/
@@ -54,8 +55,24 @@ def benchmark(game_id: str, episodes: int, candidate: str, base_url: str | None,
             seeds=seeds,
             out_jsonl=jsonl,
         )
+    elif candidate == "cfr":
+        summary = evaluate_candidate(
+            game_id,
+            opponent_factory=lambda eps, seat: RandomAgent(random.Random(eps * 1000003 + seat * 7919 + 13)),
+            candidate_factory=lambda eps, seat: TeacherAgent(CFRTeacher(game_id)),
+            seeds=seeds,
+            out_jsonl=jsonl,
+        )
+    elif candidate == "llm-vs-cfr":
+        summary = evaluate_candidate(
+            game_id,
+            opponent_factory=lambda eps, seat: TeacherAgent(CFRTeacher(game_id)),
+            candidate_factory=lambda eps, seat: OpenAIAgent(base_url, model),
+            seeds=seeds,
+            out_jsonl=jsonl,
+        )
     else:
-        raise SystemExit(f"unknown candidate {candidate!r} (random|llm)")
+        raise SystemExit(f"unknown candidate {candidate!r} (random|llm|cfr|llm-vs-cfr)")
 
     print(json.dumps(summary, indent=2))
     return summary
