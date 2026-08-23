@@ -21,22 +21,36 @@ export class EngineWorld implements SearchWorld {
   private constructor(
     readonly gameId: GameId,
     private readonly engine: AnyEngine,
+    /** Clonable RNG state — research rollouts must be seed-reproducible. */
+    private rngState: number,
   ) {}
 
   static create(gameId: GameId, players: Array<{ id: string; name: string; seat: number }>, seed: number): EngineWorld {
+    // Mix the seed so worlds never start from a degenerate rng state.
+    const rngSeed = (seed ^ 0x9e3779b9) >>> 0;
     if (gameId === 'cabo') {
       const e = new CaboEngine();
       e.createGame(players, { seed });
-      return new EngineWorld(gameId, e);
+      return new EngineWorld(gameId, e, rngSeed);
     }
     const e = new PairOneEngine();
     e.createGame(players, { seed });
-    return new EngineWorld(gameId, e);
+    return new EngineWorld(gameId, e, rngSeed);
+  }
+
+  /**
+   * Deterministic mulberry32 step; state lives ON the world so clones carry
+   * their own stream and identical search trees reproduce bit-for-bit.
+   */
+  private nextRandom(): number {
+    let t = (this.rngState = (this.rngState + 0x6d2b79f5) >>> 0);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
 
   clone(): EngineWorld {
-    const raw = this.engine.getState() as unknown;
-    const copy = structuredClone(raw) as { events?: unknown[] };
+    const copy = structuredClone(this.engine.getState() as unknown) as { events?: unknown[] };
     // Search never reads event history or accumulated knowledge ids, and
     // both dominate deep-copy cost as episodes grow — drop them from clones.
     copy.events = [];
@@ -47,11 +61,11 @@ export class EngineWorld implements SearchWorld {
     if (this.gameId === 'cabo') {
       const e = new CaboEngine();
       e.restoreState(copy as unknown as CaboState);
-      return new EngineWorld('cabo', e);
+      return new EngineWorld('cabo', e, this.rngState);
     }
     const e = new PairOneEngine();
     e.restoreState(copy as unknown as PairOneState);
-    return new EngineWorld('pairone', e);
+    return new EngineWorld('pairone', e, this.rngState);
   }
 
   apply(action: AnyGameAction): boolean {
@@ -102,9 +116,9 @@ export class EngineWorld implements SearchWorld {
         }
         case 'TURN_DRAW':
           return this.engine.handleAction({ type: 'DRAW', ...me } as GameAction).ok;
-        case 'DRAW_DECISION':
+        case 'DRAW_DECISION': {
           // Keep into slot 0 half the time; discard otherwise (cheap mix).
-          const keep = Math.random() < 0.5;
+          const keep = this.nextRandom() < 0.5;
           return this.engine
             .handleAction(
               keep
@@ -112,6 +126,7 @@ export class EngineWorld implements SearchWorld {
                 : ({ type: 'DISCARD_DRAWN', ...me } as GameAction),
             )
             .ok;
+        }
         case 'POWER_PENDING': {
           const p = st.pendingPower!;
           const others = st.players.filter((o) => o.id !== p.playerId);
@@ -142,7 +157,7 @@ export class EngineWorld implements SearchWorld {
     const options: string[] = [];
     for (const c of grid) if (c) options.push(c.id);
     if (options.length === 0) return false;
-    const cardId = options[Math.floor(Math.random() * options.length)]!;
+    const cardId = options[Math.floor(this.nextRandom() * options.length)]!;
     return this.engine.handleAction({ type: 'FLIP_CARD', playerId: s.players[s.currentTurn]!.id, cardId } as GameAction).ok;
   }
 

@@ -51,6 +51,11 @@ export interface GameAgent {
   /** Human-facing label for ladders/UI. */
   readonly label: string;
   decide(obs: AgentObservation, ctx: AgentContext): Promise<AgentDecision> | AgentDecision;
+  /**
+   * Configuration provenance for trajectory records (model id, persona,
+   * temperature, search budget...). Optional; recorded verbatim.
+   */
+  describe?(): Record<string, unknown>;
 }
 
 /** Deterministic RNG handle handed to agents (mulberry32-style). */

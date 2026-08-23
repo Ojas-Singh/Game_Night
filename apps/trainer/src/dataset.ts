@@ -34,7 +34,8 @@ export interface RawEpisode {
     step: number;
     selfId: string;
     agentId: string;
-    action: AnyGameAction;
+    executedAction: AnyGameAction;
+    rationale?: string;
     thought?: string;
     rawView?: unknown;
   }>;
@@ -97,7 +98,7 @@ export function buildSamples(episodes: RawEpisode[], opts: BuildOptions = {}): {
       candidatesSeen += all.length;
       // The recorded action must be one of today's legal actions — otherwise
       // engine/rules changed since recording and the sample would poison us.
-      const chosen = all.find((a) => JSON.stringify(a) === JSON.stringify(step.action));
+      const chosen = all.find((a) => JSON.stringify(a) === JSON.stringify(step.executedAction));
       if (!chosen) continue;
 
       // The model must be TRAINED on exactly what it will SEE: if the action
@@ -119,7 +120,7 @@ export function buildSamples(episodes: RawEpisode[], opts: BuildOptions = {}): {
         all,
         { maxCandidates: opts.maxCandidates },
       );
-      const target = JSON.stringify({ thought: step.thought ?? '', action: chosen });
+      const target = JSON.stringify({ thought: step.rationale ?? step.thought ?? '', action: chosen });
       samples.push({
         messages: [
           ...messages.slice(0, 2),

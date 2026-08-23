@@ -5,7 +5,16 @@
  */
 
 import type { GameId } from '@game-night/agent-core';
-import { enumerateLegalActions, EpisodeRecorder, createAgentRng, AgentError, type GameAgent } from '@game-night/agent-core';
+import {
+  enumerateLegalActions,
+  EpisodeRecorder,
+  createAgentRng,
+  AgentError,
+  type GameAgent,
+  type AnyGameAction,
+  type FallbackReason,
+  type StepEntry,
+} from '@game-night/agent-core';
 import { RandomBot } from '@game-night/agent-bots';
 import { EngineWorld } from './world.js';
 
@@ -44,9 +53,15 @@ export async function runEpisode(opts: EpisodeOptions): Promise<EpisodeOutcome> 
     {
       gameId: opts.gameId,
       seed: opts.seed,
-      players: players.map((p, i) => ({ id: p.id, name: p.name, agentId: opts.agents[i]!.id })),
+      players: players.map((p, i) => ({ id: p.id, name: p.name, seat: i, agentId: opts.agents[i]!.id })),
     },
-    { recordSteps: opts.recordSteps ?? false, recordRawViews: opts.recordRawViews ?? false },
+    {
+      recordSteps: opts.recordSteps ?? false,
+      recordRawViews: opts.recordRawViews ?? false,
+      agentConfigurations: Object.fromEntries(
+        opts.agents.map((a) => [a.id, typeof a.describe === 'function' ? a.describe() : {}]),
+      ),
+    },
   );
 
   const cap = opts.maxSteps ?? STEP_CAPS[opts.gameId] ?? 3000;
@@ -59,26 +74,51 @@ export async function runEpisode(opts: EpisodeOptions): Promise<EpisodeOutcome> 
     const agent = opts.agents[seatIdx];
     if (!agent) break;
     const view = world.viewFor(who);
-    let decision;
+    // --- decision phase: preserve proposal vs execution separately ----------
+    let entry: StepEntry;
     try {
-      decision = await agent.decide({ gameId: opts.gameId, selfId: who, view, step }, { rng });
+      const t0 = Date.now();
+      const decision = await agent.decide({ gameId: opts.gameId, selfId: who, view, step }, { rng });
+      const latencyMs = Date.now() - t0;
+      const proposed = decision.action as AnyGameAction | null;
+      const proposalWasLegal = proposed != null && world.validate(proposed);
+      if (proposalWasLegal) {
+        entry = { decision, proposedAction: proposed, proposalWasLegal, fallbackUsed: false, latencyMs };
+      } else {
+        const candidates = enumerateLegalActions(view, who).filter((a) => world.validate(a));
+        if (candidates.length === 0) break;
+        entry = {
+          decision: { action: rng.pick(candidates), thought: decision.thought },
+          proposedAction: proposed,
+          proposalWasLegal,
+          fallbackUsed: true,
+          fallbackReason: 'illegal_proposal' as FallbackReason,
+          latencyMs,
+        };
+      }
     } catch (err) {
-      // Agent blew up: fall back to random so the episode still completes.
+      // Agent blew up: substitute a neutral random legal move, but RECORD the
+      // failure — never credit the model with a move it did not make.
       if (!(err instanceof AgentError)) throw err;
-      const candidates = enumerateLegalActions(view, who);
+      const candidates = enumerateLegalActions(view, who).filter((a) => world.validate(a));
       if (candidates.length === 0) break;
-      decision = { action: rng.pick(candidates), thought: `fallback after ${String(err)}` };
+      entry = {
+        decision: { action: rng.pick(candidates) },
+        proposedAction: null,
+        proposalWasLegal: false,
+        fallbackUsed: true,
+        fallbackReason: 'agent_error' as FallbackReason,
+      };
     }
-    recorder.step(view, who, agent.id, decision);
-    if (!world.apply(decision.action)) {
-      // Illegal proposal: one random retry, then random until something lands.
+    recorder.step(view, who, agent.id, entry);
+    if (!world.apply(entry.decision.action)) {
+      // Last-resort engine rejection (validate raced state): random retries.
       const candidates = enumerateLegalActions(view, who).filter((a) => world.validate(a));
       let applied = false;
       for (let t = 0; t < 3 && !applied && candidates.length > 0; t++) {
         applied = world.apply(rng.pick(candidates));
       }
       if (!applied) {
-        // Give the seat a random legal action or abort the episode.
         const legal = enumerateLegalActions(view, who);
         if (legal.length === 0 || !world.apply(legal[0]!)) {
           return finish(world, recorder, opts, step, true);

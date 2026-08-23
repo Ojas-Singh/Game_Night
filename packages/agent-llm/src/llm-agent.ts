@@ -174,4 +174,17 @@ export class LlmAgent implements GameAgent {
       }
     }
   }
+  /** Provenance for trajectory records. */
+  describe(): Record<string, unknown> {
+    return {
+      kind: 'llm',
+      model: this.opts.model,
+      baseUrl: this.opts.baseUrl,
+      persona: this.persona.id,
+      temperature: this.opts.temperature,
+      maxTokens: this.opts.maxTokens,
+      timeoutMs: this.opts.timeoutMs,
+    };
+  }
+
 }
