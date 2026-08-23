@@ -82,13 +82,24 @@ OpenSpiel random episodes: >100/s single process. CFR 300 iters Kuhn: seconds.
 
 ## Failures and honest gaps
 
-- **Cabo OpenSpiel environment: NOT implemented this week.** This is the main
-  miss against the day 5–6 plan. Scoping note left for week 2: model the
-  flush reaction window as explicit sequential PASS/FLUSH decisions in seat
-  order after a power discard; differential harness must inject the SAME deck
-  order into both engines (TS accepts debug seed/deck) rather than trying to
-  match shuffle algorithms.
-- Differential TS↔OpenSpiel verification: not started (depends on Cabo env).
+- **Cabo OpenSpiel environment: DONE for 2 players, differentially verified.**
+  `rulezero/cabo_env.py` replicates the TS engine bit-exactly: same
+  splitmix32+xoshiro128** RNG and Fisher-Yates shuffle (identical deals from
+  identical seeds), all phases, mandatory powers with TS skip conditions,
+  off-turn flush interrupts (own subsets + other, blocked only during
+  TRANSFER_PENDING per TS), wrong-flush reveal/penalty semantics, transfer
+  restore, empty-deck reshuffle through the SAME rng stream, Cabo call
+  (single-call guard), zero-card auto-Cabo, caller exclusion +
+  othersFinalTurns budget, end-round full reveal, black-K/red-K scoring,
+  caller tiebreak. `rulezero/diff_cabo.py` drives BOTH engines through
+  identical random episodes comparing 12 semantic fields after EVERY action:
+  390/390 episodes verified (seed ranges 1, 100000, 500000) + 8 unit tests.
+  Divergences found & fixed by the harness: end-round reveal missing,
+  off-turn flush mutating wrong actor, re-callable Cabo extending games
+  forever.
+- Remaining Cabo scope: 3–6 player seats (mechanics are seat-generic; the
+  differential bridge currently fixes 2), and exposing Cabo through the
+  rules registry/serializer for LLM seats.
 - Thinking-mode arm of the model comparison: pending (reasoning tokens were
   unparsed content on CPU; needs longer budgets or template support).
 - Pair One in OpenSpiel: intentionally skipped per plan priorities.
