@@ -83,7 +83,21 @@ export class AgentLoops {
 
   private aiToAct(room: Room): string | null {
     const engine = room.engine!;
-    if (engine instanceof RuleZeroEngine) return null; // AI seats unsupported for service games yet
+    if (engine instanceof RuleZeroEngine) {
+      // Service-backed games: the engine reports its own actor, but applies
+      // settle asynchronously, so schedule a polling pump whenever an AI
+      // seat exists (actRulezero waits for the service + turn).
+      const hasAi = [...room.players.values()].some((p) => p.kind === 'ai');
+      if (hasAi) {
+        const t = setTimeout(() => {
+          this.timers.delete(room.id);
+          void this.actRulezero(room);
+        }, this.minThinkMs);
+        if (typeof t.unref === 'function') t.unref();
+        this.timers.set(room.id, t);
+      }
+      return null;
+    }
     const s = engine.getState() as {
       phase: string;
       players: Array<{ id: string }>;
@@ -97,6 +111,59 @@ export class AgentLoops {
     if (!who) return null;
     const p = room.players.get(who);
     return p?.kind === 'ai' ? who : null;
+  }
+
+  /**
+   * RuleZero seats act inside the python service: ask it to pick for the
+   * given AI player (CFR or random), then submit through the SAME room
+   * authority path as humans. Chance steps resolve internally (-1).
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  /**
+   * Polling pump for RuleZero rooms: wait for the service session, then
+   * while it is an AI seat's turn ask the python service for a move
+   * (CFR or random) and submit through the SAME authority path as humans.
+   * Chance steps resolve inside the service (-1 sentinel).
+   */
+  private async actRulezero(room: Room): Promise<void> {
+    const guard = `${room.id}`;
+    if (this.busy.has(guard)) return;
+    this.busy.add(guard);
+    try {
+      const engine = room.engine;
+      if (!(engine instanceof RuleZeroEngine) || engine.isGameFinished()) return;
+      const aiIds = [...room.players.values()]
+        .filter((p) => p.kind === 'ai')
+        .map((p) => p.id);
+
+      for (let attempt = 0; attempt < 24; attempt++) {
+        if (room.closed || engine.isGameFinished()) return;
+        const actor = await engine.currentPlayerId();
+        if (!actor) {
+          // Service still spawning or between phases — retry shortly.
+          await this.sleep(500);
+          continue;
+        }
+        if (!aiIds.includes(actor)) return; // humans turn — done pumping
+        const pick = await engine.chooseAiAction(actor);
+        if (pick === null) return;
+        if (pick === -1) continue; // chance resolved; keep pumping
+        const res = await engine.handleActionAsync(actor, pick);
+        if (!res.ok) {
+          log.warn('illegal_action', { roomId: room.id, playerId: actor, type: 'RZ_AI', error: res.error });
+          return;
+        }
+        this.broadcaster.afterChange(room);
+        await this.sleep(200);
+      }
+    } catch (err) {
+      log.error('ai_loop_error', { roomId: room.id, error: String(err).slice(0, 160) });
+    } finally {
+      this.busy.delete(guard);
+    }
   }
 
   private agentFor(room: Room, playerId: string): GameAgent {

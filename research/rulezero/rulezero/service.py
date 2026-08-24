@@ -232,6 +232,44 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
 
         return session, {"ok": True,
                          "agent": choose_agent_for_game(dict(msg["spec"]))}
+    if op == "aiChoose":
+        """Pick an action for the CURRENT actor of the live session (§9).
+
+        Runs entirely on information available to the actor — never reveals
+        hidden zones to anyone else.
+        """
+        from .solver_agents import CFRAgent
+
+        try:
+            kind = str(msg.get("agent", "random"))
+            st = session.state
+            if st.is_terminal():
+                return session, {"ok": False, "error": "game over"}
+            if st.is_chance_node():
+                outs = st.chance_outcomes()
+                import random as _r
+
+                pick = _r.Random(msg.get("seed", 0)).choices(
+                    [a for a, _ in outs], weights=[p for _, p in outs])[0]
+                st.apply_action(pick)
+                session._resolve_chance()
+                return session, {"ok": True, "chanceApplied": True}
+            player = st.current_player()
+            info = st.information_state_string(player)
+            legal = sorted(st.legal_actions(player))
+            if kind == "cfr":
+                agent = CFRAgent(session.ir, int(msg.get("iterations", 300)))
+                pick = agent.act(info, legal)
+            elif kind == "random":
+                import random as _r
+
+                pick = _r.Random(int(msg.get("seed", 0)) + len(info)).choice(legal)
+            else:
+                return session, {"ok": False, "error": f"unknown agent {kind}"}
+            return session, {"ok": True, "player": player,
+                             "action": int(pick), "infoState": info}
+        except Exception as e:  # noqa: BLE001
+            return session, {"ok": False, "error": str(e)}
     if op == "create":
         seed = msg.get("seed")
         session = Session(msg["spec"], None if seed is None else int(seed))

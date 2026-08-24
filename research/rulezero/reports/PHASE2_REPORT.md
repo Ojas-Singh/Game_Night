@@ -99,3 +99,18 @@ Gates: test_gallery.py (15). Totals: 90 pytest + legacy suites green.
 - Verified LIVE end-to-end: mini-bluff variant staged -> socket room:create ->
   room 4RAPVV created -> second player joined -> RuleZero service session
   started cleanly. All workspace suites + web build green.
+
+
+### Round 19: CPU AI seats join live generated games ✅
+
+- Service op aiChoose: picks for the CURRENT actor of a live session
+  (CFR via cached policy or random; chance steps resolve internally) using
+  only the actor's information state.
+- rulezeroEngine: setAiSeats/currentPlayerId/chooseAiAction; persona->kind
+  mapping (balanced/strong/solver => CFR) at deal time.
+- agents/loop: polling pump (actRulezero) waits for service readiness,
+  drives AI turns through the SAME authority path as humans, stops at
+  human turns/terminal; notifyHook re-broadcasts when the async python
+  session settles (fixes the spawn/broadcast race).
+- Verified LIVE: human + AI played mini-bluff to terminal in a real room
+  (views=4, humanActs=2, scores {0:+1,1:-1}). All suites green.

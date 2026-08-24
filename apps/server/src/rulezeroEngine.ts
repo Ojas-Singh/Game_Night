@@ -175,12 +175,52 @@ export class RuleZeroEngine {
 
   private readline: ReturnType<typeof createInterface> | null = null;
 
+  private aiKinds = new Map<string, 'cfr' | 'random'>();
+
+  /** Register which seated players are CPU agents and their strategy. */
+  setAiSeats(aiSeats: { playerId: string; kind: 'cfr' | 'random' }[]): void {
+    this.aiKinds = new Map(aiSeats.map((a) => [a.playerId, a.kind]));
+  }
+
+  async currentPlayerId(): Promise<string | null> {
+    if (!this.readline || this.terminal) return null;
+    try {
+      const v = await this.askOrdered<{ currentActor: number | null }>({
+        op: 'view', player: 0,
+      });
+      if (v.currentActor === null) return null;
+      for (const [pid, seat] of this.seatIndex) {
+        if (seat === v.currentActor) return pid;
+      }
+    } catch {
+      /* service restarting */
+    }
+    return null;
+  }
+
+  /**
+   * Ask the RuleZero service to choose an action for this seat (§9).
+   * Returns the chosen dense action id, or null when nothing to do.
+   */
+  async chooseAiAction(playerId: string): Promise<number | null> {
+    const kind = this.aiKinds.get(playerId) ?? 'random';
+    const r = await this.askOrdered<{
+      ok: boolean; action?: number; chanceApplied?: boolean;
+    }>({ op: 'aiChoose', agent: kind, iterations: 300 });
+    if (!r.ok) return null;
+    return r.chanceApplied ? -1 : (r.action ?? null);
+  }
+
   async createGame(
     seats: { id: string; name: string; seat: number }[],
-    _opts?: { seed?: number; spec?: object },
+    _opts?: {
+      seed?: number; spec?: object;
+      aiSeats?: { playerId: string; kind: 'cfr' | 'random' }[];
+    },
   ): Promise<void> {
     this.playerCount = seats.length;
     this.seatIndex = new Map(seats.map((s) => [s.id, s.seat]));
+    this.setAiSeats(_opts?.aiSeats ?? []);
     this.terminal = false;
     this.lastReturns = null;
 

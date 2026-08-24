@@ -92,6 +92,9 @@ export function randomName(): string {
 export class Room {
   /** One-shot gallery spec token consumed by dealNewGame (§38 flow). */
   rulezeroSpecToken?: string;
+  /** Set by the socket layer: fired when an async engine session is ready
+   * so views + agent pumps re-run (service spawn is not synchronous). */
+  notifyHook?: () => void;
   readonly id: string;
   createdAt = Date.now();
   players = new Map<string, RoomPlayer>();
@@ -344,10 +347,23 @@ export class Room {
       const rz = reg.create() as RuleZeroEngine;
       const spec = takeRulezeroSpec(this.rulezeroSpecToken);
       this.rulezeroSpecToken = undefined;
+      // Persona → solver kind: strong/balanced personas get CFR.
+      const SOLVER_PERSONAS = new Set(['balanced', 'strong', 'solver']);
+      const aiSeats = seated
+        .filter((p) => p.kind === 'ai')
+        .map((p) => ({
+          playerId: p.id,
+          kind: (SOLVER_PERSONAS.has(p.persona ?? '')
+            ? 'cfr'
+            : 'random') as 'cfr' | 'random',
+        }));
       void rz
-        .createGame(seats, { seed: this.debug.seed, spec })
-        .catch((err) =>
-          console.error('[rulezero] create failed:', err));
+        .createGame(seats, { seed: this.debug.seed, spec, aiSeats })
+        .then(() => this.notifyHook?.())
+        .catch((err) => {
+          console.error('[rulezero] create failed:', err);
+          this.notifyHook?.();
+        });
       return rz; // views arrive once the service session is live
     }
     let engine: AnyGameEngine;

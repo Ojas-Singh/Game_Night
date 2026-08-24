@@ -107,6 +107,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
     socket.on('room:create', ({ name, rulezeroSpecToken }, ack) => {
       try {
         const room = rooms.createRoom();
+        room.notifyHook = () => afterChange(room);
         if (rulezeroSpecToken) room.rulezeroSpecToken = rulezeroSpecToken;
         const { player } = room.addPlayer(name);
         data.roomId = room.id;
