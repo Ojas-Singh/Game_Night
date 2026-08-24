@@ -70,7 +70,7 @@ export default function GameLabPage() {
 
   // Launch a live RuleZero room with this game's spec: stage the spec
   // server-side, then let the home page's normal create-room flow consume it.
-  const playLive = useCallback(async (id: string) => {
+  const playLive = useCallback(async (id: string, vsAi: boolean) => {
     setLaunching(id);
     try {
       const r = await fetch(`/api/lab/games/${id}/room`, {
@@ -80,7 +80,10 @@ export default function GameLabPage() {
       });
       const d = await r.json();
       if (d.token) {
-        sessionStorage.setItem('rulezeroSpecToken', d.token);
+        sessionStorage.setItem(
+          'rulezeroLaunch',
+          JSON.stringify({ token: d.token, autoAi: vsAi }),
+        );
         navigate('/');
       }
     } finally {
@@ -148,16 +151,28 @@ export default function GameLabPage() {
               ))}
             </div>
             <div className="muted gamelab-hash">spec {g.specHash.slice(0, 12)}</div>
-            <button
-              className="gamelab-play"
-              disabled={launching !== null}
-              onClick={(e) => {
-                e.stopPropagation();
-                void playLive(g.id);
-              }}
-            >
-              {launching === g.id ? 'Staging…' : '▶ Play'}
-            </button>
+            <div className="gamelab-play-row">
+              <button
+                className="gamelab-play"
+                disabled={launching !== null}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void playLive(g.id, false);
+                }}
+              >
+                ▶ Play
+              </button>
+              <button
+                className="gamelab-play gamelab-play-ai"
+                disabled={launching !== null}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void playLive(g.id, true);
+                }}
+              >
+                {launching === g.id ? 'Staging…' : '▶ Play vs AI'}
+              </button>
+            </div>
           </article>
         ))}
         {!games.length && !error && (

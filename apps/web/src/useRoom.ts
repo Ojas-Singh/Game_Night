@@ -216,7 +216,11 @@ export interface RoomApi {
   sendEmote: (emote: string) => void;
   markChatRead: () => void;
   joinError: string | null;
-  createRoom: (name: string, rulezeroSpecToken?: string) => Promise<JoinResult>;
+  createRoom: (
+    name: string,
+    rulezeroSpecToken?: string,
+    autoAi?: boolean,
+  ) => Promise<JoinResult>;
   joinRoom: (roomId: string, name?: string) => Promise<JoinResult>;
   setName: (name: string) => void;
   /** Customize my avatar (persisted locally; broadcast to the room). */
@@ -537,17 +541,35 @@ export function useRoom(): RoomApi {
   }, []);
 
   const createRoom = useCallback(
-    (name: string, rulezeroSpecToken?: string) =>
+    (name: string, rulezeroSpecToken?: string, autoAi?: boolean) =>
       new Promise<JoinResult>((resolve) => {
         saveName(name);
         socketRef.current?.emit(
           'room:create',
           rulezeroSpecToken ? { name, rulezeroSpecToken } : { name },
           (res: JoinResult) => {
-          if (res.ok) persistSession(res);
-          else setJoinError(res.error ?? 'failed to create room');
-          resolve(res);
-        });
+            if (!res.ok) {
+              setJoinError(res.error ?? 'failed to create room');
+              resolve(res);
+              return;
+            }
+            persistSession(res);
+            if (!rulezeroSpecToken) {
+              resolve(res);
+              return;
+            }
+            // Staged RuleZero launch: pin the game, optionally seat an AI,
+            // and auto-start so the player lands straight at the table.
+            socketRef.current?.emit('room:select_game', { gameId: 'rulezero' });
+            if (!autoAi) {
+              socketRef.current?.emit('room:start_game', {}, () => resolve(res));
+            } else {
+              socketRef.current?.emit('room:add_ai', {}, () => {
+                socketRef.current?.emit('room:start_game', {}, () => resolve(res));
+              });
+            }
+          },
+        );
       }),
     [persistSession],
   );

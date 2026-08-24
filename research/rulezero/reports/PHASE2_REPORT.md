@@ -114,3 +114,12 @@ Gates: test_gallery.py (15). Totals: 90 pytest + legacy suites green.
   session settles (fixes the spawn/broadcast race).
 - Verified LIVE: human + AI played mini-bluff to terminal in a real room
   (views=4, humanActs=2, scores {0:+1,1:-1}). All suites green.
+
+
+### Round 20: One-click Play vs AI ✅
+
+- Gallery cards expose [Play] and [Play vs AI]; the launch payload
+  {token, autoAi} rides sessionStorage through the standard home flow.
+- useRoom.createRoom consumes it: pins gameId=rulezero, seats a CFR AI,
+  auto-starts, resolving only when the table is live.
+- Server suites + web build green.

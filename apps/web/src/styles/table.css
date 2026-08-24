@@ -2503,3 +2503,8 @@
 .gamelab-play { margin-top: 10px; width: 100%; padding: 7px 0; border: none; border-radius: 8px; background: #2f9e63; color: white; font-weight: 700; cursor: pointer; }
 .gamelab-play:hover { background: #37b573; }
 .gamelab-play:disabled { opacity: .5; cursor: default; }
+
+.gamelab-play-row { display:flex; gap:6px; margin-top:10px; }
+.gamelab-play-row .gamelab-play { margin-top:0; flex:1; padding:7px 0; }
+.gamelab-play-ai { background:#8a5fc9; }
+.gamelab-play-ai:hover { background:#9d74dd; }

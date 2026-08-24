@@ -15,9 +15,18 @@ export default function HomePage({ room }: { room: RoomApi }) {
     setBusy(true);
     setJoinError(null);
     const finalName = name.trim() || undefined;
-    const rzToken = sessionStorage.getItem('rulezeroSpecToken') ?? undefined;
-    sessionStorage.removeItem('rulezeroSpecToken');
-    const res = await room.createRoom(finalName ?? 'Host', rzToken);
+    const rawLaunch = sessionStorage.getItem('rulezeroLaunch');
+    sessionStorage.removeItem('rulezeroLaunch');
+    let rzToken: string | undefined;
+    let autoAi = false;
+    if (rawLaunch) {
+      try {
+        const parsed = JSON.parse(rawLaunch) as { token?: string; autoAi?: boolean };
+        rzToken = parsed.token;
+        autoAi = Boolean(parsed.autoAi);
+      } catch { /* ignore malformed */ }
+    }
+    const res = await room.createRoom(finalName ?? 'Host', rzToken, autoAi);
     setBusy(false);
     if (res.ok && res.roomId) navigate(`/game/${res.roomId}`);
   };
