@@ -42,11 +42,14 @@ if (config.redisUrl) {
 await rooms.restoreAll();
 rooms.startSweeper();
 
+app.use(express.json());
+// Game Lab is a product feature: mount unconditionally (S33 caps are
+// enforced server-side inside the router). The debug router below stays
+// dev-only.
+app.use('/api/lab', gameLabRouter());
 if (config.debugEnabled) {
   // Dev-only debug endpoints. In production these do not exist at all.
   const { debugRouter } = await import('./debug.js');
-  app.use(express.json());
-  app.use('/api/lab', gameLabRouter());
   app.use('/debug', debugRouter(rooms));
   log.warn('debug_mode_enabled', { note: 'privileged endpoints active (non-production)' });
 }
