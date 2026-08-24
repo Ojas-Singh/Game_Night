@@ -12,3 +12,5 @@ research/rulezero/.venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+__pycache__/
+*.pyc
