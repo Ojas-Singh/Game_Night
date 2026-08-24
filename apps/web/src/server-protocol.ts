@@ -8,7 +8,35 @@ import type { CaboPlayerView } from '@cabo/views.js';
 import type { PairOnePlayerView } from '@pairone/views.js';
 
 /** Any game's filtered per-player view. */
-export type AnyGameView = CaboPlayerView | PairOnePlayerView;
+/** Opaque view from the internal rulezero service (§16) — rendered
+ * generically by RuleZeroTable. */
+export interface RuleZeroPlayerView {
+  gameId: 'rulezero';
+  rz: {
+    protocol: string;
+    specHash: string;
+    player: number;
+    phase?: string;
+    observation: string;
+    informationState: string;
+    isTerminal: boolean;
+    currentActor: number | null;
+    candidates: { candidateId: string; environmentActionId: number; label: string }[];
+    zones: {
+      id: string;
+      visibility: 'hidden' | 'owner' | 'public';
+      owner: number | null;
+      cards?: number[];
+      count?: number;
+    }[];
+    scores?: Record<string, number>;
+  };
+}
+
+export type AnyGameView =
+  | CaboPlayerView
+  | PairOnePlayerView
+  | RuleZeroPlayerView;
 
 export interface JoinResult {
   ok: boolean;

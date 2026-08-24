@@ -5,6 +5,7 @@
  * to the engine interface and broadcasts the engine's per-player views.
  */
 
+import { RuleZeroEngine } from './rulezeroEngine.js';
 import type { Server as SocketServer, Socket } from 'socket.io';
 import type { RoomManager } from './roomManager.js';
 import { Room, RoomError } from './room.js';
@@ -44,6 +45,21 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
 
   const broadcastGame = (room: Room): void => {
     if (!room.engine) return;
+    if (room.engine instanceof RuleZeroEngine) {
+      // Service-backed views are async — fan out per player.
+      for (const p of room.players.values()) {
+        void room
+          .gameViewAsync(p.id)
+          .then((view) => {
+            if (!view) return;
+            for (const sid of p.sockets) io.to(sid).emit('game:view', view);
+          })
+          .catch((err) =>
+            console.error('[rulezero] broadcast failed:', err),
+          );
+      }
+      return;
+    }
     for (const p of room.players.values()) {
       const view = room.gameView(p.id);
       if (!view) continue;
@@ -265,7 +281,12 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         if (!room.engine) return;
         const view = room.gameView(playerId);
         if (!view) return;
-        if (typeof clientRevision === 'number' && view.revision <= clientRevision) return;
+        if (
+          typeof clientRevision === 'number' &&
+          'revision' in view &&
+          view.revision <= clientRevision
+        )
+          return;
         io.to(socket.id).emit('game:view', view);
       } catch {
         /* not in a room */

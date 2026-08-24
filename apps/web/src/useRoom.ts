@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type { PairOnePlayerView } from '@pairone/views.js';
 import type { PairOneAction } from '@pairone/types.js';
-import type { AnyGameView } from './server-protocol.js';
+import type { AnyGameView, CaboPlayerView } from './server-protocol.js';
 import type { ChatMessage, JoinResult, RoomLobbyState } from './server-protocol.js';
 import type { CaboAction } from '@cabo/types.js';
 import { playSound } from './sound.js';
@@ -17,6 +17,7 @@ import type { Avatar } from './server-protocol.js';
 
 /** Derive sound cues from view transitions by comparing event logs. */
 function playSoundsFor(prev: AnyGameView, next: AnyGameView): void {
+  if (prev?.gameId === 'rulezero' || next.gameId === 'rulezero') return; // no event log yet
   const seen = new Set(prev.events.map((e) => e.seq));
   for (const ev of next.events) {
     if (seen.has(ev.seq)) continue;
@@ -277,20 +278,22 @@ export function useRoom(): RoomApi {
   myIdRef.current = myPlayerId;
 
   const flashKnowledge = useCallback((prev: AnyGameView | null, next: AnyGameView): void => {
+    if (next.gameId !== 'cabo') return; // cabo-only card-flash machinery
     // prev === null on the FIRST view after (re)join — the starting peek of
     // the bottom two cards arrives that way, so it must flash too (longer:
     // it's the memorize-your-cards moment). Pair One has no private peek:
     // skip the join-time mega-flash; its flips flash via the normal path.
-    if (!prev && next.gameId === 'pairone') return;
-    const before = new Set(prev ? Object.keys(prev.knownCards) : []);
-    const ids = new Set(Object.keys(next.knownCards).filter((id) => !before.has(id)));
+    if (next.gameId !== 'cabo') return;
+    if (!prev || prev.gameId !== 'cabo') return;
+    const before = new Set(Object.keys(prev.knownCards));
+    const ids = new Set(Object.keys((next as CaboPlayerView).knownCards).filter((id) => !before.has(id)));
     // Also re-flash EVERY card a fresh CARD_FLIPPED event reveals, EVEN IF we
     // already knew it. Pair One players flip already-open cards constantly
     // (that's how memory works), and without this such a card would snap back
     // face-down the instant the turn resolved instead of staying up for the
     // shared reveal window.
-    const lastSeq = prev && prev.events.length > 0 ? prev.events[prev.events.length - 1]!.seq : 0;
-    for (const e of next.events) {
+    const lastSeq = prev.events.length > 0 ? prev.events[prev.events.length - 1]!.seq : 0;
+    for (const e of (next as CaboPlayerView).events) {
       if (e.seq <= lastSeq || e.type !== 'CARD_FLIPPED') continue;
       for (const id of (e.payload?.cardIds as string[] | undefined) ?? []) {
         if (id) ids.add(id);
@@ -392,7 +395,8 @@ export function useRoom(): RoomApi {
       // updates, which silently killed the starting-peek flash).
       if (prev) playSoundsFor(prev, v);
       flashKnowledge(prev, v);
-      if (!prev) return;
+      if (!prev || prev.gameId !== 'cabo' || v.gameId !== 'cabo') return;
+      // cabo-only flight/eye machinery below
       const fresh = collectFlights(prev, v, myIdRef.current);
       if (fresh.length > 0) {
         setFlights((cur) => [...cur, ...fresh].slice(-8));
@@ -476,7 +480,10 @@ export function useRoom(): RoomApi {
     // Self-healing view sync: if an update was ever missed (flaky transport,
     // stale socket), ask the server for a fresh view on focus + periodically.
     const requestSync = () => {
-      socketRef.current?.emit('game:sync', viewRef.current?.revision ?? 0);
+      socketRef.current?.emit(
+        'game:sync',
+        ((viewRef.current as { revision?: number } | null)?.revision) ?? 0,
+      );
     };
     window.addEventListener('focus', requestSync);
     const syncTimer = window.setInterval(requestSync, 12_000);

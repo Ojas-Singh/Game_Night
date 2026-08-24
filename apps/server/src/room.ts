@@ -8,6 +8,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { GameAction } from '@game-night/shared';
 import { CaboEngine, type CaboPlayerView, type CaboState } from '@game-night/engine-cabo';
+import { RuleZeroEngine, type RuleZeroPlayerView } from './rulezeroEngine.js';
 import { PairOneEngine, type PairOnePlayerView } from '@game-night/engine-pairone';
 import type { ChatMessage, LobbyPlayer, RoomLobbyState } from './protocol.js';
 import { isValidAvatar, randomAvatar, type Avatar } from './protocol.js';
@@ -15,8 +16,8 @@ import { log } from './log.js';
 
 /** Any engine on the platform. Rooms talk to this union via the shared surface
  *  (createGame/getState/getPlayerState/handleAction/calculateScore/...). */
-export type AnyGameEngine = CaboEngine | PairOneEngine;
-export type AnyGameView = CaboPlayerView | PairOnePlayerView;
+export type AnyGameEngine = CaboEngine | PairOneEngine | RuleZeroEngine;
+export type AnyGameView = CaboPlayerView | PairOnePlayerView | RuleZeroPlayerView;
 
 /** Available games on the platform. Adding one here lights it up everywhere. */
 const GAME_REGISTRY = {
@@ -33,6 +34,16 @@ const GAME_REGISTRY = {
     minPlayers: 2,
     maxPlayers: 6,
     create: () => new PairOneEngine(),
+  },
+  // GameSpec/OpenSpiel game served by the internal rulezero service (§16).
+  // TS knows nothing about the rules — it forwards an opaque spec and
+  // renders whatever structured views come back.
+  rulezero: {
+    id: 'rulezero',
+    label: 'RuleZero Duel',
+    minPlayers: 2,
+    maxPlayers: 2,
+    create: () => new RuleZeroEngine(),
   },
 } as const;
 
@@ -326,6 +337,14 @@ export class Room {
       throw new RoomError(`needs at least ${reg.minPlayers} players`);
     }
     const seats = seated.map((p, i) => ({ id: p.id, name: p.name, seat: i }));
+    if (reg.id === 'rulezero') {
+      const rz = reg.create() as RuleZeroEngine;
+      void rz
+        .createGame(seats, { seed: this.debug.seed })
+        .catch((err) =>
+          console.error('[rulezero] create failed:', err));
+      return rz; // views arrive once the service session is live
+    }
     let engine: AnyGameEngine;
     if (reg.id === 'cabo') {
       const cabo = new CaboEngine();
@@ -472,11 +491,28 @@ export class Room {
   gameView(playerId: string): AnyGameView | null {
     if (!this.engine) return null;
     if (!this.players.has(playerId)) return null; // spectators: public state only (later)
-    const opts = this.testMode ? { revealAll: true } : undefined;
-    if (this.engine instanceof PairOneEngine) {
-      return this.engine.getPlayerState(playerId, opts);
+    if (this.engine instanceof RuleZeroEngine) {
+      // Service-backed: views are async; the socket layer uses
+      // gameViewAsync for these rooms.
+      return null; // sync callers get null; see gameViewAsync
     }
+    const opts = this.testMode ? { revealAll: true } : undefined;
     return this.engine.getPlayerState(playerId, opts);
+  }
+
+  /** Async variant for service-backed engines (rulezero). */
+  async gameViewAsync(playerId: string): Promise<AnyGameView | null> {
+    if (!this.engine) return null;
+    if (!this.players.has(playerId)) return null;
+    if (this.engine instanceof RuleZeroEngine) {
+      try {
+        return await this.engine.getPlayerStateAsync(playerId);
+      } catch (err) {
+        console.error('[rulezero] view failed:', err);
+        return null;
+      }
+    }
+    return this.gameView(playerId);
   }
 
   // -------------------------------------------------------------------

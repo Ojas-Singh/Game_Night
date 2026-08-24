@@ -14,6 +14,7 @@
  *  - illegal proposals fall back to any engine-validated candidate;
  *  - works without AGENT_API_URL (heuristic bots only).
  */
+import { RuleZeroEngine } from '../rulezeroEngine.js';
 
 import { randomBytes } from 'node:crypto';
 import type { Server as SocketServer } from 'socket.io';
@@ -82,6 +83,7 @@ export class AgentLoops {
 
   private aiToAct(room: Room): string | null {
     const engine = room.engine!;
+    if (engine instanceof RuleZeroEngine) return null; // AI seats unsupported for service games yet
     const s = engine.getState() as {
       phase: string;
       players: Array<{ id: string }>;
@@ -134,7 +136,8 @@ export class AgentLoops {
       if (!room.engine || room.engine.isGameFinished()) return;
       const view = room.gameView(aiId);
       if (!view) return;
-      const obs = { gameId: view.gameId as 'cabo' | 'pairone', selfId: aiId, view, step: 0 };
+      if (view.gameId === 'rulezero') return; // service games: human seats only (for now)
+      const obs = { gameId: view.gameId, selfId: aiId, view, step: 0 };
       const rng = createAgentRng(randomBytes(4).readUInt32BE(0));
       let action;
       try {

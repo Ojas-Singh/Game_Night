@@ -17,8 +17,20 @@ import type { PairOneState } from '@game-night/engine-pairone';
 const SNAPSHOT_VERSION = 1;
 const KEY_PREFIX = 'game-night:room:';
 
-/** Whichever engine's serialized state the room was running. */
-export type AnyEngineState = CaboState | PairOneState;
+/** Whichever engine's serialized state the room was running.
+ * RuleZero rooms persist an opaque marker (live state lives in the
+ * service; reconnect restores via snapshot/restore, §16). */
+export interface RuleZeroPersistedState {
+  stateVersion: 1;
+  gameId: 'rulezero';
+  phase: string;
+  specHash: string;
+}
+
+export type AnyEngineState =
+  | CaboState
+  | PairOneState
+  | RuleZeroPersistedState;
 
 export interface RoomSnapshot {
   version: typeof SNAPSHOT_VERSION;
@@ -62,7 +74,16 @@ export function serializeRoom(room: Room): RoomSnapshot {
       disconnectedAt: p.disconnectedAt ?? room.createdAt,
       joinedAt: p.joinedAt,
     })),
-    engineState: room.engine ? room.engine.getState() : null,
+    engineState: room.engine
+        ? room.engine.gameId === 'rulezero'
+          ? {
+              stateVersion: 1 as const,
+              gameId: 'rulezero' as const,
+              phase: room.engine.getState().phase,
+              specHash: room.engine.getState().specHash,
+            }
+          : room.engine.getState()
+        : null,
   };
 }
 
