@@ -120,7 +120,7 @@ export function collectFlights(
           rank: 0,
         });
       }
-      // Swaps (BLIND_SWAP / SWAP_OTHERS) produce NO ghost flights: the REAL
+      // Swaps (BLIND_SWAP) produce NO ghost flights: the REAL
       // cards glide to their new slots via framer layout animation, and both
       // get a brief glow (swapMarks) — one clear movement, no overlay noise.
     } else if (ev.type === 'PENALTY_DRAWN') {
@@ -227,7 +227,6 @@ export interface RoomApi {
   setAvatar: (avatar: Avatar) => void;
   setReady: (ready: boolean) => void;
   selectGame: (gameId: string) => void;
-  setSwapOthers: (enabled: boolean) => void;
   /** Test Mode: the server reveals every card to everyone (debug/test aid). */
   testMode: boolean;
   setTestMode: (enabled: boolean) => void;
@@ -432,12 +431,6 @@ export function useRoom(): RoomApi {
           if (typeof p.ownCardId === 'string' && typeof p.targetCardId === 'string') {
             newPairs.push({ id: `swap-${ev.seq}`, cardA: p.ownCardId, cardB: p.targetCardId, at: Date.now() });
           }
-        } else if (ev.type === 'POWER_RESOLVED' && p?.power === 'SWAP_OTHERS') {
-          if (typeof p.cardIdA === 'string') swappedIds.push(p.cardIdA);
-          if (typeof p.cardIdB === 'string') swappedIds.push(p.cardIdB);
-          if (typeof p.cardIdA === 'string' && typeof p.cardIdB === 'string') {
-            newPairs.push({ id: `swap-${ev.seq}`, cardA: p.cardIdA, cardB: p.cardIdB, at: Date.now() });
-          }
         }
       }
       if (newPairs.length > 0) {
@@ -627,7 +620,6 @@ export function useRoom(): RoomApi {
       },
       setReady: (ready: boolean) => socketRef.current?.emit('room:set_ready', { ready }),
       selectGame: (gameId: string) => socketRef.current?.emit('room:select_game', { gameId }),
-      setSwapOthers: (enabled: boolean) => socketRef.current?.emit('room:set_swap_others', { enabled }),
       testMode,
       setTestMode: (enabled: boolean) => socketRef.current?.emit('room:set_test_mode', { enabled }),
       startGame: () =>

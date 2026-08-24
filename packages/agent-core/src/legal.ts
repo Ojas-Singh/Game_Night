@@ -88,24 +88,7 @@ function caboActions(
     case 'POWER_PENDING': {
       const p = view.pendingPower;
       if (!p) break;
-      if (p.power === 'SWAP_OTHERS') {
-        for (const a of others) {
-          for (const idA of view.handCardIds[a.id] ?? []) {
-            if (!isRealCard(idA)) continue;
-            for (const b of others) {
-              if (b.id === a.id) continue;
-              for (const idB of view.handCardIds[b.id] ?? []) {
-                if (!isRealCard(idB) || idB === idA) continue;
-                acts.push({
-                  type: 'POWER_APPLY',
-                  ...me(selfId),
-                  payload: { power: 'SWAP_OTHERS', cardIdA: idA, cardIdB: idB },
-                });
-              }
-            }
-          }
-        }
-      } else if (p.power === 'PEEK_OWN') {
+      if (p.power === 'PEEK_OWN') {
         for (const id of ownIds) {
           acts.push({ type: 'POWER_APPLY', ...me(selfId), payload: { power: 'PEEK_OWN', cardId: id } });
         }

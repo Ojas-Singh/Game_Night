@@ -40,7 +40,6 @@ export interface RoomSnapshot {
   gameId: string;
   chat: ChatMessage[];
   scoreboard: Record<string, number>;
-  swapOthersEnabled: boolean;
   testMode: boolean;
   debug: Room['debug'];
   players: Array<Omit<RoomPlayer, 'sockets'> & { socketCount: number }>;
@@ -56,7 +55,6 @@ export function serializeRoom(room: Room): RoomSnapshot {
     gameId: room.gameId,
     chat: room.chat.slice(-200),
     scoreboard: room.scoreboard,
-    swapOthersEnabled: room.swapOthersEnabled,
     testMode: room.testMode,
     debug: room.debug,
     players: [...room.players.values()].map((p) => ({

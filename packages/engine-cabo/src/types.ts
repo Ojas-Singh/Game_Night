@@ -109,7 +109,6 @@ export type CaboAction =
       type: 'POWER_APPLY';
       playerId: string;
       payload:
-        | { power: 'SWAP_OTHERS'; cardIdA: string; cardIdB: string }
         | { power: 'PEEK_OWN'; cardId: string }
         | { power: 'PEEK_OTHER'; targetPlayerId: string; cardId: string }
         | { power: 'BLIND_SWAP'; ownCardId: string; targetPlayerId: string; targetCardId: string };

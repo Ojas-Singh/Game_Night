@@ -136,10 +136,6 @@ export class EngineWorld implements SearchWorld {
           if (p.power === 'PEEK_OWN') payload = { power: 'PEEK_OWN', cardId: firstReal(p.playerId)! };
           else if (p.power === 'PEEK_OTHER') payload = { power: 'PEEK_OTHER', targetPlayerId: others[0]!.id, cardId: firstReal(others[0]!.id)! };
           else if (p.power === 'BLIND_SWAP') payload = { power: 'BLIND_SWAP', ownCardId: firstReal(p.playerId)!, targetPlayerId: others[0]!.id, targetCardId: firstReal(others[0]!.id)! };
-          else {
-            const b = others[1] ?? others[0]!;
-            payload = { power: 'SWAP_OTHERS', cardIdA: firstReal(others[0]!.id)!, cardIdB: firstReal(b.id)! };
-          }
           return payload ? this.engine.handleAction({ type: 'POWER_APPLY', playerId: p.playerId, payload } as GameAction).ok : false;
         }
         case 'TRANSFER_PENDING': {

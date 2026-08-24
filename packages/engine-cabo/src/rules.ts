@@ -9,7 +9,6 @@ import type { Card, Rank } from '@game-night/shared';
 
 /** Powers our house rules attach to rank bands. */
 export type CaboPower =
-  | 'SWAP_OTHERS' // 5–6: swap two cards belonging to other players
   | 'PEEK_OWN' // 7–8: view one of your own cards
   | 'PEEK_OTHER' // 9–10: view another player's card
   | 'BLIND_SWAP'; // J–Q: swap one of your cards with another player's card
@@ -29,10 +28,6 @@ export interface CaboRules {
 
   /** Rank bands that carry powers. */
   powerBands: Array<{ from: Rank; to: Rank; power: CaboPower }>;
-
-  /** House-rule toggle (host-selectable): when false, discarding a 5–6
-   *  triggers no power. */
-  swapOthersEnabled: boolean;
 
   /** Penalty for an incorrect flush attempt. */
   wrongFlushPenalty: WrongFlushPenalty;
@@ -78,13 +73,10 @@ export const DEFAULT_CABO_RULES: CaboRules = {
   },
   kingValues: { red: 13, black: -1 },
   powerBands: [
-    { from: 5, to: 6, power: 'SWAP_OTHERS' },
     { from: 7, to: 8, power: 'PEEK_OWN' },
     { from: 9, to: 10, power: 'PEEK_OTHER' },
     { from: 11, to: 12, power: 'BLIND_SWAP' },
   ],
-  // 5–6 is a host-optional house rule, OFF by default; 7–10 and J–Q always on.
-  swapOthersEnabled: false,
   wrongFlushPenalty: 'draw_one',
   emptyDeckBehavior: 'reshuffle_discard',
   endRoundWhenPlayerHasNoCards: false,
@@ -117,7 +109,6 @@ export function powerForRank(rank: Rank, rules: CaboRules): CaboPower | null {
 
 /** Human-readable descriptions, used by UI prompts. */
 export const POWER_DESCRIPTIONS: Record<CaboPower, string> = {
-  SWAP_OTHERS: 'Choose two cards belonging to other players and swap them',
   PEEK_OWN: 'Choose one of your own cards to view',
   PEEK_OTHER: "Choose another player's card to view",
   BLIND_SWAP: 'Blind-swap one of your cards with another player\u2019s card',

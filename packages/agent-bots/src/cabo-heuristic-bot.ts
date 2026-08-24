@@ -160,39 +160,13 @@ export class CaboHeuristicBot implements GameAgent {
             thought: `blind-swapping my ${giveVal >= 0 ? giveVal : 'K'} into ${t.name}'s hand`,
           };
         }
-        // SWAP_OTHERS: shuffle the two juiciest known opponent cards apart.
-        const knownOpp: Array<{ id: string; owner: string; val: number }> = [];
-        for (const o of v.players) {
-          if (o.id === obs.selfId) continue;
-          for (const id of v.handCardIds[o.id] ?? []) {
-            if (!id.startsWith('__slot__') && v.knownCards[id]) {
-              knownOpp.push({ id, owner: o.id, val: cardValue(v.knownCards[id]!) });
-            }
-          }
-        }
-        knownOpp.sort((a, b) => b.val - a.val);
-        const top = knownOpp.filter((k) => k.val >= 8);
-        if (top.length >= 2 && top[0]!.owner !== top[1]!.owner) {
-          return {
-            action: {
-              type: 'POWER_APPLY',
-              ...me,
-              payload: { power: 'SWAP_OTHERS', cardIdA: top[0]!.id, cardIdB: top[1]!.id },
-            },
-            thought: 'swapping their high cards around',
-          };
-        }
-        const poolA = v.players.filter((o) => o.id !== obs.selfId && (v.handCardIds[o.id] ?? []).some((i) => !i.startsWith('__slot__')));
-        const a = ctx.rng.pick(poolA);
-        const b = ctx.rng.pick(v.players.filter((o) => o.id !== obs.selfId && o.id !== a.id));
-        const idA = (v.handCardIds[a.id] ?? []).find((i) => !i.startsWith('__slot__'))!;
-        const idB = (v.handCardIds[b.id] ?? []).find((i) => !i.startsWith('__slot__'))!;
+        // Other pending powers have no smarter line here: the engine demands
+        // a POWER_APPLY, so default to a harmless self-peek.
         return {
-          action: { type: 'POWER_APPLY', ...me, payload: { power: 'SWAP_OTHERS', cardIdA: idA, cardIdB: idB } },
-          thought: 'randomizing opponents',
+          action: { type: 'POWER_APPLY', ...me, payload: { power: 'PEEK_OWN', cardId: ownIds[0]! } },
+          thought: 'defaulting to a self-peek',
         };
       }
-
       case 'TRANSFER_PENDING': {
         // Give away my worst known card, else an unknown one.
         const known = knownOwn();

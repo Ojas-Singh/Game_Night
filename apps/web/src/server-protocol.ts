@@ -84,7 +84,6 @@ export interface RoomLobbyState {
   inGame: boolean;
   hostId: string;
   scoreboard: Record<string, number>;
-  swapOthersEnabled: boolean;
   testMode: boolean;
 }
 

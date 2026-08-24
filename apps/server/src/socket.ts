@@ -217,19 +217,6 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
       }
     });
 
-    socket.on('room:set_swap_others', ({ enabled }) => {
-      try {
-        const { room, playerId } = requireRoom();
-        room.setSwapOthers(playerId, !!enabled);
-        const last = room.chat[room.chat.length - 1]!;
-        io.to(room.id).emit('room:chat', last);
-        broadcastLobby(room);
-        persistRoom(room);
-      } catch (err) {
-        log.warn('set_swap_others_failed', { error: msg(err) });
-      }
-    });
-
     socket.on('room:set_test_mode', ({ enabled }) => {
       try {
         const { room, playerId } = requireRoom();

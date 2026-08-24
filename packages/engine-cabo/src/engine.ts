@@ -314,14 +314,8 @@ export class CaboEngine {
     const payload = a.payload;
     if (payload.power !== pending.power) INVALID('wrong power action');
     const others = s.players.filter((p) => p.id !== a.playerId);
+    void others;
     switch (payload.power) {
-      case 'SWAP_OTHERS': {
-        const ownerA = others.find((p) => findCard(s.hands[p.id]!, payload.cardIdA) >= 0);
-        const ownerB = others.find((p) => findCard(s.hands[p.id]!, payload.cardIdB) >= 0);
-        if (!ownerA || !ownerB) INVALID('both cards must belong to other players');
-        if (payload.cardIdA === payload.cardIdB) INVALID('cannot swap a card with itself');
-        return;
-      }
       case 'PEEK_OWN': {
         if (findCard(s.hands[a.playerId]!, payload.cardId) < 0) INVALID('card not in your hand');
         return;
@@ -482,12 +476,8 @@ export class CaboEngine {
         return;
       }
       case 'END_TURN': {
-        // Ending the turn with zero cards = automatic Cabo (score 0), same
-        // as finishing an action with an empty hand.
-        if (liveCount(s.hands[a.playerId]!) === 0 && this.rules.cabo.enabled && !s.cabo) {
-          s.cabo = { callerId: a.playerId, takenFinalTurn: [] };
-          this.emit('CABO_CALLED', { playerId: a.playerId, auto: true });
-        }
+        // Zero cards no longer auto-calls Cabo: an empty-handed player simply
+        // sits out (advanceTurn skips them); Cabo stays a deliberate call.
         this.advanceTurn();
         return;
       }
@@ -540,17 +530,9 @@ export class CaboEngine {
    *  pending power. */
   private afterDiscard(playerId: string, card: Card): void {
     let power = powerForRank(card.rank, this.rules);
-    // 5–6 swap-others is a host-selectable optional power in our house rules.
-    if (power === 'SWAP_OTHERS' && !this.rules.swapOthersEnabled) power = null;
     // A swap power is SKIPPED when it cannot apply: e.g. after a cabo call
     // the caller may have no cards left on the table — there is nothing to
     // swap with, so the turn simply ends instead of dead-locking.
-    if (power === 'SWAP_OTHERS') {
-      const liveOthers = this.getState().players.filter(
-        (p) => p.id !== playerId && liveCount(this.getState().hands[p.id]!) > 0,
-      ).length;
-      if (liveOthers < 1 || liveCount(this.getState().hands[playerId]!) + liveOthers < 2) power = null;
-    }
     if (power === 'BLIND_SWAP') {
       const anyOther = this.getState().players.some(
         (p) => p.id !== playerId && liveCount(this.getState().hands[p.id]!) > 0,
@@ -572,44 +554,7 @@ export class CaboEngine {
   ): void {
     const s = this.getState();
     const pending = s.pendingPower!;
-    let swapInfo: { cardIdA: string; cardIdB: string; ownerA: string; ownerB: string } | null = null;
     switch (payload.power) {
-      case 'SWAP_OTHERS': {
-        // Swap positions of two cards belonging to other players; values stay hidden.
-        let ownerA: string | null = null;
-        let ownerB: string | null = null;
-        for (const pid of Object.keys(s.hands)) {
-          const i = findCard(s.hands[pid]!, payload.cardIdA);
-          if (i >= 0) {
-            ownerA = pid;
-            const j = findCard(s.hands[pid]!, payload.cardIdB);
-            if (j >= 0) {
-              ownerB = pid;
-              const tmp = s.hands[pid]![i]!;
-              s.hands[pid]![i] = s.hands[pid]![j]!;
-              s.hands[pid]![j] = tmp;
-            } else {
-              this.swapAcrossPlayers(payload.cardIdA, payload.cardIdB);
-            }
-            break;
-          }
-        }
-        // Resolve the final owners AFTER the swap for the event payload so
-        // clients can animate both cards along their true paths.
-        if (!ownerB) {
-          for (const pid of Object.keys(s.hands)) {
-            if (findCard(s.hands[pid]!, payload.cardIdA) >= 0) ownerA = pid;
-            if (findCard(s.hands[pid]!, payload.cardIdB) >= 0) ownerB = pid;
-          }
-        }
-        swapInfo = {
-          cardIdA: payload.cardIdA,
-          cardIdB: payload.cardIdB,
-          ownerA: ownerA ?? '',
-          ownerB: ownerB ?? '',
-        };
-        break;
-      }
       case 'PEEK_OWN': {
         this.learn(playerId, payload.cardId);
         this.emit('POWER_RESOLVED', { playerId, power: 'PEEK_OWN', cardId: payload.cardId, viewerId: playerId });
@@ -645,32 +590,11 @@ export class CaboEngine {
       }
     }
     if (payload.power !== 'PEEK_OWN' && payload.power !== 'PEEK_OTHER') {
-      this.emit('POWER_RESOLVED', { playerId, power: payload.power, ...(swapInfo ?? {}) });
+      this.emit('POWER_RESOLVED', { playerId, power: payload.power });
     }
     s.pendingPower = null;
     s.phase = 'TURN_DRAW';
     this.endTurnIfActive(playerId);
-  }
-
-  private swapAcrossPlayers(cardIdA: string, cardIdB: string): void {
-    const s = this.getState();
-    let pa: Card | null = null;
-    let pb: Card | null = null;
-    for (const pid of Object.keys(s.hands)) {
-      const i = findCard(s.hands[pid]!, cardIdA);
-      if (i >= 0) pa = s.hands[pid]![i]!;
-      const j = findCard(s.hands[pid]!, cardIdB);
-      if (j >= 0) pb = s.hands[pid]![j]!;
-    }
-    if (!pa || !pb) INVALID('swap cards not found');
-    for (const pid of Object.keys(s.hands)) {
-      const hand = s.hands[pid]!;
-      const i = findCard(hand, cardIdA);
-      const j = findCard(hand, cardIdB);
-      if (i >= 0) hand[i] = pb;
-      if (j >= 0) hand[j] = pa;
-      if (j >= 0) hand[j] = pa;
-    }
   }
 
   private applyWrongFlushPenalty(playerId: string): void {
@@ -694,27 +618,21 @@ export class CaboEngine {
   // -------------------------------------------------------------------
 
   /** If the acting player is the current player, their action is complete:
-   *  they land in TURN_END where they may call Cabo or pass. A player who
-   *  finishes with ZERO cards gets Cabo auto-called (score 0, game wraps up)
-   *  and the turn passes straight on. */
+   *  they land in TURN_END where they may call Cabo or pass. A player whose
+   *  cards are all gone simply ends their turn — they cannot draw, so they
+   *  sit out future turns (advanceTurn skips them) without calling anything. */
   private endTurnIfActive(playerId: string): void {
     const s = this.getState();
     if (s.players[s.currentTurn]?.id !== playerId) return;
-    if (liveCount(s.hands[playerId]!) === 0 && this.rules.cabo.enabled && !s.cabo) {
-      s.cabo = { callerId: playerId, takenFinalTurn: [] };
-      this.emit('CABO_CALLED', { playerId, auto: true });
-      this.advanceTurn();
-      return;
-    }
     s.phase = 'TURN_END';
     s.drawnCard = null;
     this.emit('TURN_ENDED', { playerId });
   }
 
   /** After a flush: nothing to do by default. Reaching zero cards does NOT
-   *  end the round — the player simply scores 0, and Cabo is auto-called
-   *  when their next turn arrives (see advanceTurn). Flushing never changes
-   *  whose turn it is. */
+   *  end the round and does NOT call Cabo — the player just sits out from
+   *  now on (advanceTurn skips empty hands). Flushing never changes whose
+   *  turn it is. */
   private checkPlayerOutOrAdvance(playerId: string): void {
     if (this.rules.endRoundWhenPlayerHasNoCards) {
       const s = this.getState();
@@ -753,14 +671,8 @@ export class CaboEngine {
     for (let step = 1; step <= n; step++) {
       const candidate = (s.currentTurn + step) % n;
       const p = s.players[candidate]!;
-      // A player with zero cards scores 0 — their "turn" is an automatic Cabo
-      // call, ending the round after everyone else takes a final turn.
-      if (!cabo && liveCount(s.hands[p.id]!) === 0 && this.rules.cabo.enabled) {
-        cabo = { callerId: p.id, takenFinalTurn: [] };
-        s.cabo = cabo;
-        this.emit('CABO_CALLED', { playerId: p.id, auto: true });
-        continue; // they take no turn themselves; keep scanning
-      }
+      // Players with zero cards never take turns and never call Cabo —
+      // they simply sit out (isEligible rejects them below).
       if (isEligible(candidate)) {
         s.currentTurn = candidate;
         s.phase = 'TURN_DRAW';

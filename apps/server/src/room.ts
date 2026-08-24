@@ -104,8 +104,6 @@ export class Room {
   engine: AnyGameEngine | null = null;
   /** Cumulative match scoreboard across rounds. */
   scoreboard: Record<string, number> = {};
-  /** Host-selectable house rule: enable the 5–6 "swap others" power. OFF by default. */
-  swapOthersEnabled = false;
   /** Test Mode: reveal every card's value to all players so anyone can watch
    *  the full flow. Purely a debugging/test aid — off by default. */
   testMode = false;
@@ -128,7 +126,6 @@ export class Room {
     room.gameId = (snap.gameId in GAME_REGISTRY ? snap.gameId : 'cabo') as GameId;
     room.chat = snap.chat;
     room.scoreboard = snap.scoreboard;
-    room.swapOthersEnabled = snap.swapOthersEnabled ?? false;
     room.testMode = snap.testMode ?? false;
     room.debug = snap.debug ?? {};
     for (const sp of snap.players) {
@@ -371,7 +368,6 @@ export class Room {
       const cabo = new CaboEngine();
       cabo.createGame(seats, {
         seed: this.debug.seed,
-        rules: { swapOthersEnabled: this.swapOthersEnabled },
       });
       // Everyone is shown their bottom-row cards automatically at the start
       // (bottom row of the 2×2 layout = indexes 1 and 3). The values flash
@@ -408,13 +404,6 @@ export class Room {
         : 'Game started — Cabo! You briefly saw your bottom two cards — remember them!';
     this.system(opener);
     log.info('game_start', { roomId: this.id, gameId: this.gameId, players: this.players.size });
-  }
-
-  /** Host toggles the optional 5–6 "swap others" power (applies next round). */
-  setSwapOthers(playerId: string, enabled: boolean): void {
-    if (playerId !== this.hostId) throw new RoomError('only the host can change house rules');
-    this.swapOthersEnabled = enabled;
-    this.system(enabled ? 'Host turned ON the 5–6 swap rule' : 'Host turned OFF the 5–6 swap rule');
   }
 
   /** Host toggles Test Mode: reveal every card to everyone (debug aid). */
@@ -504,7 +493,6 @@ export class Room {
       inGame: !!this.engine,
       hostId: this.hostId ?? '',
       scoreboard: this.getScoreboard(),
-      swapOthersEnabled: this.swapOthersEnabled,
       testMode: this.testMode,
     };
   }

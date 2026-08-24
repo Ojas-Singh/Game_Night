@@ -154,21 +154,6 @@ export default function LobbyView({ room }: { room: RoomApi }) {
             </div>
             {isHost ? (
               <div className="host-controls">
-                {lobby.gameId === 'cabo' && (
-                  <div className="house-rule-row">
-                    <label
-                      className="rule-label"
-                      title="Optional house rule: when a player discards a 5 or 6, they swap two of their opponents' cards"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={lobby.swapOthersEnabled}
-                        onChange={(e) => room.setSwapOthers(e.target.checked)}
-                      />
-                      <span>5–6 swap rule</span>
-                    </label>
-                  </div>
-                )}
                 <div className="add-ai-row">
                   <label className="rule-label" htmlFor="ai-persona">
                     🤖 Add AI player

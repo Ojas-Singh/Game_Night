@@ -235,7 +235,6 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
         PEEK_OWN: 'power-peek-own',
         PEEK_OTHER: 'power-peek-other',
         BLIND_SWAP: 'power-blind-swap',
-        SWAP_OTHERS: 'power-swap-others',
       }[pendingPower] as typeof mode;
     }
     return 'idle';
@@ -289,12 +288,6 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
         type: 'POWER_APPLY',
         payload: { power: 'BLIND_SWAP', ownCardId: selectedOwn, targetPlayerId: playerId, targetCardId: cardId },
       });
-    } else if (mode === 'power-swap-others') {
-      if (!selectedOwn) {
-        setSelectedOwn(cardId);
-      } else {
-        act({ type: 'POWER_APPLY', payload: { power: 'SWAP_OTHERS', cardIdA: selectedOwn, cardIdB: cardId } });
-      }
     } else if ((mode === 'idle' || mode === 'turn-end') && view.discardTopRank !== null) {
       // Blind guess allowed on ANY card — the server checks the match. If
       // you're wrong you simply draw a penalty; nobody ever learns the card

@@ -105,7 +105,6 @@ export interface RoomLobbyState {
   /** Cumulative match scoreboard across rounds (public). */
   scoreboard: Record<string, number>;
   /** Host-selected optional 5–6 "swap others" power. */
-  swapOthersEnabled: boolean;
   /** Test Mode: all cards revealed to everyone (debug/test aid). */
   testMode: boolean;
 }

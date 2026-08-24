@@ -567,14 +567,6 @@ class CaboState(pyspiel.State):
                 b = self.hands[o][oslot]
                 self.hands[me][own_slot] = b
                 self.hands[o][oslot] = a
-            elif kind == K_POWER_SO:
-                sa, sla, sb, slb = f
-                ca = self.hands[sa][sla]
-                cb = self.hands[sb][slb]
-                if (sa, sla) == (sb, slb):
-                    raise ValueError("swap card with itself")
-                self.hands[sa][sla] = cb
-                self.hands[sb][slb] = ca
             self.pending_power = None
             self.phase = PHASE_TURN_DRAW
             self._end_turn_if_active(me)
@@ -635,11 +627,8 @@ class CaboState(pyspiel.State):
             self._advance_turn()
             return
         if kind == K_END:
-            if self._live(me) == 0 and self.cabo_caller is None:
-                self.cabo_caller = me
-                self.taken_final = []
-                self._advance_turn()
-                return
+            # Empty-handed players no longer auto-call Cabo: they simply sit
+            # out (mirrors the product engine rule change).
             self.drawn_card = None
             self.phase = PHASE_TURN_END
             self._advance_turn()
@@ -751,11 +740,8 @@ class CaboState(pyspiel.State):
     def _end_turn_if_active(self, me: int):
         if me != self.current_turn:
             return
-        if self._live(me) == 0 and self.cabo_caller is None:
-            self.cabo_caller = me
-            self.taken_final = []
-            self._advance_turn()
-            return
+        # Zero cards no longer auto-calls Cabo (product rule change): the
+        # player just ends their turn and is skipped hereafter.
         self.phase = PHASE_TURN_END
         self.drawn_card = None
         self._open_window(me, PHASE_TURN_END)
@@ -776,12 +762,7 @@ class CaboState(pyspiel.State):
 
         for step in range(1, n + 1):
             cand = (self.current_turn + step) % n
-            if cabo_caller is None and self._live(cand) == 0:
-                cabo_caller = cand
-                self.cabo_caller = cand
-                self.taken_final = []
-                taken = self.taken_final
-                continue
+            # Empty-handed players are skipped, never auto-call Cabo.
             if eligible(cand):
                 self.current_turn = cand
                 self.phase = PHASE_TURN_DRAW

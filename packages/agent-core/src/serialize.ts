@@ -17,7 +17,7 @@ export const RULES_TEXT: Record<GameId, string> = {
 Card values: A=1..10=10, J=11, Q=12, K=13 EXCEPT black Kings = -1. Match the discard pile's rank to FLUSH matching cards out of your hand (pairs allowed). Wrong flush attempts draw penalty cards.
 Turn flow: DRAW a card -> either KEEP it by swapping into one of your hand slots (the swapped card goes to discard), or DISCARD it. If the discarded card's rank carries a power you must use it:
   7-8 PEEK_OWN: look at one of your cards. 9-10 PEEK_OTHER: look at another player's card.
-  J-Q BLIND_SWAP: swap one of your cards with another player's card without looking. (5-6 SWAP_OTHERS only if house rule enabled.)
+  J-Q BLIND_SWAP: swap one of your cards with another player's card without looking.
 At ANY moment on your turn you may also flush: if the discard top is rank R and you KNOW some card(s) of rank R (yours or others'), throw them onto the pile. Correct guesses remove cards; wrong ones penalize.
 When your hand value is (probably) lowest, CALL_CABO at the end of your action instead of ending normally. Everyone else gets one final turn, then hands reveal; lowest total wins, caller ties/loses are punished in scoring.`,
   pairone: `PAIR ONE — a public memory game. One full deck (52 cards) fills a fixed grid, all face down. Positions never move; collected pairs leave permanent gaps.
