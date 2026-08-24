@@ -32,3 +32,27 @@ Cumulative post-rebuild differential parity: **426 episodes** across seed
 families {1+, 20000+, 30000..70000+}. Remaining toward the 10k target:
 long-horizon soak runs (background job), plus config toggles
 (swapOthers off / empty-deck / zero-card auto-Cabo) as fixtures.
+
+
+---
+
+# PHASE 3A — Playable Game Lab + GPU-Ready Platform
+
+### Round 15: Game Lab foundation ✅
+
+`rulezero/gallery.py`: **8 mechanically distinct GameSpec games** — Kuhnish
+Duel, Mini Bluff, Hidden Duel, Prize Bidding, Secret Bid, Counter Claim,
+Reveal or Hold, Double or Nothing — every one pure data run by the ONE
+interpreter, with UI-safe capability tags and typed mutation grids
+(mini-bluff: 3 decks × 3 bet sizes = 9 valid distinct variants).
+
+`rulezero/lab.py`: Simulation Lab runner — deterministic CPU agents
+(random/first; solver registry slot ready), per-seat win%/ties/avg returns/
+mean length/decisions per game, hard episode cap, zero-sum asserted for
+every gallery game.
+
+Two spec bugs caught and fixed during bring-up (empty-deck prize flip in
+secret-bid; degenerate self-compare award in reveal-hold) — exactly the
+class of issue the pipeline exists to surface.
+
+Gates: test_gallery.py (15). Totals: 90 pytest + legacy suites green.
