@@ -380,11 +380,12 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
       <button
         className="leave-toggle"
         onClick={() => {
+          if (!window.confirm('Leave this room entirely? (Hosts: use "End game" to send everyone to the lobby instead.)')) return;
           room.leaveRoom();
           window.location.hash = '#/';
         }}
-        aria-label="Leave the game"
-        title="Leave the game and go home"
+        aria-label="Leave the room"
+        title="Leave the room and go home (host: prefer End game)"
       >
         🚪
       </button>
@@ -396,10 +397,10 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
               room.endGame();
             }
           }}
-          aria-label="End game (host)"
-          title="End the current game — everyone returns to the lobby (host)"
+          aria-label="End game and return to the lobby (host)"
+          title="End the current game — everyone returns to this room's lobby (host)"
         >
-          ⏹ End game
+          ⏹ Back to lobby
         </button>
       )}
       {room.lobby?.hostId === room.myPlayerId && (

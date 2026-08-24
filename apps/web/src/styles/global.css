@@ -143,3 +143,12 @@ input[type='text']:focus {
     font-size: 14px;
   }
 }
+
+/* Scrollable page shell for non-table routes (Game Lab, Home).
+   The body is overflow:hidden because the live table is a fixed-viewport
+   screen; long content pages opt into scrolling with this wrapper. */
+.scroll-page {
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

@@ -2432,7 +2432,12 @@
 }
 
 /* ---- RuleZero generic renderer -------------------------------------- */
-.rulezero-table { max-width: 720px; margin: 0 auto; padding: 12px; }
+.rulezero-table {
+  max-width: 720px; margin: 0 auto; padding: 18px;
+  border-radius: 18px; background: var(--tk-felt);
+  box-shadow: inset 0 0 0 6px rgba(0,0,0,.25), var(--tk-pile-shadow);
+  color: #eef3ff;
+}
 .rz-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
 .rz-phase { font-weight: 600; }
 .rz-your-turn { color: #2e7d32; font-weight: 700; }
@@ -2544,3 +2549,9 @@
 .launch-row button { padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,.3); background: #58d68d22; color: #fff; cursor: pointer; }
 .launch-row button.ai { background: #6b4fd8aa; }
 .gamelab-host-link { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; border: 1px solid rgba(158,203,255,.4); color: #9ecbff; text-decoration: none; font-size: .8rem; }
+
+/* Game Lab v2 — compact gallery cards */
+.gamelab-card { display: flex; flex-direction: column; gap: 8px; }
+.gamelab-card .gamelab-play-row { display: flex; gap: 6px; margin-top: auto; flex-wrap: wrap; }
+.gl2-mini { width: 34px; border-radius: 8px; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.06); color: #cdd7ee; cursor: pointer; font-size: .95rem; }
+.gl2-mini:hover { background: rgba(158,203,255,.18); }

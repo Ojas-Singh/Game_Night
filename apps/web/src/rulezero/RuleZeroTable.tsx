@@ -71,7 +71,7 @@ export default function RuleZeroTable({
     view.currentActor === view.player;
 
   return (
-    <div className="rulezero-table" data-spec-hash={view.specHash}>
+    <div className="rulezero-table table-ellipse" data-spec-hash={view.specHash}>
       <header className="rz-header">
         <span className="rz-phase">{view.phase ?? 'game'}</span>
         {myTurn ? (

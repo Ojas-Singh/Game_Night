@@ -1,0 +1,19 @@
+/* ============================================================
+   TableKit — shared design tokens for ALL game tables.
+   Cabo's table and the generic GameSpec renderer both consume
+   these variables. Future re-theming (new colour pass) edits
+   ONLY this file; every table follows automatically.
+   ============================================================ */
+:root {
+  --tk-felt: radial-gradient(ellipse at 50% 42%, #1d4d3d 0%, #143529 58%, #0c241b 100%);
+  --tk-felt-edge: rgba(0, 0, 0, 0.45);
+  --tk-rail: linear-gradient(180deg, #3a2a18, #241809);
+  --tk-card-face: #f7f4ec;
+  --tk-card-back: linear-gradient(160deg, #7d2b3a, #4e1622);
+  --tk-ink: #22301f;
+  --tk-accent: #ffd98a;
+  --tk-turn-glow: 0 0 0 2px var(--tk-accent), 0 0 18px rgba(255, 217, 138, 0.35);
+  --tk-seat-radius: 12px;
+  --tk-pile-shadow: 0 6px 14px rgba(0, 0, 0, 0.45);
+  --tk-flight-tint: rgba(255, 217, 138, 0.85);
+}

@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { HashRouter } from 'react-router-dom';
 import App from './App.js';
 import './styles/global.css';
+import './styles/tablekit.css';
 import './styles/table.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

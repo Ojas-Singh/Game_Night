@@ -44,7 +44,8 @@ export default function HomePage({ room }: { room: RoomApi }) {
   };
 
   return (
-    <div className="home-wrap">
+    <div className="scroll-page">
+      <div className="home-wrap">
       <div className="home-card">
 
         <div className="home-deck" aria-hidden>
@@ -99,6 +100,7 @@ export default function HomePage({ room }: { room: RoomApi }) {
         {room.status !== 'connected' && (
           <p className="home-status">Connecting to server…</p>
         )}
+      </div>
       </div>
     </div>
   );

@@ -217,7 +217,8 @@ export default function GameLabPage() {
 
   return (
 
-    <div className="gamelab">
+    <div className="scroll-page">
+      <div className="gamelab">
         <section className="gamelab-create">
         <h2>Create a new game</h2>
         <p className="muted">
@@ -227,8 +228,8 @@ export default function GameLabPage() {
         </p>
         <div className="template-row">
           {['Two players each ante one token.',
-            'Each player is dealt one hidden card from ranks 1 to 5. Players ante one token.',
-            'Players take turns bidding resources; highest bid wins the pot.'].map((t) => (
+            'Players compete in sealed bidding for the pot.',
+            'I claim my card beats yours; challenge me.'].map((t) => (
             <button key={t} className="template-chip" onClick={() => setRulesText(t)}>
               {t.slice(0, 34)}…
             </button>
@@ -295,6 +296,19 @@ export default function GameLabPage() {
             </div>
             <div className="muted gamelab-hash">spec {g.specHash.slice(0, 12)}</div>
             <div className="gamelab-play-row">
+              <button
+                className="gl2-mini"
+                title="Simulate this game"
+                disabled={launching !== null}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelected(g);
+                  setSim(null);
+                  setTimeout(() => document.getElementById('gl2-simpanel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 30);
+                }}
+              >
+                ⚗
+              </button>
               <button
                 className="gamelab-play"
                 disabled={launching !== null}
@@ -435,5 +449,6 @@ export default function GameLabPage() {
         </section>
       )}
     </div>
+      </div>
   );
 }

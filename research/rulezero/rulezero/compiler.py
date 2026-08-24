@@ -54,31 +54,50 @@ class RuleCompilerLLM(ABC):
 
 
 class DeterministicStubCompiler(RuleCompilerLLM):
-    """Fixed-output compiler used to test the pipeline end-to-end offline.
+    """Pattern compiler used to test the pipeline end-to-end offline.
 
-    It 'compiles' only the one rules text it knows, and honestly reports an
-    assumption + an unsupported mechanic — modelling the disclosure contract.
+    Each supported pattern maps to a REAL gallery-family spec builder, so
+    every compiled game is instantly playable. Unsupported text fails
+    honestly with the list of supported patterns (S4: never a silent draft).
     """
 
-    name = "stub-kuhnish-v0"
-    _KNOWN = "two players each ante one token"
+    name = "pattern-compiler-v1"
+
+    _PATTERNS: list[tuple[str, str, str]] = [
+        # (match substring, familyId, human description)
+        ("each ante one token", "kuhnish",
+         "hidden-card ante duel"),
+        ("bidding", "secret-bid",
+         "sealed-bid pot game"),
+        ("claim", "claim",
+         "claim/challenge duel"),
+    ]
 
     def compile(self, rules_text: str) -> tuple[dict[str, Any], DraftReport]:
-        if self._KNOWN not in rules_text.lower():
-            return {}, DraftReport(
-                ambiguities=[
-                    f"rules do not describe a supported game; "
-                    f"unknown text: {rules_text[:80]!r}"
-                ],
-                assumptions=[],
-                unsupported_mechanics=["free-form natural language"],
-            )
-        from .test_ir_games import KUHNISH  # local import keeps module light
+        text = rules_text.lower()
+        for needle, family_id, desc in self._PATTERNS:
+            if needle in text:
+                from .gallery import GALLERY
 
-        return dict(KUHNISH), DraftReport(
-            ambiguities=["tie-breaking order assumed alphabetical by seat"],
-            assumptions=[self._KNOWN],
-            unsupported_mechanics=[],
+                entry = GALLERY[family_id]
+                return dict(entry.variant()), DraftReport(
+                    assumptions=[
+                        f"matched supported pattern '{desc}' "
+                        f"(gallery family '{family_id}')",
+                        "player order begins with seat 0",
+                    ],
+                    ambiguities=["tie-breaking order assumed alphabetical by seat"],
+                    unsupported_mechanics=[],
+                )
+        supported = ", ".join(f"'{n}'" for n, _, _ in self._PATTERNS)
+        return {}, DraftReport(
+            ambiguities=[
+                "rules do not describe a supported game; "
+                f"unknown text: {rules_text[:80]!r}",
+                f"currently compilable patterns mention: {supported}",
+            ],
+            assumptions=[],
+            unsupported_mechanics=["free-form natural language"],
         )
 
 
