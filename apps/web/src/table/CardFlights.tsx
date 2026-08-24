@@ -27,7 +27,14 @@ interface CardFlightsProps {
   /** Local player id — their incoming cards land in the draw slot. */
   myId: string;
   onDone: (id: string) => void;
+  /** Geometry-only per-seat centres (SeatPlanner × ellipse). Used when a DOM
+   *  hand anchor is missing (element not yet mounted, display:none, etc.) so
+   *  a flight is never silently dropped or collapsed to a zero-length move. */
+  seatFallback?: Record<string, FlightPos>;
 }
+
+/** Minimum meaningful travel distance; below this a ghost is invisible. */
+const MIN_TRAVEL_PX = 8;
 
 /** Travel time to the destination. */
 export const DURATION = 0.62;
@@ -49,24 +56,54 @@ const MAX_ARC = 64;
  * along a flowing dashed path, pulse on landing, then decay away. Peeks fly
  * as a glowing eye instead of a card (a look, not a move).
  */
-export default function CardFlights({ flights, anchors, myId, onDone }: CardFlightsProps) {
+function resolvePoint(
+  primary: FlightPos | undefined,
+  fallbacks: Array<FlightPos | undefined>,
+  lastResort: FlightPos,
+): FlightPos {
+  for (const c of [primary, ...fallbacks]) if (c) return c;
+  return lastResort;
+}
+
+/** Nudge the destination toward the table centre when a flight would be
+ *  degenerate (from ≈ to), so the movement is always visible. */
+function ensureVisible(from: FlightPos, to: FlightPos, centre: FlightPos): FlightPos {
+  if (Math.hypot(to.x - from.x, to.y - from.y) >= MIN_TRAVEL_PX) return to;
+  const dx = centre.x - to.x;
+  const dy = centre.y - to.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return { x: to.x + (dx / len) * 26, y: to.y + (dy / len) * 26 };
+}
+
+export default function CardFlights({
+  flights, anchors, myId, onDone, seatFallback = {},
+}: CardFlightsProps) {
+  const centre = { x: anchors.size.w / 2, y: anchors.size.h / 2 };
+  const handOrSeat = (pid: string): FlightPos | undefined =>
+    anchors.hands[pid] ?? seatFallback[pid];
   return (
     <AnimatePresence>
       {flights.map((f) => {
-        // Prefer the EXACT card element when we know it, so trajectories
-        // start/end in the centre of the specific card — not a hand average.
-        const from: FlightPos =
-          (f.fromCardId && anchors.cards[f.fromCardId]) ||
-          (f.fromPlayerId === 'deck'
-            ? anchors.deck
-            : (anchors.hands[f.fromPlayerId] ?? anchors.discard));
-        const to: FlightPos =
-          (f.toCardId && anchors.cards[f.toCardId]) ||
-          (f.toPlayerId
-            ? (anchors.hands[f.toPlayerId] ?? (f.toPlayerId === myId ? anchors.draw : anchors.discard))
-            : f.toDiscard
-              ? anchors.discard
-              : anchors.draw);
+        // Prefer the EXACT card element when we know it, then the measured
+        // hand anchor, then the geometry-only seat position — the ghost must
+        // always have somewhere real to start and land.
+        const from = resolvePoint(
+          f.fromCardId ? anchors.cards[f.fromCardId] : undefined,
+          [
+            f.fromPlayerId === 'deck' ? anchors.deck : undefined,
+            f.fromPlayerId !== 'deck' ? handOrSeat(f.fromPlayerId) : undefined,
+          ],
+          anchors.discard,
+        );
+        let to = resolvePoint(
+          f.toCardId ? anchors.cards[f.toCardId] : undefined,
+          [
+            f.toPlayerId ? handOrSeat(f.toPlayerId) : undefined,
+            f.toPlayerId && f.toPlayerId === myId ? anchors.draw : undefined,
+          ],
+          f.toPlayerId ? anchors.discard : f.toDiscard ? anchors.discard : anchors.draw,
+        );
+        to = ensureVisible(from, to, centre);
         return f.kind === 'peek' ? (
           <PeekGhost key={f.id} id={f.id} from={from} to={to} anchors={anchors} onDone={onDone} />
         ) : (

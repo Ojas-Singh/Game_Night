@@ -183,14 +183,21 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
   const [flights, setFlights] = useState<CardFlight[]>([]);
   const seenFlightIds = useRef<Set<string>>(new Set());
   // Adopt new flights from the room, dropping the ones we've already shown.
-  useEffect(() => {
+  // LAYOUT effect (not passive): ghosts must mount against anchors measured
+  // in the SAME commit, otherwise a destination that just appeared (a draw
+  // slot, a re-dealt hand) is missed and the flight collapses invisibly.
+  useLayoutEffect(() => {
     setFlights((cur) => {
       const existing = new Set(cur.map((f) => f.id));
       const fresh = room.flights.filter((f) => !existing.has(f.id) && !seenFlightIds.current.has(f.id));
+      if (fresh.length === 0) return cur;
       fresh.forEach((f) => seenFlightIds.current.add(f.id));
-      return fresh.length ? [...cur, ...fresh] : cur;
+      // Re-measure synchronously with the adopted batch.
+      measureAnchors();
+      captureCardPositions();
+      return [...cur, ...fresh].slice(-10);
     });
-  }, [room.flights]);
+  }, [room.flights, measureAnchors, captureCardPositions]);
   const dropFlight = useMemo(
     () => (id: string) => setFlights((cur) => cur.filter((f) => f.id !== id)),
     [],
@@ -529,6 +536,22 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
             anchors={anchors}
             myId={me.id}
             onDone={dropFlight}
+            seatFallback={Object.fromEntries(
+              others.map((p, i) => {
+                const st = seats[i % Math.max(seats.length, 1)];
+                return [
+                  p.id,
+                  st
+                    ? {
+                        x: (anchors.ellipse?.width ?? anchors.size.w) *
+                          ((parseFloat(String(st.style.left)) || 50) / 100),
+                        y: (anchors.ellipse?.height ?? anchors.size.h) *
+                          ((parseFloat(String(st.style.top)) || 40) / 100),
+                      }
+                    : { x: anchors.size.w / 2, y: anchors.size.h * 0.25 },
+                ];
+              }),
+            )}
           />
         )}
         {anchors && <SwapGhosts ghosts={swapGhosts} size={anchors.size} />}

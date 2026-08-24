@@ -129,8 +129,11 @@ export default function PairOneTable({ room, view }: Props) {
   const MISS_HOLD_MS = 1700;
   /** My own in-flight flips — open instantly on click, no round-trip wait. */
   const [myFlips, setMyFlips] = useState<string[]>([]);
-  /** A failed pair: both ids held face-up until one shared timer closes them. */
-  const [missPair, setMissPair] = useState<{ ids: string[]; at: number } | null>(null);
+  /** Failed pairs still inside their shared face-up window. A queue (not a
+   *  single slot) because several misses can coalesce into ONE broadcast
+   *  delta when other players act quickly — dropping all but the last left
+   *  cards snapping face-down with no reveal. Every pair gets its window. */
+  const [missPairs, setMissPairs] = useState<Array<{ ids: string[]; at: number }>>([]);
   const handledMisses = useRef<Set<number>>(new Set());
   useEffect(() => {
     const fresh = view.events.filter(
@@ -138,16 +141,44 @@ export default function PairOneTable({ room, view }: Props) {
     );
     if (fresh.length === 0) return;
     for (const e of fresh) handledMisses.current.add(e.seq);
-    const last = fresh[fresh.length - 1]!;
-    const ids = ((last.payload as { cardIds?: string[] }).cardIds ?? []).filter(Boolean);
-    if (ids.length === 0) return;
-    setMissPair({ ids, at: Date.now() });
+    const at = Date.now();
+    const added: Array<{ ids: string[]; at: number }> = [];
+    for (const e of fresh) {
+      const ids = ((e.payload as { cardIds?: string[] }).cardIds ?? []).filter(Boolean);
+      if (ids.length === 0) continue;
+      added.push({ ids, at });
+    }
+    // Overlapping windows collapse to the union of their ids so rapid play
+    // reads as one continuous reveal instead of flickering.
+    if (added.length > 0) {
+      setMissPairs((cur) => {
+        const live = cur.filter((m) => at - m.at < MISS_HOLD_MS - 50);
+        const seen = new Set(live.flatMap((m) => m.ids));
+        const merged = [...live];
+        for (const m of added) {
+          const newIds = m.ids.filter((id) => !seen.has(id));
+          if (newIds.length === 0) continue;
+          merged.push({ ids: newIds, at });
+          newIds.forEach((id) => seen.add(id));
+        }
+        return merged;
+      });
+    }
   }, [view.events]);
+  // Single ticker prunes expired windows and forces the flip-back re-render.
   useEffect(() => {
-    if (!missPair) return;
-    const t = setTimeout(() => setMissPair(null), MISS_HOLD_MS);
-    return () => clearTimeout(t);
-  }, [missPair]);
+    if (missPairs.length === 0) return;
+    const iv = setInterval(() => {
+      const now = Date.now();
+      setMissPairs((cur) =>
+        cur.length === 0 ? cur : cur.filter((m) => now - m.at < MISS_HOLD_MS - 50),
+      );
+      forceTick((n) => n + 1);
+    }, 250);
+    return () => clearInterval(iv);
+  }, [missPairs.length]);
+  /** All card ids currently inside a miss-reveal window. */
+  const missPairIds = new Set(missPairs.flatMap((m) => m.ids));
   // Clear my optimistic flips once the server has caught up (resolution seen,
   // or its faceUp set emptied/matched my clicks).
   useEffect(() => {
@@ -236,7 +267,7 @@ export default function PairOneTable({ room, view }: Props) {
   const currentName = current?.name ?? '…';
   const statusText = useMemo((): { text: string; urgent: boolean } => {
     if (error) return { text: error, urgent: true };
-    if (missPair) return { text: 'No match!', urgent: true };
+    if (missPairIds) return { text: 'No match!', urgent: true };
     if (roundOver) return { text: 'Round over — check the scores!', urgent: false };
     if (view.faceUpCardIds.length === 1) {
       return isMyTurn
@@ -245,7 +276,7 @@ export default function PairOneTable({ room, view }: Props) {
     }
     if (isMyTurn) return { text: 'Your turn — flip any two cards', urgent: true };
     return { text: `${currentName} is flipping…`, urgent: false };
-  }, [error, missPair, roundOver, view.faceUpCardIds.length, isMyTurn, currentName]);
+  }, [error, missPairIds, roundOver, view.faceUpCardIds.length, isMyTurn, currentName]);
 
   const act = useCallback(
     (cardId: string) => {
@@ -359,7 +390,7 @@ export default function PairOneTable({ room, view }: Props) {
               // Face-up when: flipped this turn, still inside its reveal
               // window, or Test Mode (which exposes every value server-side).
               const midTurnUp = !isEmpty && view.faceUpCardIds.includes(slotId);
-              const missHeld = !!missPair && missPair.ids.includes(slotId);
+              const missHeld = missPairIds.has(slotId);
               const faceUp =
                 !isEmpty &&
                 (midTurnUp || myFlips.includes(slotId) || missHeld || flashActive(slotId) || room.testMode);
