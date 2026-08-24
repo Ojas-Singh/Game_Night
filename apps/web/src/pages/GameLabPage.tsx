@@ -3,7 +3,7 @@
  * All game logic lives in the RuleZero service — this page is pure UI.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 interface GalleryCard {
   id: string;
@@ -37,10 +37,25 @@ interface SimStats {
   wallSeconds: number;
 }
 
+async function shareGame(galleryId: string): Promise<string | null> {
+  try {
+    const r = await fetch('/api/lab/shared', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ galleryId, params: {} }),
+    });
+    return ((await r.json()) as { shareId?: string }).shareId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export default function GameLabPage() {
   const navigate = useNavigate();
   const [launching, setLaunching] = useState<string | null>(null);
   const [games, setGames] = useState<GalleryCard[]>([]);
+  const [shareId, setShareId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<GalleryCard | null>(null);
   const [sim, setSim] = useState<SimStats | null>(null);
@@ -96,7 +111,25 @@ export default function GameLabPage() {
       .then((r) => r.json())
       .then((d) => (d.games ? setGames(d.games) : setError(d.error)))
       .catch((e) => setError(String(e)));
-  }, []);
+    const g = searchParams.get('g');
+    if (g) setShareId(g);
+  }, [searchParams]);
+
+  const makeShare = useCallback(async () => {
+    if (!selected) return null;
+    const r = await fetch(`/api/lab/shared`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ galleryId: selected.id, params: {} }),
+    });
+    const d = await r.json();
+    if (d.shareId) {
+      setShareId(d.shareId);
+      setSearchParams({ g: d.shareId });
+      return d.shareId as string;
+    }
+    return null;
+  }, [selected, setSearchParams]);
 
   const runSim = useCallback(async () => {
     if (!selected) return;
@@ -184,6 +217,17 @@ export default function GameLabPage() {
         <section className="gamelab-sim">
           <h2>Simulation Lab — {selected.title}</h2>
           <div className="gamelab-controls">
+            <button
+              onClick={() => void makeShare()}
+              title="Copy a link that opens exactly this game"
+            >
+              🔗 Share
+            </button>
+            {shareId && (
+              <code className="gamelab-share-link">
+                {`${window.location.origin}/gamelab?g=${shareId}`}
+              </code>
+            )}
             <label>
               Episodes{' '}
               <input

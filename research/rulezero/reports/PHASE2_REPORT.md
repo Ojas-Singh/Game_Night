@@ -135,3 +135,17 @@ Gates: test_gallery.py (15). Totals: 90 pytest + legacy suites green.
 - experiments/: seven GPU-ready manifests (001 kuhn SFT ... 007 search
   prior), gpuBackend UNASSIGNED until the 5090 lands.
 - Gates: test_cardgym (6) + test_experiments (4). Totals: 108 pytest green.
+
+
+### Round 22: Generated games are shareable + forkable ✅
+
+- labShare/labResolveShared ops: persistent share records keyed
+  {galleryId}-{specHash8} under reports/shared/, pure data (§38), hash
+  drift detection, path-sanitized ids.
+- REST: POST /api/lab/shared, GET /api/lab/shared/:shareId,
+  POST /api/lab/shared/:shareId/room (one-shot launch token from a share).
+- Web: Share button on the selected game renders a deep link
+  /gamelab?g=<shareId>; ?g= auto-selects the shared variant; forking =
+  launching a room from any family mutation via params.
+- Verified LIVE: hidden-duel share -> resolve -> room token. 111 pytest +
+  workspace suites green.

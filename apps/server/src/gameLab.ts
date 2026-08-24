@@ -166,6 +166,34 @@ export function gameLabRouter(): Router {
     return { ok: true, token };
   }));
 
+  // POST /api/lab/shared { galleryId, params } → persistent share id
+  r.post('/shared', wrap(async (req) => {
+    const { galleryId, params } = req.body as {
+      galleryId: string; params?: Record<string, unknown>;
+    };
+    return await lab.ask<{ shareId: string; specHash: string }>({
+      op: 'labShare', galleryId, params: params ?? {},
+    });
+  }));
+
+  // GET /api/lab/shared/:shareId → resolved spec + hash (§38)
+  r.get('/shared/:shareId', wrap(async (req) => {
+    const res = await lab.ask<{
+      spec: object; specHash: string; title?: string;
+      params?: Record<string, unknown>;
+    }>({ op: 'labResolveShared', shareId: req.params.shareId as string });
+    return { specHash: res.specHash, title: res.title, params: res.params };
+  }));
+
+  // POST /api/lab/shared/:shareId/room → one-shot launch token
+  r.post('/shared/:shareId/room', wrap(async (req) => {
+    const res = await lab.ask<{ spec: object }>({
+      op: 'labResolveShared', shareId: req.params.shareId as string,
+    });
+    const token = stageRulezeroSpec(res.spec);
+    return { ok: true, token };
+  }));
+
   // GET /api/lab/games/:id/strategy?iterations=300 → solver profile
   r.get('/games/:id/strategy', wrap(async (req) => {
     const iterations = Math.min(

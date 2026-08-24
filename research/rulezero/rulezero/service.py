@@ -270,6 +270,69 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
                              "action": int(pick), "infoState": info}
         except Exception as e:  # noqa: BLE001
             return session, {"ok": False, "error": str(e)}
+    if op == "labShare":
+        """Resolve a gallery variant and persist a share record keyed by
+        {galleryId}-{specHash8}; the spec itself stays pure data (§38)."""
+        import hashlib
+        import json as _json
+        import os
+
+        from .gallery import GALLERY
+        from .gamespec_ir import ir_hash
+
+        gid, params = str(msg["galleryId"]), dict(msg.get("params") or {})
+        try:
+            spec = GALLERY[gid].variant(**params)
+            doc = load_ir(spec)
+            h = ir_hash(doc)
+            share_id = f"{gid}-{h[:8]}"
+            rec = {"schemaVersion": 1, "galleryId": gid, "params": params,
+                   "specHash": h, "title": GALLERY[gid].title}
+            root = os.environ.get(
+                "RULEZERO_SHARES",
+                os.path.join(os.path.dirname(os.path.dirname(
+                    os.path.abspath(__file__))), "reports", "shared"))
+            os.makedirs(root, exist_ok=True)
+            path = os.path.join(root, f"{share_id}.json")
+            tmp = path + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(rec, f, sort_keys=True)
+            os.replace(tmp, path)
+            return session, {"ok": True, "shareId": share_id,
+                             "specHash": h,
+                             "digest": hashlib.sha256(path.encode()).hexdigest()[:12]}
+        except Exception as e:  # noqa: BLE001
+            return session, {"ok": False, "error": str(e)}
+    if op == "labResolveShared":
+        import json as _json
+        import os
+
+        from .gamespec_ir import ir_hash
+
+        share_id = str(msg["shareId"])
+        if not all(c.isalnum() or c in "-_" for c in share_id):
+            return session, {"ok": False, "error": "bad share id"}
+        root = os.environ.get(
+            "RULEZERO_SHARES",
+            os.path.join(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))), "reports", "shared"))
+        path = os.path.join(root, f"{share_id}.json")
+        if not os.path.exists(path):
+            return session, {"ok": False, "error": "unknown share"}
+        try:
+            rec = _json.load(open(path))
+            from .gallery import GALLERY
+
+            spec = GALLERY[rec["galleryId"]].variant(**rec.get("params") or {})
+            doc = load_ir(spec)
+            h = ir_hash(doc)
+            if h != rec["specHash"]:
+                return session, {"ok": False, "error": "spec drift"}
+            return session, {"ok": True, "spec": spec, "specHash": h,
+                             "title": rec.get("title"),
+                             "params": rec.get("params") or {}}
+        except Exception as e:  # noqa: BLE001
+            return session, {"ok": False, "error": str(e)}
     if op == "create":
         seed = msg.get("seed")
         session = Session(msg["spec"], None if seed is None else int(seed))
