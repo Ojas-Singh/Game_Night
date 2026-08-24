@@ -27,7 +27,21 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
   const others = view.players.filter((p) => p.id !== me.id);
   // Cards inside their brief reveal window render face-up; afterwards they
   // flip back down (knowledge retained as a small "seen" marker).
+  // INITIAL_PEEK is derived from VIEW STATE (not event deltas) so my bottom
+  // two cards ALWAYS show during the memorize moment — even after a
+  // reconnect or when several events coalesce into one broadcast.
+  const initialPeekIds = (() => {
+    const v = view as unknown as { phase?: string; initialPeeksRemaining?: string[] };
+    if (v.phase !== 'INITIAL_PEEK' || !Array.isArray(v.initialPeeksRemaining)) {
+      return new Set<string>();
+    }
+    const meId = room.myPlayerId;
+    if (!meId || !v.initialPeeksRemaining!.includes(meId)) return new Set<string>();
+    const ids = view.handCardIds[meId] ?? [];
+    return new Set([ids[1], ids[3]].filter(Boolean) as string[]);
+  })();
   const flashActive = (cardId: string): boolean => {
+    if (initialPeekIds.has(cardId)) return true;
     const f = room.peekFlash[cardId];
     return !!f && Date.now() - f.at < f.ms;
   };

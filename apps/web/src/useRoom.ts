@@ -72,6 +72,8 @@ export function collectFlights(
   if (next.gameId !== 'cabo' || prev.gameId !== 'cabo') return [];
   const seen = new Set(prev.events.map((e) => e.seq));
   const out: CardFlight[] = [];
+  // New-card ids already claimed by an earlier event in THIS delta batch.
+  const consumedNewCards = new Set<string>();
   for (const ev of next.events) {
     if (seen.has(ev.seq)) continue;
     const p = ev.payload as Record<string, unknown> | undefined;
@@ -102,8 +104,13 @@ export function collectFlights(
       let landedCardId: string | undefined;
       if (drawer !== myPlayerId && prev) {
         const before = new Set(prev.handCardIds?.[drawer] ?? []);
-        landedCardId = (next.handCardIds?.[drawer] ?? []).find((id) => !before.has(id));
-        if (landedCardId) noteDrawn?.(landedCardId);
+        landedCardId = (next.handCardIds?.[drawer] ?? []).find(
+          (id) => !before.has(id) && !consumedNewCards.has(id),
+        );
+        if (landedCardId) {
+          consumedNewCards.add(landedCardId); // coalesced draws stay distinct
+          noteDrawn?.(landedCardId);
+        }
       }
       out.push({
         id: `${ev.type}-${ev.seq}`,
@@ -112,6 +119,39 @@ export function collectFlights(
         toDiscard: false,
         toPlayerId: drawer === myPlayerId ? undefined : drawer,
         toCardId: drawer === myPlayerId ? undefined : landedCardId,
+        rank,
+      });
+    } else if (ev.type === 'PENALTY_DRAWN') {
+      const drawer = String(ev.playerId ?? '');
+      let landedCardId: string | undefined;
+      if (drawer !== myPlayerId && prev) {
+        const before = new Set(prev.handCardIds?.[drawer] ?? []);
+        landedCardId = (next.handCardIds?.[drawer] ?? []).find(
+          (id) => !before.has(id) && !consumedNewCards.has(id),
+        );
+        if (landedCardId) {
+          consumedNewCards.add(landedCardId);
+          noteDrawn?.(landedCardId);
+        }
+      }
+      out.push({
+        id: `${ev.type}-${ev.seq}`,
+        seq: ev.seq,
+        fromPlayerId: 'deck',
+        toDiscard: false,
+        toPlayerId: drawer === myPlayerId ? undefined : drawer,
+        toCardId: drawer === myPlayerId ? undefined : landedCardId,
+        rank,
+      });
+    } else if (ev.type === 'CARD_REPLACED' || ev.type === 'KEEP_DRAWN_SWAP') {
+      // Swapping the drawn card into your hand throws the OLD card onto the
+      // discard pile — animate that trip explicitly so the exchange reads.
+      const actor = String(ev.playerId ?? '');
+      out.push({
+        id: `${ev.type}-${ev.seq}`,
+        seq: ev.seq,
+        fromPlayerId: actor === myPlayerId ? 'deck' : actor,
+        toDiscard: true,
         rank,
       });
     } else if (ev.type === 'POWER_RESOLVED') {
