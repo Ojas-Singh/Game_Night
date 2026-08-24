@@ -163,3 +163,18 @@ Gates: test_gallery.py (15). Totals: 90 pytest + legacy suites green.
   reference bars (chosen action highlighted green/red).
 - Verified: kuhnish episode -> 2 decisions reviewed vs CFR (NashConv
   0.0058). All suites green.
+
+
+### Round 24: GPU worker dry-run (S29) ✅
+
+- worker.py: JobController (bounded queue, one worker thread, retry on
+  WorkerDisconnect up to job.maxAttempts) + MockWorker fake training
+  (deterministic loss decay, injectable failures, cancel checks between
+  steps, disconnect injection) writing real checkpoint artifacts through
+  ArtifactStore.
+- S29 checklist verified by 7 gates: happy path metrics+checkpoint,
+  failed job w/ error, mid-run cancel (no artifact), reconnect retry then
+  success, reconnect exhaustion, incremental log streaming, cancelled
+  upload suppression. 118 pytest green.
+- Phase 3A exit criteria: all Product / Game creation / Research /
+  Future-GPU checkboxes now have working implementations.
