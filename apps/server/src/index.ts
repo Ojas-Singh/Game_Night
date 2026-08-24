@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import express from 'express';
+import { gameLabRouter } from './gameLab.js';
 import { Server as SocketServer } from 'socket.io';
 import { config } from './config.js';
 import { log } from './log.js';
@@ -44,6 +45,8 @@ rooms.startSweeper();
 if (config.debugEnabled) {
   // Dev-only debug endpoints. In production these do not exist at all.
   const { debugRouter } = await import('./debug.js');
+  app.use(express.json());
+  app.use('/api/lab', gameLabRouter());
   app.use('/debug', debugRouter(rooms));
   log.warn('debug_mode_enabled', { note: 'privileged endpoints active (non-production)' });
 }

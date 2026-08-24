@@ -142,6 +142,58 @@ class Session:
 
 def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
     op = msg.get("op")
+    # --- Game Lab ops (§15/§12): stateless, no session required ---------
+    if op == "labCatalog":
+        from .gallery import catalog
+
+        return session, {"ok": True, "games": catalog()}
+    if op == "labGet":
+        from .gallery import GALLERY
+
+        gid = str(msg["id"])
+        if gid not in GALLERY:
+            return session, {"ok": False, "error": f"unknown game {gid!r}"}
+        e = GALLERY[gid]
+        spec = e.spec()
+        return session, {
+            "ok": True,
+            "game": {
+                "id": gid,
+                "title": e.title,
+                "blurb": e.blurb,
+                "tags": e.tags,
+                "specHash": __import__("hashlib").sha256(
+                    __import__("json").dumps(spec, sort_keys=True).encode()
+                ).hexdigest(),
+                "mutations": e.mutations,
+            },
+        }
+    if op == "labVariant":
+        import json as _json
+
+        from .gallery import GALLERY
+        from .gamespec_ir import ir_hash
+
+        gid = str(msg["id"])
+        params = dict(msg.get("params") or {})
+        try:
+            spec = GALLERY[gid].variant(**params)
+            doc = load_ir(spec)
+            return session, {"ok": True, "spec": spec,
+                             "specHash": ir_hash(doc)}
+        except Exception as e:  # noqa: BLE001 — protocol boundary
+            return session, {"ok": False, "error": str(e)}
+    if op == "labSimulate":
+        from .lab import simulate
+
+        try:
+            stats = simulate(dict(msg["spec"]),
+                             list(msg.get("agents", [])),
+                             int(msg["episodes"]),
+                             int(msg.get("seed", 42)))
+            return session, {"ok": True, "stats": stats}
+        except Exception as e:  # noqa: BLE001 — protocol boundary
+            return session, {"ok": False, "error": str(e)}
     if op == "create":
         seed = msg.get("seed")
         session = Session(msg["spec"], None if seed is None else int(seed))

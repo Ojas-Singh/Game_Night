@@ -1,0 +1,160 @@
+/**
+ * Game Lab service client + routes (Phase 3A §2/§12).
+ *
+ * One shared `rulezero.service` subprocess answers stateless lab ops
+ * (catalog / variant / simulate). Live game play still uses per-room
+ * sessions through rulezeroEngine — this module is read-only research UI.
+ */
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import { Router, type Request, type Response } from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const HOME = process.env.RULEZERO_HOME ??
+  path.resolve(here, '../../../research/rulezero');
+const PY = process.env.RULEZERO_PYTHON ??
+  path.resolve(HOME, '.venv/bin/python');
+
+export interface GalleryCard {
+  id: string;
+  title: string;
+  blurb: string;
+  tags: string[];
+  specHash: string;
+  mutations: string[];
+}
+
+interface SimStats {
+  episodes: number;
+  unfinished: number;
+  wins: Record<string, number>;
+  tiesPct: number;
+  avgReturns: Record<string, number>;
+  meanGameLength: number;
+  decisionsPerGame: number;
+  wallSeconds: number;
+}
+
+class LabClient {
+  private proc: ChildProcessWithoutNullStreams | null = null;
+  private rl: ReturnType<typeof createInterface> | null = null;
+  private queue: Promise<unknown> = Promise.resolve();
+  private failures = 0;
+
+  private ensure(): ChildProcessWithoutNullStreams {
+    if (!this.proc) {
+      this.proc = spawn(PY, ['-m', 'rulezero.service'], {
+        cwd: HOME,
+        env: { ...process.env, PYTHONPATH: HOME },
+      }) as ChildProcessWithoutNullStreams;
+      this.rl = createInterface(this.proc.stdout);
+      this.proc.stderr.on('data', (d: Buffer) =>
+        console.error('[lab-service]', d.toString().trim()));
+      this.proc.on('exit', () => {
+        this.proc = null;
+        this.rl = null;
+      });
+    }
+    return this.proc;
+  }
+
+  /** Strictly-ordered request/response; restarts once on a dead pipe. */
+  ask<T>(msg: Record<string, unknown>): Promise<T> {
+    const run = async (): Promise<T> => {
+      const proc = this.ensure();
+      return await new Promise<T>((resolve, reject) => {
+        const timeout = setTimeout(
+          () => reject(new Error('lab service timeout')), 120_000);
+        const rl = this.rl!;
+        const onLine = (line: string) => {
+          clearTimeout(timeout);
+          rl.off('line', onLine);
+          try {
+            const parsed = JSON.parse(line);
+            if (parsed.ok === false) reject(new Error(parsed.error ?? 'error'));
+            else resolve(parsed as T);
+          } catch (e) {
+            reject(e as Error);
+          }
+        };
+        rl.on('line', onLine);
+        proc.stdin.write(JSON.stringify(msg) + '\n');
+      });
+    };
+    const next = this.queue.then(run, run);
+    this.queue = next.catch(() => {});
+    next.catch(() => { this.failures++; });
+    return next;
+  }
+}
+
+const lab = new LabClient();
+
+function wrap(fn: (req: Request) => Promise<unknown>) {
+  return async (req: Request, res: Response) => {
+    try {
+      res.json(await fn(req));
+    } catch (err) {
+      res.status(400).json({ error: String((err as Error).message ?? err) });
+    }
+  };
+}
+
+export function gameLabRouter(): Router {
+  const r = Router();
+  // GET /api/lab/games → gallery cards
+  r.get('/games', wrap(async () => {
+    const res = await lab.ask<{ games: GalleryCard[] }>({ op: 'labCatalog' });
+    return { games: res.games };
+  }));
+
+  // GET /api/lab/games/:id → full metadata incl. mutation grid
+  r.get('/games/:id', wrap(async (req) => {
+    const res = await lab.ask<{ game: object }>({
+      op: 'labGet', id: req.params.id,
+    });
+    return res.game;
+  }));
+
+  // POST /api/lab/variant { id, params } → mutated validated spec
+  r.post('/variant', wrap(async (req) => {
+    const { id, params } = req.body as { id: string; params?: Record<string, unknown> };
+    const res = await lab.ask<{ spec: object; specHash: string }>({
+      op: 'labVariant', id, params: params ?? {},
+    });
+    return res;
+  }));
+
+  // POST /api/lab/simulate { spec|id, agents, episodes, seed } → stats
+  r.post('/simulate', wrap(async (req) => {
+    const body = req.body as {
+      spec?: object; id?: string; params?: Record<string, unknown>;
+      agents?: { agent: string }[];
+      episodes?: number; seed?: number;
+    };
+    let spec = body.spec;
+    if (!spec && body.id) {
+      // Variant with params, or the base spec when params are empty.
+      const params = body.params ?? {};
+      const v = await lab.ask<{ spec: object; ok: boolean }>({
+        op: 'labVariant', id: body.id, params,
+      });
+      spec = v.spec;
+    }
+    if (!spec) throw new Error('provide spec or id');
+    const agents = body.agents ?? [
+      { agent: 'random' }, { agent: 'first' },
+    ];
+    const res = await lab.ask<{ stats: SimStats }>({
+      op: 'labSimulate',
+      spec,
+      agents,
+      episodes: Math.min(Math.max(1, Number(body.episodes ?? 100)), 20_000),
+      seed: Number(body.seed ?? 42),
+    });
+    return res.stats;
+  }));
+  return r;
+}

@@ -3,6 +3,7 @@ import { useRoom } from './useRoom.js';
 import HomePage from './pages/HomePage.js';
 import GamePage from './pages/GamePage.js';
 import RuleZeroDemo from './rulezero/RuleZeroDemo.js';
+import GameLabPage from './pages/GameLabPage.js';
 
 export default function App() {
   const room = useRoom();
@@ -11,6 +12,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<HomePage room={room} />} />
         <Route path="/rulezero-demo" element={<RuleZeroDemo />} />
+            <Route path="/gamelab" element={<GameLabPage />} />
         <Route
           path="/game/:roomId"
           element={

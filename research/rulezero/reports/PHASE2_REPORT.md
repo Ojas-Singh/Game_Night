@@ -56,3 +56,20 @@ secret-bid; degenerate self-compare award in reveal-hold) — exactly the
 class of issue the pipeline exists to surface.
 
 Gates: test_gallery.py (15). Totals: 90 pytest + legacy suites green.
+
+### Round 16: Game Lab visible on the website ✅
+
+- Service gains stateless lab ops: `labCatalog` / `labGet` / `labVariant` /
+  `labSimulate` — same line-JSON protocol, validated variants, capped
+  episodes.
+- `apps/server/src/gameLab.ts`: one shared lab subprocess client
+  (strictly-ordered, auto-restart) + REST routes `/api/lab/games`,
+  `/api/lab/games/:id`, `/api/lab/variant`, `/api/lab/simulate`; express.json
+  added. Live play still flows through per-room rulezeroEngine sessions.
+- `apps/web/src/pages/GameLabPage.tsx`: gallery cards with capability tags +
+  spec hashes; per-game Simulation Lab panel (episode count → win%/ties/
+  returns/length) hitting the real service; home page gains a Game Lab link;
+  product-styled CSS.
+- Verified LIVE: built server + curl → catalog JSON, variant simulation
+  (mini-bluff ranks1-5/bet2: P0 100% vs first-agent), claim base game sim.
+  Workspace tests all green (37+12+9+7).

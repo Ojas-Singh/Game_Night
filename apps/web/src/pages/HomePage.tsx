@@ -35,6 +35,8 @@ export default function HomePage({ room }: { room: RoomApi }) {
   return (
     <div className="home-wrap">
       <div className="home-card">
+        <a className="home-gamelab" href="/gamelab">🧪 Game Lab — create & simulate rule-defined games</a>
+
         <div className="home-deck" aria-hidden>
           <div className="mini-card mc1" />
           <div className="mini-card mc2" />
