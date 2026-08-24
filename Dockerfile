@@ -35,7 +35,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 RUN corepack enable \
  && apt-get update \
  && apt-get install -y --no-install-recommends \
-      python3 python3-venv python3-pip \
+      wget python3 python3-venv python3-pip \
  && rm -rf /var/lib/apt/lists/*
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json packages/shared/
