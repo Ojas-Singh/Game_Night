@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import type { RoomApi } from '../useRoom.js';
 import ChatPanel from '../chat/ChatPanel.js';
@@ -154,6 +155,9 @@ export default function LobbyView({ room }: { room: RoomApi }) {
             </div>
             {isHost ? (
               <div className="host-controls">
+                <Link className="ghost gamelab-host-link" to="/gamelab" title="Open the RuleZero Game Lab">
+                  🧪 Game Lab
+                </Link>
                 <div className="add-ai-row">
                   <label className="rule-label" htmlFor="ai-persona">
                     🤖 Add AI player

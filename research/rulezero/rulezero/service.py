@@ -299,14 +299,25 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
         from .gallery import GALLERY
         from .gamespec_ir import ir_hash
 
-        gid, params = str(msg["galleryId"]), dict(msg.get("params") or {})
+        gid = str(msg.get("galleryId") or "")
+        params = dict(msg.get("params") or {})
         try:
-            spec = GALLERY[gid].variant(**params)
+            if gid:
+                spec = GALLERY[gid].variant(**params)
+                title = GALLERY[gid].title
+            else:
+                # Inline custom spec (e.g. freshly compiled): stored as pure
+                # data like any other share record.
+                spec = dict(msg["spec"])
+                title = str(spec.get("title") or "Custom game")
             doc = load_ir(spec)
             h = ir_hash(doc)
-            share_id = f"{gid}-{h[:8]}"
-            rec = {"schemaVersion": 1, "galleryId": gid, "params": params,
-                   "specHash": h, "title": GALLERY[gid].title}
+            share_id = f"{gid or 'custom'}-{h[:8]}"
+            rec = {"schemaVersion": 1, "specHash": h, "title": title}
+            if gid:
+                rec.update({"galleryId": gid, "params": params})
+            else:
+                rec["spec"] = doc
             root = os.environ.get(
                 "RULEZERO_SHARES",
                 os.path.join(os.path.dirname(os.path.dirname(
@@ -340,9 +351,12 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
             return session, {"ok": False, "error": "unknown share"}
         try:
             rec = _json.load(open(path))
-            from .gallery import GALLERY
+            if "galleryId" in rec:
+                from .gallery import GALLERY
 
-            spec = GALLERY[rec["galleryId"]].variant(**rec.get("params") or {})
+                spec = GALLERY[rec["galleryId"]].variant(**rec.get("params") or {})
+            else:
+                spec = rec["spec"]
             doc = load_ir(spec)
             h = ir_hash(doc)
             if h != rec["specHash"]:
@@ -385,6 +399,37 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
                              "review": out}
         except Exception as e:  # noqa: BLE001
             return session, {"ok": False, "error": str(e)}
+    if op == "labCompile":
+        """Natural-language -> GameSpec through the gated compiler chain
+        (static validation + semantic smoke). Returns the full disclosure
+        report either way; never a silently accepted draft (S4/S13)."""
+        from .compiler import DeterministicStubCompiler, compile_and_verify
+
+        text = str(msg.get("text") or "")
+        if not text.strip():
+            return session, {"ok": False, "stage": "input",
+                             "diagnostics": ["rules text is empty"]}
+        res = compile_and_verify(DeterministicStubCompiler(), text)
+        if isinstance(res, dict) or hasattr(res, "definition"):
+            from .gamespec_ir import ir_hash
+
+            doc = load_ir(res.definition.spec)
+            return session, {
+                "ok": True,
+                "spec": doc,
+                "specHash": ir_hash(doc),
+                "report": {
+                    "assumptions": res.report.assumptions,
+                    "ambiguities": res.report.ambiguities,
+                    "unsupported": res.report.unsupported_mechanics,
+                    "smoke": res.smoke,
+                    "players": len((doc.get("players") or {}).get("seats", [])
+                                   or doc.get("players", [])),
+                    "phases": [p.get("id") for p in doc.get("phases", [])],
+                },
+            }
+        return session, {"ok": False, "stage": res.stage,
+                         "diagnostics": res.diagnostics}
     if op == "create":
         seed = msg.get("seed")
         session = Session(msg["spec"], None if seed is None else int(seed))

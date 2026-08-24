@@ -106,6 +106,65 @@ export default function GameLabPage() {
     }
   }, [navigate]);
 
+  // ---- Create a new game (rules -> compile -> validate -> play) ----------
+  const [rulesText, setRulesText] = useState('');
+  const [compiling, setCompiling] = useState(false);
+  interface CompileReport {
+    ok: boolean;
+    spec?: Record<string, unknown>;
+    stage?: string;
+    diagnostics?: string[];
+    specHash?: string;
+    report?: {
+      assumptions: string[]; ambiguities: string[]; unsupported: string[];
+      smoke: { episodes: number; reached_terminal: number };
+      players: number; phases: string[];
+    };
+  }
+  const [report, setReport] = useState<CompileReport | null>(null);
+
+  const compileGame = useCallback(async () => {
+    setCompiling(true);
+    setReport(null);
+    try {
+      const r = await fetch('/api/lab/compile', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: rulesText }),
+      });
+      setReport((await r.json()) as CompileReport);
+    } catch (e) {
+      setReport({ ok: false, stage: 'network', diagnostics: [String(e)] });
+    } finally {
+      setCompiling(false);
+    }
+  }, [rulesText]);
+
+  const playCompiled = useCallback(async (vsAi: boolean) => {
+    if (!report?.ok || !report.spec) return;
+    setLaunching('custom');
+    try {
+      const sh = await fetch('/api/lab/shared', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ spec: report.spec }),
+      });
+      const d = (await sh.json()) as { shareId?: string };
+      if (!d.shareId) return;
+      const rr = await fetch(`/api/lab/shared/${d.shareId}/room`, { method: 'POST' });
+      const rd = (await rr.json()) as { token?: string };
+      if (rd.token) {
+        sessionStorage.setItem(
+          'rulezeroLaunch',
+          JSON.stringify({ token: rd.token, autoAi: vsAi }),
+        );
+        navigate('/');
+      }
+    } finally {
+      setLaunching(null);
+    }
+  }, [report, navigate]);
+
   useEffect(() => {
     fetch('/api/lab/games')
       .then((r) => r.json())
@@ -157,7 +216,58 @@ export default function GameLabPage() {
   }, [selected, episodes, agents]);
 
   return (
+
     <div className="gamelab">
+        <section className="gamelab-create">
+        <h2>Create a new game</h2>
+        <p className="muted">
+          Describe the rules. The compiler proposes GameSpec data, validates it,
+          smoke-plays it, and discloses every assumption — it never silently
+          accepts a draft.
+        </p>
+        <div className="template-row">
+          {['Two players each ante one token.',
+            'Each player is dealt one hidden card from ranks 1 to 5. Players ante one token.',
+            'Players take turns bidding resources; highest bid wins the pot.'].map((t) => (
+            <button key={t} className="template-chip" onClick={() => setRulesText(t)}>
+              {t.slice(0, 34)}…
+            </button>
+          ))}
+        </div>
+        <textarea
+          className="rules-input"
+          rows={4}
+          placeholder={'e.g. "Each player is dealt one hidden card from ranks 1-5. Players ante one token..."'}
+          value={rulesText}
+          onChange={(e) => setRulesText(e.target.value)}
+        />
+        <button className="compile-btn" disabled={compiling || !rulesText.trim()} onClick={() => void compileGame()}>
+          {compiling ? 'Compiling…' : '⚙ Compile Game'}
+        </button>
+
+        {report && !report.ok && (
+          <div className="compile-report failed">
+            <strong>✗ Compilation stopped at stage: {report.stage}</strong>
+            <ul>{(report.diagnostics ?? []).map((d, i) => <li key={i}>{d}</li>)}</ul>
+          </div>
+        )}
+        {report && report.ok && report.report && (
+          <div className="compile-report passed">
+            <ul>
+              <li>✓ {report.report.players} players</li>
+              <li>✓ phases: {(report.report.phases ?? []).join(' → ') || 'detected'}</li>
+              <li>✓ semantic smoke: {report.report.smoke.reached_terminal}/{report.report.smoke.episodes} random episodes reached terminal</li>
+              {(report.report.assumptions ?? []).map((a, i) => <li key={`a${i}`}>• assumption: {a}</li>)}
+              {(report.report.ambiguities ?? []).map((a, i) => <li key={`m${i}`} className="warn">⚠ ambiguity: {a}</li>)}
+              {(report.report.unsupported ?? []).map((a, i) => <li key={`u${i}`} className="warn">⚠ unsupported: {a}</li>)}
+            </ul>
+            <div className="launch-row">
+              <button disabled={launching === 'custom'} onClick={() => void playCompiled(false)}>▶ Play with Friends</button>
+              <button className="ai" disabled={launching === 'custom'} onClick={() => void playCompiled(true)}>▶ Play vs AI</button>
+            </div>
+          </div>
+        )}
+        </section>
       <header className="gamelab-header">
         <h1>Game Lab</h1>
         <p className="muted">

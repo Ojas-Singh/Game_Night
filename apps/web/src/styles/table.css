@@ -2525,3 +2525,22 @@
   border-radius:50%; border:1px solid rgba(255,255,255,.35); background:rgba(0,0,0,.55);
   color:#fff; font-size:.8rem; cursor:pointer; display:none; line-height:1; }
 .seat:hover .autopilot-toggle, .autopilot-toggle:focus-visible { display:block; }
+
+/* Game Lab — create-a-game */
+.gamelab-create { margin: 18px 0 26px; padding: 16px; border: 1px solid rgba(158,203,255,.25); border-radius: 12px; background: rgba(20,28,44,.6); }
+.gamelab-create h2 { margin: 0 0 4px; color: #9ecbff; }
+.template-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+.template-chip { font-size: .72rem; padding: 3px 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,.2); background: transparent; color: #cdd7ee; cursor: pointer; }
+.template-chip:hover { background: rgba(255,255,255,.08); }
+.rules-input { width: 100%; box-sizing: border-box; background: rgba(0,0,0,.35); color: #eef3ff; border: 1px solid rgba(255,255,255,.22); border-radius: 8px; padding: 10px; font: inherit; resize: vertical; }
+.compile-btn { margin-top: 10px; padding: 7px 16px; border-radius: 8px; border: none; background: #2f6fdb; color: #fff; font-weight: 600; cursor: pointer; }
+.compile-btn:disabled { opacity: .5; cursor: default; }
+.compile-report { margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: .85rem; }
+.compile-report.passed { border: 1px solid rgba(88,214,141,.5); background: rgba(88,214,141,.07); }
+.compile-report.failed { border: 1px solid rgba(255,159,159,.5); background: rgba(255,159,159,.07); }
+.compile-report ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.compile-report .warn { color: #ffd479; }
+.launch-row { display: flex; gap: 10px; margin-top: 10px; }
+.launch-row button { padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,.3); background: #58d68d22; color: #fff; cursor: pointer; }
+.launch-row button.ai { background: #6b4fd8aa; }
+.gamelab-host-link { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; border: 1px solid rgba(158,203,255,.4); color: #9ecbff; text-decoration: none; font-size: .8rem; }

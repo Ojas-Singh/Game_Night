@@ -182,13 +182,25 @@ export function gameLabRouter(): Router {
     return { ok: true, token };
   }));
 
+  // POST /api/lab/compile { text } -> gated NL->GameSpec compile report
+  r.post('/compile', wrap(async (req) => {
+    const { text } = req.body as { text?: string };
+    return await lab.ask<Record<string, unknown>>({ op: 'labCompile', text });
+  }));
+
   // POST /api/lab/shared { galleryId, params } → persistent share id
   r.post('/shared', wrap(async (req) => {
     const { galleryId, params } = req.body as {
       galleryId: string; params?: Record<string, unknown>;
     };
+    const body = req.body as {
+      galleryId?: string; spec?: object; params?: Record<string, unknown>;
+    };
     return await lab.ask<{ shareId: string; specHash: string }>({
-      op: 'labShare', galleryId, params: params ?? {},
+      op: 'labShare',
+      galleryId: body.galleryId,
+      params: body.params ?? {},
+      ...(body.spec ? { spec: body.spec } : {}),
     });
   }));
 

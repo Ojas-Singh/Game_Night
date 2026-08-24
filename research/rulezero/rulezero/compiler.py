@@ -64,7 +64,7 @@ class DeterministicStubCompiler(RuleCompilerLLM):
     _KNOWN = "two players each ante one token"
 
     def compile(self, rules_text: str) -> tuple[dict[str, Any], DraftReport]:
-        if self._KNOWN not in rules_text:
+        if self._KNOWN not in rules_text.lower():
             return {}, DraftReport(
                 ambiguities=[
                     f"rules do not describe a supported game; "
