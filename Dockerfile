@@ -31,6 +31,7 @@ FROM node:22-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production
 ENV RULEZERO_HOME=/app/research/rulezero
+ENV PYTHONDONTWRITEBYTECODE=1
 RUN corepack enable \
  && apt-get update \
  && apt-get install -y --no-install-recommends \
@@ -44,7 +45,8 @@ COPY packages/agent-core/package.json packages/agent-core/
 COPY packages/agent-bots/package.json packages/agent-bots/
 COPY packages/agent-llm/package.json packages/agent-llm/
 COPY apps/server/package.json apps/server/
-RUN pnpm install --frozen-lockfile --prod || pnpm install --prod
+RUN pnpm install --frozen-lockfile --prod || pnpm install --prod \
+ && pnpm store prune && rm -rf /root/.cache /root/.npm
 COPY --from=build /app/packages/shared/dist packages/shared/dist/
 COPY --from=build /app/packages/engine-cabo/dist packages/engine-cabo/dist/
 COPY --from=build /app/packages/engine-pairone/dist packages/engine-pairone/dist/
