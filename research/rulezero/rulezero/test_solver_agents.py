@@ -88,8 +88,9 @@ def test_choose_agent_is_capability_aware() -> None:
 
 
 def test_legals_walk_matches_info_states() -> None:
-    legals = _remember_legals(get_spec("kuhnish"))
+    legals, labels = _remember_legals(get_spec("kuhnish"))
     assert any(len(v) == 2 for v in legals.values())
+    assert all(len(labels[k]) == len(v) for k, v in legals.items())
     agent = CFRAgent(get_spec("kuhnish"), iterations=100)
     mapped = sum(1 for k in agent.policy if k in legals)
     assert mapped >= len(agent.policy) * 0.99

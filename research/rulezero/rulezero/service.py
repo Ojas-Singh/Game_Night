@@ -217,6 +217,16 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
                              "meta": agent.meta}
         except Exception as e:  # noqa: BLE001
             return session, {"ok": False, "error": str(e)}
+    if op == "labStrategySamples":
+        from .solver_agents import CFRAgent
+
+        try:
+            agent = CFRAgent(dict(msg["spec"]), int(msg.get("iterations", 300)))
+            return session, {"ok": True,
+                             "samples": agent.sample_strategy(int(msg.get("k", 4))),
+                             "meta": agent.meta}
+        except Exception as e:  # noqa: BLE001
+            return session, {"ok": False, "error": str(e)}
     if op == "labRecommend":
         from .solver_agents import choose_agent_for_game
 

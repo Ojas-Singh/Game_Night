@@ -14,6 +14,18 @@ interface GalleryCard {
   mutations: string[];
 }
 
+interface StrategySample {
+  infoState: string;
+  candidates: { label: string; prob: number }[];
+}
+
+interface StrategyProfile {
+  nashConv: number | null;
+  states: number;
+  iterations: number;
+  samples: StrategySample[];
+}
+
 interface SimStats {
   episodes: number;
   unfinished: number;
@@ -32,6 +44,27 @@ export default function GameLabPage() {
   const [sim, setSim] = useState<SimStats | null>(null);
   const [simming, setSimming] = useState(false);
   const [episodes, setEpisodes] = useState(500);
+  const [agents, setAgents] = useState<{ p0: string; p1: string }>({
+    p0: 'cfr', p1: 'random',
+  });
+  const [strategy, setStrategy] = useState<StrategyProfile | null>(null);
+  const [strategyLoading, setStrategyLoading] = useState(false);
+
+  const loadStrategy = useCallback(async (id: string) => {
+    setStrategyLoading(true);
+    setStrategy(null);
+    try {
+      const r = await fetch(`/api/lab/games/${id}/strategy`);
+      const d = await r.json();
+      if (!d.error) setStrategy(d);
+    } finally {
+      setStrategyLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selected) void loadStrategy(selected.id);
+  }, [selected, loadStrategy]);
 
   useEffect(() => {
     fetch('/api/lab/games')
@@ -50,7 +83,7 @@ export default function GameLabPage() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           id: selected.id,
-          agents: [{ agent: 'random' }, { agent: 'first' }],
+          agents: [{ agent: agents.p0 }, { agent: agents.p1 }],
           episodes,
           seed: 42,
         }),
@@ -63,7 +96,7 @@ export default function GameLabPage() {
     } finally {
       setSimming(false);
     }
-  }, [selected, episodes]);
+  }, [selected, episodes, agents]);
 
   return (
     <div className="gamelab">
@@ -115,7 +148,28 @@ export default function GameLabPage() {
                 onChange={(e) => setEpisodes(Number(e.target.value))}
               />
             </label>
-            <span className="muted">P1 random vs P2 first-always</span>
+            <label>
+              P0{' '}
+              <select
+                value={agents.p0}
+                onChange={(e) => setAgents((a) => ({ ...a, p0: e.target.value }))}
+              >
+                <option value="cfr">CFR Solver</option>
+                <option value="random">Random</option>
+                <option value="first">First-always</option>
+              </select>
+            </label>
+            <label>
+              P1{' '}
+              <select
+                value={agents.p1}
+                onChange={(e) => setAgents((a) => ({ ...a, p1: e.target.value }))}
+              >
+                <option value="cfr">CFR Solver</option>
+                <option value="random">Random</option>
+                <option value="first">First-always</option>
+              </select>
+            </label>
             <button disabled={simming} onClick={() => void runSim()}>
               {simming ? 'Running…' : 'Run simulation'}
             </button>
@@ -138,6 +192,43 @@ export default function GameLabPage() {
                   <tr><td>Wall time</td><td>{sim.wallSeconds}s</td></tr>
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {strategyLoading && (
+            <p className="muted">Solving with CFR…</p>
+          )}
+
+          {strategy && (
+            <div className="gamelab-strategy">
+              <h3>Solver analysis — CFR</h3>
+              <div className="muted">
+                {strategy.states} decision points solved ·{' '}
+                {strategy.iterations} iterations · exploitability{' '}
+                {strategy.nashConv != null
+                  ? `NashConv ${strategy.nashConv.toFixed(4)}`
+                  : 'n/a'}
+              </div>
+              {strategy.samples.slice(0, 3).map((sm) => (
+                <div key={sm.infoState} className="gamelab-situation">
+                  <code>{sm.infoState.split('vars')[0]}</code>
+                  {sm.candidates.map((c) => (
+                    <div key={c.label} className="gamelab-bar-row">
+                      <span className="gamelab-bar-label">{c.label}</span>
+                      <span className="gamelab-bar">
+                        <span
+                          style={{ width: `${Math.round(c.prob * 100)}%` }}
+                        />
+                      </span>
+                      <span>{Math.round(c.prob * 100)}%</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <p className="muted gamelab-safe">
+                Distributions are computed from each seat's own information
+                state — hidden cards are never revealed.
+              </p>
             </div>
           )}
         </section>

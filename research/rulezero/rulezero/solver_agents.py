@@ -84,9 +84,13 @@ _CACHE = PolicyCache()
 # ---------------------------------------------------------------------------
 
 
-def _remember_legals(spec: dict[str, Any]) -> dict[str, list[int]]:
-    """Walk the tree recording infoState -> sorted legal action ids."""
+def _remember_legals(
+        spec: dict[str, Any]) -> tuple[dict[str, list[int]],
+                                       dict[str, list[str]]]:
+    """Walk the tree recording infoState -> sorted legal action ids and
+    human-readable action labels (§8) for the same key."""
     legals: dict[str, list[int]] = {}
+    labels: dict[str, list[str]] = {}
     game = IRGame(spec)
     stack = [game.new_initial_state()]
     while stack:
@@ -102,9 +106,10 @@ def _remember_legals(spec: dict[str, Any]) -> dict[str, list[int]]:
         la = sorted(s.legal_actions(p))
         if key not in legals or len(la) > len(legals[key]):
             legals[key] = la
+            labels[key] = [s.action_to_string(p, a) for a in la]
         for a in la:
             stack.append(s.child(a))
-    return legals
+    return legals, labels
 
 
 def solve_game_cfr(
@@ -142,7 +147,7 @@ def solve_game_cfr(
         nc = None
 
     # TabularPolicy rows are full-width masks over absolute env action ids.
-    legals = _remember_legals(spec)
+    legals, _labels = _remember_legals(spec)
     policy: dict[str, dict[int, float]] = {}
     for key, idx in avg.state_lookup.items():
         row = avg.action_probability_array[idx]
@@ -176,10 +181,27 @@ class CFRAgent:
     kind = "cfr"
 
     def __init__(self, spec: dict[str, Any], iterations: int = 300) -> None:
-        self.legals = _remember_legals(spec)
+        self.legals, self.labels = _remember_legals(spec)
         sol = solve_game_cfr(spec, iterations)
         self.policy = sol["policy"]
         self.meta = {k: v for k, v in sol.items() if k != "policy"}
+
+    def sample_strategy(self, k: int = 4) -> list[dict[str, Any]]:
+        """Labeled distributions at up to k decision points (§13).
+
+        Built purely from information-state strings — no other seat's
+        hidden zones are ever consulted.
+        """
+        out = []
+        for key in list(self.policy)[:max(0, int(k))]:
+            legal, probs = self.probs_for(key)
+            labs = self.labels.get(key, [f"A{a}" for a in legal])
+            out.append({
+                "infoState": key,
+                "candidates": [{"label": lb, "prob": round(pr, 3)}
+                               for lb, pr in zip(labs, probs)],
+            })
+        return out
 
     def act(self, info_state: str, env_actions: list[int]) -> int:
         row = self.policy.get(info_state)

@@ -92,6 +92,16 @@ class LabClient {
 
 const lab = new LabClient();
 
+async function specFor(
+  id: string,
+  params: Record<string, unknown>,
+): Promise<object> {
+  const v = await lab.ask<{ spec: object }>({
+    op: 'labVariant', id, params,
+  });
+  return v.spec;
+}
+
 function wrap(fn: (req: Request) => Promise<unknown>) {
   return async (req: Request, res: Response) => {
     try {
@@ -127,6 +137,28 @@ export function gameLabRouter(): Router {
     return res;
   }));
 
+  // GET /api/lab/games/:id/strategy?iterations=300 → solver profile
+  r.get('/games/:id/strategy', wrap(async (req) => {
+    const iterations = Math.min(
+      Math.max(50, Number(req.query.iterations ?? 300)), 20_000);
+    const res = await lab.ask<{
+      samples: {
+        infoState: string;
+        candidates: { label: string; prob: number }[];
+      }[];
+      meta: { nashConv?: number | null; states?: number };
+    }>({ op: 'labStrategySamples',
+         id: req.params.id as string,
+         iterations, k: 4,
+         spec: await specFor(req.params.id as string, {}) });
+    return {
+      nashConv: res.meta?.nashConv ?? null,
+      states: res.meta?.states ?? 0,
+      iterations,
+      samples: res.samples,
+    };
+  }));
+
   // POST /api/lab/simulate { spec|id, agents, episodes, seed } → stats
   r.post('/simulate', wrap(async (req) => {
     const body = req.body as {
@@ -137,11 +169,7 @@ export function gameLabRouter(): Router {
     let spec = body.spec;
     if (!spec && body.id) {
       // Variant with params, or the base spec when params are empty.
-      const params = body.params ?? {};
-      const v = await lab.ask<{ spec: object; ok: boolean }>({
-        op: 'labVariant', id: body.id, params,
-      });
-      spec = v.spec;
+      spec = await specFor(body.id as string, body.params ?? {});
     }
     if (!spec) throw new Error('provide spec or id');
     const agents = body.agents ?? [

@@ -73,3 +73,16 @@ Gates: test_gallery.py (15). Totals: 90 pytest + legacy suites green.
 - Verified LIVE: built server + curl → catalog JSON, variant simulation
   (mini-bluff ranks1-5/bet2: P0 100% vs first-agent), claim base game sim.
   Workspace tests all green (37+12+9+7).
+
+
+### Round 17: Solver visible on the website ✅
+
+- `labStrategySamples` service op + `GET /api/lab/games/:id/strategy`:
+  labeled candidate distributions (§8 labels, never raw A0/A1) at sampled
+  decision points, NashConv exploitability, states solved.
+- GameLabPage: per-seat agent pickers (CFR/Random/First), strategy inspector
+  panel with probability bars and a hidden-info safety note; solver runs
+  on demand with caching.
+- Verified LIVE: kuhnish strategy endpoint (check 99.7% with low card,
+  bet 99.8% with high card; NashConv 0.0041) and CFR-vs-Random claim
+  simulation through the REST API. 98 pytest + workspace tests green.

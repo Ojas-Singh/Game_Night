@@ -2489,3 +2489,14 @@
 .gamelab-controls button:disabled { opacity:.55; cursor: default; }
 .gamelab-results table td { padding: 3px 18px 3px 0; color: rgba(235,235,245,.85); }
 .gamelab-statrow { display:flex; gap:26px; font-size:1.25rem; margin: 10px 0 14px; }
+
+.gamelab-controls select { background:#22252d; color:#eee; border:1px solid rgba(255,255,255,.2); border-radius:6px; padding:4px 8px; }
+.gamelab-strategy { margin-top: 20px; border: 1px solid rgba(158,203,255,.25); border-radius: 10px; padding: 14px; }
+.gamelab-strategy h3 { margin: 0 0 4px; color: #9ecbff; }
+.gamelab-situation { margin-top: 12px; }
+.gamelab-situation code { font-size: .72rem; opacity: .65; display:block; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gamelab-bar-row { display:flex; align-items:center; gap:10px; margin: 3px 0; font-size:.88rem; }
+.gamelab-bar-label { width: 110px; text-align:right; }
+.gamelab-bar { flex:1; height: 12px; background: rgba(255,255,255,.08); border-radius: 99px; overflow:hidden; }
+.gamelab-bar span { display:block; height:100%; background: linear-gradient(90deg,#3f74c9,#9ecbff); border-radius:99px; }
+.gamelab-safe { margin-top: 10px; font-size:.78rem; }
