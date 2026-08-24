@@ -58,8 +58,13 @@ COPY --from=build /app/apps/web/dist apps/server/web/
 # symlink target actually exists here (cross-stage venv copies break).
 COPY research/rulezero/pyproject.toml research/rulezero/pyproject.toml
 COPY research/rulezero/rulezero research/rulezero/rulezero
+# Soft-fail: if the solver wheel cannot install (network/mirror trouble),
+# ship anyway — Game Lab routes answer with clean JSON errors and the
+# rest of Game Night is fully functional.
 RUN python3 -m venv research/rulezero/.venv \
- && research/rulezero/.venv/bin/pip install --no-cache-dir open-spiel==2.0.2
+ && research/rulezero/.venv/bin/pip install --no-cache-dir open-spiel==2.0.2 \
+ || { echo 'WARNING: open-spiel unavailable — Game Lab disabled'; \
+      rm -rf research/rulezero/.venv; }
 # writable dirs for solver-policy cache + shared-spec records
 RUN mkdir -p research/rulezero/cache/policies research/rulezero/reports/shared \
  && chown -R node:node research/rulezero
