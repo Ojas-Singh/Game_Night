@@ -92,6 +92,25 @@ class LabClient {
 
 const lab = new LabClient();
 
+/**
+ * One-shot tokens for launching a live RuleZero room with a gallery
+ * (possibly mutated) spec. Tokens are consumed exactly once at deal time.
+ */
+const pendingSpecs = new Map<string, object>();
+
+export function stageRulezeroSpec(spec: object): string {
+  const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  pendingSpecs.set(token, spec);
+  return token;
+}
+
+export function takeRulezeroSpec(token: string | undefined): object | undefined {
+  if (!token) return undefined;
+  const spec = pendingSpecs.get(token);
+  pendingSpecs.delete(token);
+  return spec;
+}
+
 async function specFor(
   id: string,
   params: Record<string, unknown>,
@@ -135,6 +154,16 @@ export function gameLabRouter(): Router {
       op: 'labVariant', id, params: params ?? {},
     });
     return res;
+  }));
+
+  // POST /api/lab/games/:id/room { params } → one-shot room-launch token
+  r.post('/games/:id/room', wrap(async (req) => {
+    const params = (req.body?.params ?? {}) as Record<string, unknown>;
+    const v = await lab.ask<{ spec: object }>({
+      op: 'labVariant', id: req.params.id as string, params,
+    });
+    const token = stageRulezeroSpec(v.spec);
+    return { ok: true, token };
   }));
 
   // GET /api/lab/games/:id/strategy?iterations=300 → solver profile

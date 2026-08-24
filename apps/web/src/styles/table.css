@@ -2500,3 +2500,6 @@
 .gamelab-bar { flex:1; height: 12px; background: rgba(255,255,255,.08); border-radius: 99px; overflow:hidden; }
 .gamelab-bar span { display:block; height:100%; background: linear-gradient(90deg,#3f74c9,#9ecbff); border-radius:99px; }
 .gamelab-safe { margin-top: 10px; font-size:.78rem; }
+.gamelab-play { margin-top: 10px; width: 100%; padding: 7px 0; border: none; border-radius: 8px; background: #2f9e63; color: white; font-weight: 700; cursor: pointer; }
+.gamelab-play:hover { background: #37b573; }
+.gamelab-play:disabled { opacity: .5; cursor: default; }

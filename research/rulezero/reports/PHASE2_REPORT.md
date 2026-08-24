@@ -86,3 +86,16 @@ Gates: test_gallery.py (15). Totals: 90 pytest + legacy suites green.
 - Verified LIVE: kuhnish strategy endpoint (check 99.7% with low card,
   bet 99.8% with high card; NashConv 0.0041) and CFR-vs-Random claim
   simulation through the REST API. 98 pytest + workspace tests green.
+
+
+### Round 18: Generated games are playable in live rooms ✅
+
+- One-shot spec staging: POST /api/lab/games/:id/room resolves a gallery
+  variant to a validated spec and returns a consume-once token;
+  Room carries it and dealNewGame feeds the resolved spec into
+  RuleZeroEngine.createGame (no TS engine code per game — §6).
+- Web: Play button on every gallery card stages the spec and routes through
+  the normal create-room flow; socket room:create accepts rulezeroSpecToken.
+- Verified LIVE end-to-end: mini-bluff variant staged -> socket room:create ->
+  room 4RAPVV created -> second player joined -> RuleZero service session
+  started cleanly. All workspace suites + web build green.

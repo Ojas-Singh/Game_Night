@@ -15,7 +15,9 @@ export default function HomePage({ room }: { room: RoomApi }) {
     setBusy(true);
     setJoinError(null);
     const finalName = name.trim() || undefined;
-    const res = await room.createRoom(finalName ?? 'Host');
+    const rzToken = sessionStorage.getItem('rulezeroSpecToken') ?? undefined;
+    sessionStorage.removeItem('rulezeroSpecToken');
+    const res = await room.createRoom(finalName ?? 'Host', rzToken);
     setBusy(false);
     if (res.ok && res.roomId) navigate(`/game/${res.roomId}`);
   };

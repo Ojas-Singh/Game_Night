@@ -3,7 +3,7 @@
  * All game logic lives in the RuleZero service — this page is pure UI.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 interface GalleryCard {
   id: string;
@@ -38,6 +38,8 @@ interface SimStats {
 }
 
 export default function GameLabPage() {
+  const navigate = useNavigate();
+  const [launching, setLaunching] = useState<string | null>(null);
   const [games, setGames] = useState<GalleryCard[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<GalleryCard | null>(null);
@@ -65,6 +67,26 @@ export default function GameLabPage() {
   useEffect(() => {
     if (selected) void loadStrategy(selected.id);
   }, [selected, loadStrategy]);
+
+  // Launch a live RuleZero room with this game's spec: stage the spec
+  // server-side, then let the home page's normal create-room flow consume it.
+  const playLive = useCallback(async (id: string) => {
+    setLaunching(id);
+    try {
+      const r = await fetch(`/api/lab/games/${id}/room`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ params: {} }),
+      });
+      const d = await r.json();
+      if (d.token) {
+        sessionStorage.setItem('rulezeroSpecToken', d.token);
+        navigate('/');
+      }
+    } finally {
+      setLaunching(null);
+    }
+  }, [navigate]);
 
   useEffect(() => {
     fetch('/api/lab/games')
@@ -126,6 +148,16 @@ export default function GameLabPage() {
               ))}
             </div>
             <div className="muted gamelab-hash">spec {g.specHash.slice(0, 12)}</div>
+            <button
+              className="gamelab-play"
+              disabled={launching !== null}
+              onClick={(e) => {
+                e.stopPropagation();
+                void playLive(g.id);
+              }}
+            >
+              {launching === g.id ? 'Staging…' : '▶ Play'}
+            </button>
           </article>
         ))}
         {!games.length && !error && (

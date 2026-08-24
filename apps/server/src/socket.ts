@@ -104,9 +104,10 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
     // Room lifecycle
     // -----------------------------------------------------------------
 
-    socket.on('room:create', ({ name }, ack) => {
+    socket.on('room:create', ({ name, rulezeroSpecToken }, ack) => {
       try {
         const room = rooms.createRoom();
+        if (rulezeroSpecToken) room.rulezeroSpecToken = rulezeroSpecToken;
         const { player } = room.addPlayer(name);
         data.roomId = room.id;
         data.playerId = player.id;

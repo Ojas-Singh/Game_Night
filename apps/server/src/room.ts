@@ -9,6 +9,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import type { GameAction } from '@game-night/shared';
 import { CaboEngine, type CaboPlayerView, type CaboState } from '@game-night/engine-cabo';
 import { RuleZeroEngine, type RuleZeroPlayerView } from './rulezeroEngine.js';
+import { takeRulezeroSpec } from './gameLab.js';
 import { PairOneEngine, type PairOnePlayerView } from '@game-night/engine-pairone';
 import type { ChatMessage, LobbyPlayer, RoomLobbyState } from './protocol.js';
 import { isValidAvatar, randomAvatar, type Avatar } from './protocol.js';
@@ -89,6 +90,8 @@ export function randomName(): string {
 }
 
 export class Room {
+  /** One-shot gallery spec token consumed by dealNewGame (§38 flow). */
+  rulezeroSpecToken?: string;
   readonly id: string;
   createdAt = Date.now();
   players = new Map<string, RoomPlayer>();
@@ -339,8 +342,10 @@ export class Room {
     const seats = seated.map((p, i) => ({ id: p.id, name: p.name, seat: i }));
     if (reg.id === 'rulezero') {
       const rz = reg.create() as RuleZeroEngine;
+      const spec = takeRulezeroSpec(this.rulezeroSpecToken);
+      this.rulezeroSpecToken = undefined;
       void rz
-        .createGame(seats, { seed: this.debug.seed })
+        .createGame(seats, { seed: this.debug.seed, spec })
         .catch((err) =>
           console.error('[rulezero] create failed:', err));
       return rz; // views arrive once the service session is live
