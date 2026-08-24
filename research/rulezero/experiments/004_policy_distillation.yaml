@@ -1,0 +1,20 @@
+schemaVersion: 1
+gpuBackend: UNASSIGNED
+seed: 42
+dataset:
+  manifest: reports/cardgym-mini.json
+id: 004_policy_distillation
+title: Distill CFR teacher into policy head
+teacher:
+  source: cfr-cache
+  iterations: 300
+familyScope: all-except-holdout
+splits:
+  - train
+algorithm: policy-distillation
+metrics:
+  - kl-to-teacher
+  - exploitability-approx
+artifacts:
+  - checkpoints/004/
+  - metrics/004.json

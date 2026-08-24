@@ -1,0 +1,19 @@
+schemaVersion: 1
+gpuBackend: UNASSIGNED
+seed: 42
+dataset:
+  manifest: reports/cardgym-mini.json
+id: 006_rules_ablation
+title: Rules conditioning ablation
+arms:
+  conditioning: none
+  conditioning: gamespec-text
+  conditioning: mechanic-embedding
+familyScope: all-except-holdout
+splits:
+  - val
+algorithm: controlled-comparison
+metrics:
+  - heldout-variant-accuracy-per-arm
+artifacts:
+  - metrics/006.json

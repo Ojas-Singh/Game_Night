@@ -123,3 +123,15 @@ Gates: test_gallery.py (15). Totals: 90 pytest + legacy suites green.
 - useRoom.createRoom consumes it: pins gameId=rulezero, seats a CFR AI,
   auto-starts, resolving only when the table is live.
 - Server suites + web build green.
+
+
+### Round 21: CardGym-mini frozen + GPU experiment library ✅
+
+- cardgym.py: deterministic manifest over all 8 gallery families (18
+  variants; mini-bluff grid 9), variant-level train/val/test splits,
+  entire claim + double-or-nothing families held out, mechanic coverage
+  matrix (hidden/chance/bluffing/bidding/reaction/push-luck), canonical
+  hash. Frozen to reports/cardgym-mini.json.
+- experiments/: seven GPU-ready manifests (001 kuhn SFT ... 007 search
+  prior), gpuBackend UNASSIGNED until the 5090 lands.
+- Gates: test_cardgym (6) + test_experiments (4). Totals: 108 pytest green.

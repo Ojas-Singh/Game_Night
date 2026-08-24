@@ -1,0 +1,19 @@
+schemaVersion: 1
+gpuBackend: UNASSIGNED
+seed: 42
+dataset:
+  manifest: reports/cardgym-mini.json
+id: 007_search_prior
+title: Search prior augmentation
+search:
+  kind: mcts
+  simulations: 64
+  scope: perfect-information-probes
+familyScope: all-except-holdout
+splits:
+  - train
+algorithm: distill-search-prior
+metrics:
+  - winrate-vs-cfr-random-mix
+artifacts:
+  - metrics/007.json

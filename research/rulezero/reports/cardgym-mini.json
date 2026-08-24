@@ -1,0 +1,443 @@
+{
+  "coverage": [
+    {
+      "bidding": false,
+      "bluffing": true,
+      "chance": false,
+      "familyId": "claim",
+      "heldOutFamily": true,
+      "hidden": true,
+      "push-luck": false,
+      "reaction": true,
+      "title": "Counter Claim",
+      "variants": 1
+    },
+    {
+      "bidding": false,
+      "bluffing": false,
+      "chance": true,
+      "familyId": "double-or-nothing",
+      "heldOutFamily": true,
+      "hidden": true,
+      "push-luck": true,
+      "reaction": false,
+      "title": "Double or Nothing",
+      "variants": 1
+    },
+    {
+      "bidding": true,
+      "bluffing": false,
+      "chance": true,
+      "familyId": "goofseq",
+      "heldOutFamily": false,
+      "hidden": true,
+      "push-luck": false,
+      "reaction": false,
+      "title": "Prize Bidding",
+      "variants": 1
+    },
+    {
+      "bidding": false,
+      "bluffing": false,
+      "chance": true,
+      "familyId": "hidden-duel",
+      "heldOutFamily": false,
+      "hidden": true,
+      "push-luck": false,
+      "reaction": false,
+      "title": "Hidden Duel",
+      "variants": 1
+    },
+    {
+      "bidding": false,
+      "bluffing": true,
+      "chance": false,
+      "familyId": "kuhnish",
+      "heldOutFamily": false,
+      "hidden": true,
+      "push-luck": false,
+      "reaction": false,
+      "title": "Kuhnish Duel",
+      "variants": 1
+    },
+    {
+      "bidding": false,
+      "bluffing": true,
+      "chance": true,
+      "familyId": "mini-bluff",
+      "heldOutFamily": false,
+      "hidden": true,
+      "push-luck": false,
+      "reaction": false,
+      "title": "Mini Bluff",
+      "variants": 9
+    },
+    {
+      "bidding": false,
+      "bluffing": true,
+      "chance": false,
+      "familyId": "reveal-hold",
+      "heldOutFamily": false,
+      "hidden": true,
+      "push-luck": false,
+      "reaction": false,
+      "title": "Reveal or Hold",
+      "variants": 1
+    },
+    {
+      "bidding": true,
+      "bluffing": false,
+      "chance": false,
+      "familyId": "secret-bid",
+      "heldOutFamily": false,
+      "hidden": true,
+      "push-luck": false,
+      "reaction": false,
+      "title": "Secret Bid",
+      "variants": 1
+    }
+  ],
+  "coverageColumns": [
+    "hidden",
+    "chance",
+    "bluffing",
+    "bidding",
+    "reaction",
+    "push-luck"
+  ],
+  "generatorVersion": 1,
+  "heldOutFamilies": [
+    "claim",
+    "double-or-nothing"
+  ],
+  "manifestHash": "51c9f2bcfbc669eda68cb272fa346c4a838e052797e95915bb186e325449f150",
+  "name": "cardgym-mini",
+  "schemaVersion": 1,
+  "splitsPolicy": "variant-level train/val/test for mutable families; held-out families excluded entirely",
+  "variants": [
+    {
+      "capabilities": {
+        "mechanics": [
+          "bluffing",
+          "hidden",
+          "reaction"
+        ],
+        "players": 2
+      },
+      "familyId": "claim",
+      "generatorVersion": 1,
+      "params": {},
+      "specHash": "4502d50447b8345d9e7f52d86381a6fb91ba266995c5bd995fa948e0034c5244",
+      "split": "holdout-family",
+      "variantId": "claim-v00"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "chance",
+          "hidden",
+          "push-luck"
+        ],
+        "players": 2
+      },
+      "familyId": "double-or-nothing",
+      "generatorVersion": 1,
+      "params": {},
+      "specHash": "22b78ef640b8f163954b6693b21f4bcc2f565a24bed428fadaa35875354019fa",
+      "split": "holdout-family",
+      "variantId": "double-or-nothing-v00"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "bidding",
+          "chance",
+          "hidden"
+        ],
+        "players": 2
+      },
+      "familyId": "goofseq",
+      "generatorVersion": 1,
+      "params": {},
+      "specHash": "614fda9cc7024f70f4c8e2076a8609679cff8c389cce5be1b312ac2b28e20be4",
+      "split": "train",
+      "variantId": "goofseq-v00"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "chance",
+          "hidden"
+        ],
+        "players": 2
+      },
+      "familyId": "hidden-duel",
+      "generatorVersion": 1,
+      "params": {},
+      "specHash": "7925110a4060197de6faced0e627b21a12b8438cb9c1e3fa726af531edfeda18",
+      "split": "train",
+      "variantId": "hidden-duel-v00"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "bluffing",
+          "hidden"
+        ],
+        "players": 2
+      },
+      "familyId": "kuhnish",
+      "generatorVersion": 1,
+      "params": {},
+      "specHash": "ed7dc6fec60efac21ddacceee5c3275ca1f1875363e1c2b6119c5a39ab8a304b",
+      "split": "train",
+      "variantId": "kuhnish-v00"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "bluffing",
+          "chance",
+          "hidden"
+        ],
+        "players": 2
+      },
+      "familyId": "mini-bluff",
+      "generatorVersion": 1,
+      "params": {
+        "bet_size": 1,
+        "ranks": [
+          9,
+          10,
+          11
+        ]
+      },
+      "specHash": "200623b5d23a9d59f35270cdf44e8cdb2b41a0ad7b14053c1f1430e16e249e45",
+      "split": "train",
+      "variantId": "mini-bluff-v00"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "bluffing",
+          "chance",
+          "hidden"
+        ],
+        "players": 2
+      },
+      "familyId": "mini-bluff",
+      "generatorVersion": 1,
+      "params": {
+        "bet_size": 1,
+        "ranks": [
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      "specHash": "979990e23a71aac6667bed00e2926bff226d67e7f590c29e7f0cdeaab360c2a8",
+      "split": "train",
+      "variantId": "mini-bluff-v01"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "bluffing",
+          "chance",
+          "hidden"
+        ],
+        "players": 2
+      },
+      "familyId": "mini-bluff",
+      "generatorVersion": 1,
+      "params": {
+        "bet_size": 1,
+        "ranks": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      "specHash": "fca5fff1434e8d5c66842847de0af694b9f34abe26ac22b8196f9ef813e1ccb4",
+      "split": "train",
+      "variantId": "mini-bluff-v02"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "bluffing",
+          "chance",
+          "hidden"
+        ],
+        "players": 2
+      },
+      "familyId": "mini-bluff",
+      "generatorVersion": 1,
+      "params": {
+        "bet_size": 2,
+        "ranks": [
+          9,
+          10,
+          11
+        ]
+      },
+      "specHash": "a5fe89490ed509a52d749a949408af29d887f832db4980965420237212a12072",
+      "split": "train",
+      "variantId": "mini-bluff-v03"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "bluffing",
+          "chance",
+          "hidden"
+        ],
+        "players": 2
+      },
+      "familyId": "mini-bluff",
+      "generatorVersion": 1,
+      "params": {
+        "bet_size": 2,
+        "ranks": [
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      "specHash": "ccb9c6ab5618c14b47f012828b98a42eb196ddc4b6a7d661e4ee233b5480b998",
+      "split": "train",
+      "variantId": "mini-bluff-v04"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "bluffing",
+          "chance",
+          "hidden"
+        ],
+        "players": 2
+      },
+      "familyId": "mini-bluff",
+      "generatorVersion": 1,
+      "params": {
+        "bet_size": 2,
+        "ranks": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      "specHash": "8e0184c3a2c28b85cd128e34e493124269c4a9b596ba9a89a6e53b990284e789",
+      "split": "train",
+      "variantId": "mini-bluff-v05"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "bluffing",
+          "chance",
+          "hidden"
+        ],
+        "players": 2
+      },
+      "familyId": "mini-bluff",
+      "generatorVersion": 1,
+      "params": {
+        "bet_size": 3,
+        "ranks": [
+          9,
+          10,
+          11
+        ]
+      },
+      "specHash": "f35308687b0897a24406dd994611eb87b749cf265bcda6498ac835864143b2ef",
+      "split": "train",
+      "variantId": "mini-bluff-v06"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "bluffing",
+          "chance",
+          "hidden"
+        ],
+        "players": 2
+      },
+      "familyId": "mini-bluff",
+      "generatorVersion": 1,
+      "params": {
+        "bet_size": 3,
+        "ranks": [
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      "specHash": "923c05cf84f571cd4ede27349bd08add748628a4a6be2e0b37c0f6f9c464cbc7",
+      "split": "val",
+      "variantId": "mini-bluff-v07"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "bluffing",
+          "chance",
+          "hidden"
+        ],
+        "players": 2
+      },
+      "familyId": "mini-bluff",
+      "generatorVersion": 1,
+      "params": {
+        "bet_size": 3,
+        "ranks": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      },
+      "specHash": "c1d5805046c8d034acb68b90d1f9d232adb60a3a46601cbb77a4b1605dad64e1",
+      "split": "test",
+      "variantId": "mini-bluff-v08"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "bluffing",
+          "hidden"
+        ],
+        "players": 2
+      },
+      "familyId": "reveal-hold",
+      "generatorVersion": 1,
+      "params": {},
+      "specHash": "6906e0d70fb68f28a502a8336607a5f47c4c2bd1d9b4a183d27b8f8fb2b4db71",
+      "split": "train",
+      "variantId": "reveal-hold-v00"
+    },
+    {
+      "capabilities": {
+        "mechanics": [
+          "bidding",
+          "hidden"
+        ],
+        "players": 2
+      },
+      "familyId": "secret-bid",
+      "generatorVersion": 1,
+      "params": {},
+      "specHash": "8134813858c2aa29401093b2255a3c95274b95652b04ce523a2d686daca8912e",
+      "split": "train",
+      "variantId": "secret-bid-v00"
+    }
+  ]
+}

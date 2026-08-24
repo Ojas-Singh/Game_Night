@@ -1,0 +1,21 @@
+schemaVersion: 1
+gpuBackend: UNASSIGNED
+seed: 42
+dataset:
+  manifest: reports/cardgym-mini.json
+id: 002_multigame_sft
+title: Multi-game rules-conditioned SFT
+familyScope: all-except-holdout
+splits:
+  - train
+views:
+  - gamespec+state
+  - state-only
+model:
+  requirement: cpu-tiny
+algorithm: sft-policy
+metrics:
+  - imitation-accuracy-per-family
+artifacts:
+  - checkpoints/002/
+  - metrics/002.json

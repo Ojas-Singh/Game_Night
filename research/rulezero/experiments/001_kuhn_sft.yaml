@@ -1,0 +1,22 @@
+schemaVersion: 1
+gpuBackend: UNASSIGNED
+seed: 42
+dataset:
+  manifest: reports/cardgym-mini.json
+id: 001_kuhn_sft
+title: Kuhn SFT baseline
+familyScope:
+  - kuhnish
+  - mini-bluff
+splits:
+  - train
+model:
+  requirement: cpu-tiny
+  paramsApprox: 1M
+algorithm: sft-action
+epochs: 3
+metrics:
+  - imitation-accuracy
+artifacts:
+  - checkpoints/001/
+  - metrics/001.json

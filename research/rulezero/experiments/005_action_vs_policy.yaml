@@ -1,0 +1,19 @@
+schemaVersion: 1
+gpuBackend: UNASSIGNED
+seed: 42
+dataset:
+  manifest: reports/cardgym-mini.json
+id: 005_action_vs_policy
+title: Action-label vs full-policy supervision
+arms:
+  supervision: argmax-action
+  supervision: full-policy
+familyScope: all-except-holdout
+splits:
+  - train
+algorithm: controlled-comparison
+metrics:
+  - imitation-accuracy
+  - zero-shot-transfer
+artifacts:
+  - metrics/005.json

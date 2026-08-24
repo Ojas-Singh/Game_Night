@@ -1,0 +1,19 @@
+schemaVersion: 1
+gpuBackend: UNASSIGNED
+seed: 42
+dataset:
+  manifest: reports/cardgym-mini.json
+id: 003_holdout_family
+title: Zero-shot held-out family transfer
+familyScope: holdout-families-only
+splits:
+  - holdout-family
+model:
+  requirement: cpu-tiny
+algorithm: eval-only
+requires: 002_multigame_sft@best
+metrics:
+  - zero-shot-winrate-vs-random
+  - imitation-accuracy
+artifacts:
+  - metrics/003.json
