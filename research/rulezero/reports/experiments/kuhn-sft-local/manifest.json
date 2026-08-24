@@ -1,0 +1,38 @@
+{
+  "experiment": "kuhn-cfr-sft",
+  "game": "kuhn_poker",
+  "renderer": "rulezero-action-only-v1",
+  "backend": {
+    "kind": "local",
+    "requested": "local",
+    "model_id": "tabular-v0"
+  },
+  "training_algorithm": {
+    "algorithm": "sft",
+    "epochs": 3,
+    "examples": 12,
+    "final_epoch_error_rate": 0.0
+  },
+  "seed": 0,
+  "epochs": 3,
+  "checkpoint_sha256": "8aac2fb5c464f3f0badf0eca69272cd2b8819242852be61fb515a283e96ef7f5",
+  "open_spiel_version": "2.0.2",
+  "metrics": {
+    "teacher_exploitability": 0.006659206272642992,
+    "cfr_iterations": 200,
+    "dataset_size": 12,
+    "imitation_accuracy": 1.0,
+    "vs_random": {
+      "avg_return_p0": 0.21,
+      "games": 200,
+      "illegal_forced": 0
+    },
+    "parse_rate": 1.0,
+    "wall_seconds": 0.082
+  },
+  "notes": [
+    "Teacher is OpenSpiel CFRSolver average policy (no reimplementation).",
+    "Candidate ids are dense A0..An; environmentActionIds preserved.",
+    "LocalBackend is the offline control proving pipeline correctness."
+  ]
+}

@@ -1,0 +1,218 @@
+[
+  {
+    "info_state_key": "0",
+    "prompt": "RULES Kuhn poker: 2 players; deck {J,Q,K} x1 each. Each antes 1. One card each, fold/check/bet/call rules as standard Kuhn. Actions here are always [check-or-fold, bet-or-call].\nSTATE 0\nACTIONS A0=check/fold | A1=bet/call\nANSWER:",
+    "candidates": [
+      "A0",
+      "A1"
+    ],
+    "target": "A0",
+    "environment_action_ids": [
+      0,
+      1
+    ],
+    "teacher_probs": [
+      0.8075336240849778,
+      0.1924663759150222
+    ],
+    "weight": 1.0
+  },
+  {
+    "info_state_key": "1p",
+    "prompt": "RULES Kuhn poker: 2 players; deck {J,Q,K} x1 each. Each antes 1. One card each, fold/check/bet/call rules as standard Kuhn. Actions here are always [check-or-fold, bet-or-call].\nSTATE 1p\nACTIONS A0=check/fold | A1=bet/call\nANSWER:",
+    "candidates": [
+      "A0",
+      "A1"
+    ],
+    "target": "A0",
+    "environment_action_ids": [
+      0,
+      1
+    ],
+    "teacher_probs": [
+      0.9825,
+      0.0175
+    ],
+    "weight": 1.0
+  },
+  {
+    "info_state_key": "0pb",
+    "prompt": "RULES Kuhn poker: 2 players; deck {J,Q,K} x1 each. Each antes 1. One card each, fold/check/bet/call rules as standard Kuhn. Actions here are always [check-or-fold, bet-or-call].\nSTATE 0pb\nACTIONS A0=check/fold | A1=bet/call\nANSWER:",
+    "candidates": [
+      "A0",
+      "A1"
+    ],
+    "target": "A0",
+    "environment_action_ids": [
+      0,
+      1
+    ],
+    "teacher_probs": [
+      0.9984520768390092,
+      0.0015479231609908295
+    ],
+    "weight": 1.0
+  },
+  {
+    "info_state_key": "1b",
+    "prompt": "RULES Kuhn poker: 2 players; deck {J,Q,K} x1 each. Each antes 1. One card each, fold/check/bet/call rules as standard Kuhn. Actions here are always [check-or-fold, bet-or-call].\nSTATE 1b\nACTIONS A0=check/fold | A1=bet/call\nANSWER:",
+    "candidates": [
+      "A0",
+      "A1"
+    ],
+    "target": "A1",
+    "environment_action_ids": [
+      0,
+      1
+    ],
+    "teacher_probs": [
+      0.6588140402402817,
+      0.3411859597597183
+    ],
+    "weight": 1.0
+  },
+  {
+    "info_state_key": "2p",
+    "prompt": "RULES Kuhn poker: 2 players; deck {J,Q,K} x1 each. Each antes 1. One card each, fold/check/bet/call rules as standard Kuhn. Actions here are always [check-or-fold, bet-or-call].\nSTATE 2p\nACTIONS A0=check/fold | A1=bet/call\nANSWER:",
+    "candidates": [
+      "A0",
+      "A1"
+    ],
+    "target": "A1",
+    "environment_action_ids": [
+      0,
+      1
+    ],
+    "teacher_probs": [
+      0.005,
+      0.995
+    ],
+    "weight": 1.0
+  },
+  {
+    "info_state_key": "2b",
+    "prompt": "RULES Kuhn poker: 2 players; deck {J,Q,K} x1 each. Each antes 1. One card each, fold/check/bet/call rules as standard Kuhn. Actions here are always [check-or-fold, bet-or-call].\nSTATE 2b\nACTIONS A0=check/fold | A1=bet/call\nANSWER:",
+    "candidates": [
+      "A0",
+      "A1"
+    ],
+    "target": "A1",
+    "environment_action_ids": [
+      0,
+      1
+    ],
+    "teacher_probs": [
+      0.0025,
+      0.9975
+    ],
+    "weight": 1.0
+  },
+  {
+    "info_state_key": "1",
+    "prompt": "RULES Kuhn poker: 2 players; deck {J,Q,K} x1 each. Each antes 1. One card each, fold/check/bet/call rules as standard Kuhn. Actions here are always [check-or-fold, bet-or-call].\nSTATE 1\nACTIONS A0=check/fold | A1=bet/call\nANSWER:",
+    "candidates": [
+      "A0",
+      "A1"
+    ],
+    "target": "A0",
+    "environment_action_ids": [
+      0,
+      1
+    ],
+    "teacher_probs": [
+      0.9625395929953616,
+      0.03746040700463836
+    ],
+    "weight": 1.0
+  },
+  {
+    "info_state_key": "0p",
+    "prompt": "RULES Kuhn poker: 2 players; deck {J,Q,K} x1 each. Each antes 1. One card each, fold/check/bet/call rules as standard Kuhn. Actions here are always [check-or-fold, bet-or-call].\nSTATE 0p\nACTIONS A0=check/fold | A1=bet/call\nANSWER:",
+    "candidates": [
+      "A0",
+      "A1"
+    ],
+    "target": "A0",
+    "environment_action_ids": [
+      0,
+      1
+    ],
+    "teacher_probs": [
+      0.6733609264455915,
+      0.3266390735544084
+    ],
+    "weight": 1.0
+  },
+  {
+    "info_state_key": "1pb",
+    "prompt": "RULES Kuhn poker: 2 players; deck {J,Q,K} x1 each. Each antes 1. One card each, fold/check/bet/call rules as standard Kuhn. Actions here are always [check-or-fold, bet-or-call].\nSTATE 1pb\nACTIONS A0=check/fold | A1=bet/call\nANSWER:",
+    "candidates": [
+      "A0",
+      "A1"
+    ],
+    "target": "A1",
+    "environment_action_ids": [
+      0,
+      1
+    ],
+    "teacher_probs": [
+      0.47878609828781615,
+      0.5212139017121838
+    ],
+    "weight": 1.0
+  },
+  {
+    "info_state_key": "0b",
+    "prompt": "RULES Kuhn poker: 2 players; deck {J,Q,K} x1 each. Each antes 1. One card each, fold/check/bet/call rules as standard Kuhn. Actions here are always [check-or-fold, bet-or-call].\nSTATE 0b\nACTIONS A0=check/fold | A1=bet/call\nANSWER:",
+    "candidates": [
+      "A0",
+      "A1"
+    ],
+    "target": "A0",
+    "environment_action_ids": [
+      0,
+      1
+    ],
+    "teacher_probs": [
+      0.9975,
+      0.0025
+    ],
+    "weight": 1.0
+  },
+  {
+    "info_state_key": "2",
+    "prompt": "RULES Kuhn poker: 2 players; deck {J,Q,K} x1 each. Each antes 1. One card each, fold/check/bet/call rules as standard Kuhn. Actions here are always [check-or-fold, bet-or-call].\nSTATE 2\nACTIONS A0=check/fold | A1=bet/call\nANSWER:",
+    "candidates": [
+      "A0",
+      "A1"
+    ],
+    "target": "A0",
+    "environment_action_ids": [
+      0,
+      1
+    ],
+    "teacher_probs": [
+      0.42340566680013436,
+      0.5765943331998655
+    ],
+    "weight": 1.0
+  },
+  {
+    "info_state_key": "2pb",
+    "prompt": "RULES Kuhn poker: 2 players; deck {J,Q,K} x1 each. Each antes 1. One card each, fold/check/bet/call rules as standard Kuhn. Actions here are always [check-or-fold, bet-or-call].\nSTATE 2pb\nACTIONS A0=check/fold | A1=bet/call\nANSWER:",
+    "candidates": [
+      "A0",
+      "A1"
+    ],
+    "target": "A1",
+    "environment_action_ids": [
+      0,
+      1
+    ],
+    "teacher_probs": [
+      0.0029522514647638224,
+      0.9970477485352361
+    ],
+    "weight": 1.0
+  }
+]
