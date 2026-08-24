@@ -1,0 +1,50 @@
+# §20: CI installs the locked core research environment and runs the
+# deterministic test suites. Provider extras ([tinker]/[train]/[local-gpu])
+# are deliberately NOT installed — core must stay provider-free.
+name: rulezero-deterministic
+
+on:
+  push:
+    branches: [research/rulezero-openspiel, main]
+  pull_request:
+
+jobs:
+  python-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pinned core (no provider extras)
+        run: |
+          python -m pip install --upgrade pip
+          pip install "open_spiel==2.0.2" "numpy>=1.26,<3" pytest
+      - name: Deterministic research suites
+        working-directory: research/rulezero
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m pytest rulezero/ -q
+          for t in test_cabo_env test_cabo_info test_gamespec \
+                   test_ir_games test_compliance; do
+            python rulezero/$t.py
+          done
+
+  workspace-typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck + unit tests + build
+        run: |
+          pnpm -w --filter '*' exec tsc -b || pnpm -w typecheck
+          pnpm -w test
+          pnpm --filter web build
