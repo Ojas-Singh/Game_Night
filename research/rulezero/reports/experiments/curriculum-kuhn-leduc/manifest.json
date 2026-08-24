@@ -1,0 +1,54 @@
+{
+  "experiment": "curriculum-cfr-sft",
+  "tasks": [
+    "kuhn_poker",
+    "leduc_poker"
+  ],
+  "renderer": "rulezero-action-only-v1",
+  "shared_model": true,
+  "backend": {
+    "kind": "local",
+    "model_id": "tabular-v0"
+  },
+  "training_algorithm": {
+    "algorithm": "sft",
+    "epochs": 3,
+    "examples": 948,
+    "final_epoch_error_rate": 0.0
+  },
+  "seed": 0,
+  "epochs": 3,
+  "checkpoint_sha256": "7ba32c5a1d866ac8e4c210bb36926fb9dd9a342e4dda36499df798740ffe9db0",
+  "open_spiel_version": "2.0.2",
+  "metrics": {
+    "teachers": {
+      "kuhn_poker": {
+        "exploitability": 0.012895764160561263,
+        "iterations": 150
+      },
+      "leduc_poker": {
+        "exploitability": 0.1253177432718789,
+        "iterations": 150
+      }
+    },
+    "dataset_sizes": {
+      "kuhn_poker": 12,
+      "leduc_poker": 936
+    },
+    "union_size": 948,
+    "wall_seconds": 6.85,
+    "parse_rate": 1.0,
+    "kuhn_poker/imitation_accuracy": 1.0,
+    "kuhn_poker/vs_random": {
+      "avg_return_p0": 0.21,
+      "games": 200,
+      "illegal_forced": 0
+    },
+    "leduc_poker/imitation_accuracy": 1.0,
+    "leduc_poker/vs_random": {
+      "avg_return_p0": 0.74,
+      "games": 200,
+      "illegal_forced": 0
+    }
+  }
+}
