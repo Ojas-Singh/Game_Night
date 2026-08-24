@@ -2508,3 +2508,11 @@
 .gamelab-play-row .gamelab-play { margin-top:0; flex:1; padding:7px 0; }
 .gamelab-play-ai { background:#8a5fc9; }
 .gamelab-play-ai:hover { background:#9d74dd; }
+
+.rz-review { margin-top: 18px; border-top: 1px solid rgba(255,255,255,.15); padding-top: 12px; }
+.rz-review h3 { margin: 0; color: #9ecbff; }
+.rz-review .muted { font-size:.8rem; }
+.rz-review-step { margin: 10px 0; }
+.rz-review-head { font-weight: 600; }
+.rz-good { color: #58d68d; } .rz-bad { color: #ff9f9f; }
+.rz-review ul { list-style:none; padding:0; margin:4px 0 0; font-size:.85rem; display:flex; gap:14px; flex-wrap:wrap; }

@@ -43,6 +43,25 @@ class Session:
         # chance nodes (§6); this player-facing wrapper samples them so
         # clients (which must never drive randomness) see only decisions.
         self._rng = random.Random(0 if seed is None else int(seed))
+        # §14 post-game review log: every human-visible decision, with the
+        # actor's own information state and labeled candidates.
+        self.review_log: list[dict] = []
+
+    def _record_decision(self):
+        st = self.state
+        if st.is_terminal() or st.is_chance_node():
+            return
+        player = st.current_player()
+        legal = sorted(st.legal_actions(player))
+        self.review_log.append({
+            "player": int(player),
+            "infoState": st.information_state_string(player),
+            "candidates": [
+                {"environmentActionId": a,
+                 "label": st.action_to_string(player, a)}
+                for a in legal
+            ],
+        })
 
     def _resolve_chance(self):
         guard = 0
@@ -333,6 +352,39 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
                              "params": rec.get("params") or {}}
         except Exception as e:  # noqa: BLE001
             return session, {"ok": False, "error": str(e)}
+    if op == "labReview":
+        """Compare logged decisions against the CFR reference (S14).
+        Uses only actor-visible info states."""
+        from .solver_agents import CFRAgent
+
+        try:
+            agent = CFRAgent(session.ir, int(msg.get("iterations", 300)))
+            out = []
+            for i, d in enumerate(session.review_log):
+                legal, probs = agent.probs_for(d["infoState"])
+                by_id = dict(zip(legal, probs))
+                scored = sorted(
+                    ((c["label"], float(by_id.get(
+                        c["environmentActionId"], 0.0)))
+                     for c in d["candidates"]),
+                    key=lambda kv: kv[1], reverse=True)
+                chosen = next((c for c in d["candidates"]
+                               if c["environmentActionId"]
+                               == d.get("chosenAction")), None)
+                out.append({
+                    "step": i,
+                    "player": d["player"],
+                    "chosen": (chosen or {}).get("label"),
+                    "referenceTop": (scored[0][0], round(scored[0][1], 3))
+                    if scored else None,
+                    "distribution": [(lb, round(pr, 3))
+                                     for lb, pr in scored],
+                })
+            return session, {"ok": True,
+                             "nashConv": agent.meta.get("nashConv"),
+                             "review": out}
+        except Exception as e:  # noqa: BLE001
+            return session, {"ok": False, "error": str(e)}
     if op == "create":
         seed = msg.get("seed")
         session = Session(msg["spec"], None if seed is None else int(seed))
@@ -351,6 +403,8 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
                 else st.legal_actions(st.current_player())
             return session, {"ok": True, "actions": acts}
         if op == "apply":
+            if msg.get("review"):
+                session._record_decision()
             session.state.apply_action(int(msg["action"]))
             session._resolve_chance()
             return session, {"ok": True,

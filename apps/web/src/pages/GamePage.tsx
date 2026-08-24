@@ -67,6 +67,7 @@ export default function GamePage({ room }: { room: RoomApi }) {
       return (
         <RuleZeroTable
           view={view.rz}
+          review={view.review}
           onAction={(envActionId) =>
             void room.sendAction({
               type: 'RZ_APPLY',

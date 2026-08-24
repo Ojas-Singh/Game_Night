@@ -11,6 +11,16 @@ import type { PairOnePlayerView } from '@pairone/views.js';
 /** Opaque view from the internal rulezero service (§16) — rendered
  * generically by RuleZeroTable. */
 export interface RuleZeroPlayerView {
+  review?: {
+    nashConv: number | null;
+    decisions: {
+      step: number;
+      player: number;
+      chosen?: string | null;
+      referenceTop?: [string, number] | null;
+      distribution: [string, number][];
+    }[];
+  };
   gameId: 'rulezero';
   rz: {
     protocol: string;

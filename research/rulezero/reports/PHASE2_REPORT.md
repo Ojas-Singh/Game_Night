@@ -149,3 +149,17 @@ Gates: test_gallery.py (15). Totals: 90 pytest + legacy suites green.
   launching a room from any family mutation via params.
 - Verified LIVE: hidden-duel share -> resolve -> room token. 111 pytest +
   workspace suites green.
+
+
+### Round 23: Post-game GAME REVIEW (S14) ✅
+
+- Sessions log every decision (actor info state + labeled candidates);
+  apply accepts review:true so humans are reviewed too.
+- labReview op compares each logged decision against the CFR reference
+  distribution keyed by info state only (no hidden zones); returns
+  per-step chosen vs referenceTop + full labeled distribution + NashConv.
+- rulezeroEngine caches the review once per finished game and attaches it
+  to terminal views; RuleZeroTable renders GAME REVIEW with per-turn
+  reference bars (chosen action highlighted green/red).
+- Verified: kuhnish episode -> 2 decisions reviewed vs CFR (NashConv
+  0.0058). All suites green.

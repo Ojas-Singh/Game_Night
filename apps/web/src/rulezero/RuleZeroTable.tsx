@@ -48,9 +48,20 @@ function ZoneBox({ zone, viewer }: { zone: ServiceZone; viewer: number }) {
 
 export default function RuleZeroTable({
   view,
+  review,
   onAction,
 }: {
   view: ServiceView;
+  review?: {
+    nashConv: number | null;
+    decisions: {
+      step: number;
+      player: number;
+      chosen?: string | null;
+      referenceTop?: [string, number] | null;
+      distribution: [string, number][];
+    }[];
+  };
   onAction?: (envActionId: number) => void;
 }) {
   const [showInfo, setShowInfo] = useState(false);
@@ -125,6 +136,38 @@ export default function RuleZeroTable({
       </button>
       {showInfo && (
         <pre className="rz-info">{view.informationState}</pre>
+      )}
+      {view.isTerminal && review && review.decisions.length > 0 && (
+        <section className="rz-review">
+          <h3>Game Review</h3>
+          <p className="muted">
+            Reference strategy: CFR solver · exploitability{' '}
+            {review.nashConv != null
+              ? `NashConv ${review.nashConv.toFixed(4)}`
+              : 'n/a'}
+          </p>
+          {review.decisions.map((d) => (
+            <div key={d.step} className="rz-review-step">
+              <div className="rz-review-head">
+                Turn {d.step + 1} · seat {d.player}
+                {d.referenceTop && d.chosen && (
+                  <span className={d.chosen === d.referenceTop[0]
+                    ? ' rz-good' : ' rz-bad'}>
+                    {' '}you chose: {d.chosen.replace(/^A\d+:/, '')}
+                  </span>
+                )}
+              </div>
+              <ul>
+                {d.distribution.map(([label, p]) => (
+                  <li key={label}>
+                    {label.replace(/^A\d+:/, '')}{' '}
+                    <strong>{Math.round(p * 100)}%</strong>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
       )}
     </div>
   );

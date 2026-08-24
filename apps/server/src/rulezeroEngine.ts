@@ -39,6 +39,16 @@ export interface RZServiceView {
 }
 
 export interface RuleZeroPlayerView {
+  review?: {
+    nashConv: number | null;
+    decisions: {
+      step: number;
+      player: number;
+      chosen?: string | null;
+      referenceTop?: [string, number] | null;
+      distribution: [string, number][];
+    }[];
+  };
   gameId: 'rulezero';
   rz: RZServiceView;
 }
@@ -259,9 +269,38 @@ export class RuleZeroEngine {
       });
       this.lastReturns = r.returns ?? null;
     }
-    if (!res.view.isTerminal) this.terminal = false;
-    return { gameId: 'rulezero' as const, rz: res.view };
+    if (!res.view.isTerminal) {
+      this.terminal = false;
+      this.cachedReview = undefined;
+      return { gameId: 'rulezero' as const, rz: res.view };
+    }
+    // Terminal: attach the GAME REVIEW (S14) once per finished game.
+    if (this.cachedReview === undefined) {
+      try {
+        const rev = await this.askOrdered<{
+          ok: boolean; nashConv?: number | null;
+          review?: {
+            step: number; player: number;
+            chosen?: string | null;
+            referenceTop?: [string, number] | null;
+            distribution: [string, number][];
+          }[];
+        }>({ op: 'labReview', iterations: 300 });
+        this.cachedReview = rev.ok
+          ? { nashConv: rev.nashConv ?? null, decisions: rev.review ?? [] }
+          : undefined;
+      } catch {
+        this.cachedReview = undefined;
+      }
+    }
+    return {
+      gameId: 'rulezero' as const,
+      rz: res.view,
+      review: this.cachedReview ?? undefined,
+    };
   }
+
+  private cachedReview: RuleZeroPlayerView['review'];
 
   async handleActionAsync(
     playerId: string,
@@ -275,6 +314,7 @@ export class RuleZeroEngine {
       const r = await this.askOrdered<{ isTerminal: boolean }>({
         op: 'apply',
         action: actionIndex,
+        review: true,
       });
       this.terminal = r.isTerminal;
       if (r.isTerminal) {
