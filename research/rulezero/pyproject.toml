@@ -11,6 +11,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+# §20: optional capability groups — core stays provider-free.
+train = ["torch>=2.2"]
+tinker = ["tinker"]
+local-gpu = ["torch>=2.2", "llama-cpp-python"]
 
 [build-system]
 requires = ["setuptools>=68"]
