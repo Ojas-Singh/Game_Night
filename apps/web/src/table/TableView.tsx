@@ -377,32 +377,29 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
           {room.testMode ? 'TEST ON' : 'TEST'}
         </button>
       )}
-      <button
-        className="leave-toggle"
-        onClick={() => {
-          if (!window.confirm('Leave this room entirely? (Hosts: use "End game" to send everyone to the lobby instead.)')) return;
-          room.leaveRoom();
-          window.location.hash = '#/';
-        }}
-        aria-label="Leave the room"
-        title="Leave the room and go home (host: prefer End game)"
-      >
-        🚪
-      </button>
-      {room.lobby?.hostId === room.myPlayerId && (
-        <button
-          className="endgame-toggle"
-          onClick={() => {
-            if (window.confirm('End the current game and take everyone back to the lobby?')) {
-              room.endGame();
-            }
-          }}
-          aria-label="End game and return to the lobby (host)"
-          title="End the current game — everyone returns to this room's lobby (host)"
-        >
-          ⏹ Back to lobby
-        </button>
-      )}
+      {(() => {
+        const isHost = room.lobby?.hostId === room.myPlayerId;
+        const inGame = !!view.gameId;
+        const backToLobby = isHost && inGame;
+        return (
+          <button
+            className={`leave-toggle ${backToLobby ? 'as-endgame' : ''}`}
+            onClick={() => {
+              if (backToLobby) {
+                if (window.confirm('End the current game and return everyone to this room\'s lobby?')) room.endGame();
+              } else {
+                if (!window.confirm('Leave this room entirely and go home?')) return;
+                room.leaveRoom();
+                window.location.hash = '#/';
+              }
+            }}
+            aria-label={backToLobby ? 'Back to lobby (end current game)' : 'Leave the room'}
+            title={backToLobby ? 'End the current game — everyone returns to the lobby' : 'Leave the room and go home'}
+          >
+            {backToLobby ? '⏹' : '🚪'}
+          </button>
+        );
+      })()}
       {room.lobby?.hostId === room.myPlayerId && (
         <button
           className="restart-toggle"
@@ -475,6 +472,7 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
                           cardId={cardId}
                           card={known ?? null}
                           faceDown={!revealed}
+                          justDrawn={!!room.drawFlash?.[cardId]}
                           seenMarker={!!known && !revealed}
                           contentRotate={-seat.facing}
                           small
@@ -503,7 +501,7 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
           return (
             <button
               key={`pill-${p.id}`}
-              className={`seat-who who-${seat.whoSide}`}
+              className={`seat-who who-${seat.whoSide} ${isTurn ? 'is-turn-pill' : ''}`}
               style={style}
               onClick={() => onOpponentClick(p.id)}
             >

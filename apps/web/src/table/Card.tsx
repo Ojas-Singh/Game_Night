@@ -17,6 +17,8 @@ export interface CardProps {
   seenMarker?: boolean;
   small?: boolean;
   drawn?: boolean;
+  /** Golden shimmer right after an opponent drew this card. */
+  justDrawn?: boolean;
   highlight?: boolean;
   dimmed?: boolean;
   lifted?: boolean;
@@ -46,6 +48,7 @@ export default function Card({
   seenMarker = false,
   small = false,
   drawn = false,
+  justDrawn = false,
   highlight = false,
   dimmed = false,
   lifted = false,
@@ -72,8 +75,7 @@ export default function Card({
       className={`pcard ${small ? 'small' : ''} ${faceDown ? 'facedown' : 'faceup'} ${swapped ? 'swapped' : ''} ${
         highlight ? 'highlight' : ''
       } ${dimmed ? 'dimmed' : ''} ${lifted ? 'lifted' : ''} ${selectable ? 'selectable' : ''} ${
-        drawn ? 'drawn' : ''
-      } ${interactive ? 'clickable' : ''} ${seenMarker ? 'seen' : ''} ${test ? 'test' : ''}`}
+        drawn ? 'drawn' : ''} ${justDrawn ? 'just-drawn' : ''} ${interactive ? 'clickable' : ''} ${seenMarker ? 'seen' : ''} ${test ? 'test' : ''}`}
       onClick={onClick}
       disabled={!interactive}
       aria-label={faceDown ? (card ? `face-down card (you saw this one)` : 'face-down card') : card ? `${RANK_LABELS[card.rank]} of ${card.suit}` : 'card'}

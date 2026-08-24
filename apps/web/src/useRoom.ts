@@ -66,6 +66,7 @@ export function collectFlights(
   prev: AnyGameView,
   next: AnyGameView,
   myPlayerId?: string | null,
+  noteDrawn?: (cardId: string) => void,
 ): CardFlight[] {
   // Card flights are a Cabo-table feature; Pair One animates its own way.
   if (next.gameId !== 'cabo' || prev.gameId !== 'cabo') return [];
@@ -96,12 +97,21 @@ export function collectFlights(
       // The drawn card flies from the deck to the DRAWING player — their seat
       // for opponents, the local draw slot for me (no rank: it's secret).
       const drawer = String(ev.playerId ?? '');
+      // Identify the exact NEW card in their hand (diff vs previous view) so
+      // the flight lands on that precise slot instead of the hand centre.
+      let landedCardId: string | undefined;
+      if (drawer !== myPlayerId && prev) {
+        const before = new Set(prev.handCardIds?.[drawer] ?? []);
+        landedCardId = (next.handCardIds?.[drawer] ?? []).find((id) => !before.has(id));
+        if (landedCardId) noteDrawn?.(landedCardId);
+      }
       out.push({
         id: `${ev.type}-${ev.seq}`,
         seq: ev.seq,
         fromPlayerId: 'deck',
         toDiscard: false,
         toPlayerId: drawer === myPlayerId ? undefined : drawer,
+        toCardId: drawer === myPlayerId ? undefined : landedCardId,
         rank,
       });
     } else if (ev.type === 'POWER_RESOLVED') {
@@ -200,6 +210,8 @@ export interface RoomApi {
   unreadChat: number;
   /** Cards currently in their reveal window (face-up): { at, ms }. */
   peekFlash: Record<string, { at: number; ms: number }>;
+  /** Cards just drawn by ANOTHER player — golden landing shimmer. */
+  drawFlash: Record<string, number>;
   /** Recent card movements to animate as flying cards (source → destination). */
   flights: CardFlight[];
   /** Most recent emote per player: playerId → { emote, at }. */
@@ -265,6 +277,7 @@ export function useRoom(): RoomApi {
   const activeRoomRef = useRef<string | null>(null);
   /** Cards in their reveal window → rendered face-up briefly, then flip down. */
   const [peekFlash, setPeekFlash] = useState<Record<string, { at: number; ms: number }>>({});
+  const [drawFlash, setDrawFlash] = useState<Record<string, number>>({});
   /** Latest applied game:view — side effects diff against this OUTSIDE any
    *  React updater (StrictMode re-invokes updaters; impure ones lose updates,
    *  which is why the starting peek used to never flash). */
@@ -404,7 +417,16 @@ export function useRoom(): RoomApi {
       flashKnowledge(prev, v);
       if (!prev || prev.gameId !== 'cabo' || v.gameId !== 'cabo') return;
       // cabo-only flight/eye machinery below
-      const fresh = collectFlights(prev, v, myIdRef.current);
+      const fresh = collectFlights(prev, v, myIdRef.current, (cardId) => {
+        // Golden landing shimmer when the flight touches down (~flight time).
+        setTimeout(() => {
+          setDrawFlash((m) => ({ ...m, [cardId]: Date.now() }));
+          setTimeout(() => setDrawFlash((m) => {
+            if (!(cardId in m)) return m;
+            const cp = { ...m }; delete cp[cardId]; return cp;
+          }), 1500);
+        }, 620);
+      });
       if (fresh.length > 0) {
         setFlights((cur) => [...cur, ...fresh].slice(-8));
       }
@@ -599,6 +621,7 @@ export function useRoom(): RoomApi {
       view,
       chat,
       peekFlash,
+      drawFlash,
       emotes,
       peekMarks,
       swapMarks,
