@@ -476,8 +476,12 @@ export class CaboEngine {
         return;
       }
       case 'END_TURN': {
-        // Zero cards no longer auto-calls Cabo: an empty-handed player simply
-        // sits out (advanceTurn skips them); Cabo stays a deliberate call.
+        // Finishing your action with zero cards auto-calls Cabo (score 0):
+        // the player cannot draw, so their turn would be empty anyway.
+        if (liveCount(s.hands[a.playerId]!) === 0 && this.rules.cabo.enabled && !s.cabo) {
+          s.cabo = { callerId: a.playerId, takenFinalTurn: [] };
+          this.emit('CABO_CALLED', { playerId: a.playerId, auto: true });
+        }
         this.advanceTurn();
         return;
       }
@@ -624,6 +628,12 @@ export class CaboEngine {
   private endTurnIfActive(playerId: string): void {
     const s = this.getState();
     if (s.players[s.currentTurn]?.id !== playerId) return;
+    if (liveCount(s.hands[playerId]!) === 0 && this.rules.cabo.enabled && !s.cabo) {
+      s.cabo = { callerId: playerId, takenFinalTurn: [] };
+      this.emit('CABO_CALLED', { playerId, auto: true });
+      this.advanceTurn();
+      return;
+    }
     s.phase = 'TURN_END';
     s.drawnCard = null;
     this.emit('TURN_ENDED', { playerId });
@@ -671,8 +681,15 @@ export class CaboEngine {
     for (let step = 1; step <= n; step++) {
       const candidate = (s.currentTurn + step) % n;
       const p = s.players[candidate]!;
-      // Players with zero cards never take turns and never call Cabo —
-      // they simply sit out (isEligible rejects them below).
+      // A player with zero cards cannot draw, so their "turn" is an
+      // automatic Cabo call (score 0); the round then wraps up with the
+      // others' final turns. They never play a normal turn.
+      if (!cabo && liveCount(s.hands[p.id]!) === 0 && this.rules.cabo.enabled) {
+        cabo = { callerId: p.id, takenFinalTurn: [] };
+        s.cabo = cabo;
+        this.emit('CABO_CALLED', { playerId: p.id, auto: true });
+        continue; // they take no turn themselves; keep scanning
+      }
       if (isEligible(candidate)) {
         s.currentTurn = candidate;
         s.phase = 'TURN_DRAW';

@@ -627,8 +627,13 @@ class CaboState(pyspiel.State):
             self._advance_turn()
             return
         if kind == K_END:
-            # Empty-handed players no longer auto-call Cabo: they simply sit
-            # out (mirrors the product engine rule change).
+            if self._live(me) == 0 and self.cabo_caller is None:
+                # Empty-handed turn = automatic Cabo (cannot draw) — mirrors
+                # the product engine.
+                self.cabo_caller = me
+                self.taken_final = []
+                self._advance_turn()
+                return
             self.drawn_card = None
             self.phase = PHASE_TURN_END
             self._advance_turn()
@@ -740,8 +745,11 @@ class CaboState(pyspiel.State):
     def _end_turn_if_active(self, me: int):
         if me != self.current_turn:
             return
-        # Zero cards no longer auto-calls Cabo (product rule change): the
-        # player just ends their turn and is skipped hereafter.
+        if self._live(me) == 0 and self.cabo_caller is None:
+            self.cabo_caller = me
+            self.taken_final = []
+            self._advance_turn()
+            return
         self.phase = PHASE_TURN_END
         self.drawn_card = None
         self._open_window(me, PHASE_TURN_END)
@@ -762,7 +770,14 @@ class CaboState(pyspiel.State):
 
         for step in range(1, n + 1):
             cand = (self.current_turn + step) % n
-            # Empty-handed players are skipped, never auto-call Cabo.
+            if cabo_caller is None and self._live(cand) == 0:
+                # Empty-handed "turn" is an automatic Cabo call; they take no
+                # normal turn themselves.
+                cabo_caller = cand
+                self.cabo_caller = cand
+                self.taken_final = []
+                taken = self.taken_final
+                continue
             if eligible(cand):
                 self.current_turn = cand
                 self.phase = PHASE_TURN_DRAW

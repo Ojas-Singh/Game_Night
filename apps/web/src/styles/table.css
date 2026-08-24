@@ -2516,3 +2516,12 @@
 .rz-review-head { font-weight: 600; }
 .rz-good { color: #58d68d; } .rz-bad { color: #ff9f9f; }
 .rz-review ul { list-style:none; padding:0; margin:4px 0 0; font-size:.85rem; display:flex; gap:14px; flex-wrap:wrap; }
+
+.endgame-toggle { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:6;
+  background:#7d2b3a; color:#fff; border:1px solid rgba(255,255,255,.25); border-radius:8px;
+  padding:4px 10px; font-size:.75rem; cursor:pointer; }
+.endgame-toggle:hover { background:#93374a; }
+.autopilot-toggle { position:absolute; top:-6px; right:-6px; z-index:7; width:24px; height:24px;
+  border-radius:50%; border:1px solid rgba(255,255,255,.35); background:rgba(0,0,0,.55);
+  color:#fff; font-size:.8rem; cursor:pointer; display:none; line-height:1; }
+.seat:hover .autopilot-toggle, .autopilot-toggle:focus-visible { display:block; }

@@ -170,6 +170,9 @@ export class Room {
           const wasDisconnected = !p.connected;
           p.connected = true;
           p.disconnectedAt = null;
+          if (wasDisconnected && p.kind === 'ai' && this.engine) {
+            p.kind = 'human'; // hand the seat back to the returning player
+          }
           // Only announce a real return, not a duplicate/attach on an
           // already-connected player (multiple tabs, reconnect spam).
           if (wasDisconnected) this.system(`${p.name} reconnected`);
@@ -262,6 +265,35 @@ export class Room {
     p.connected = false;
     p.disconnectedAt = Date.now();
     this.system(`${p.name} disconnected`);
+    // Mid-game auto-skip: a departed seat is played by the bot pump so the
+    // table never stalls waiting for someone who is not there.
+    if (this.engine) {
+      p.kind = 'ai';
+      p.persona = p.persona ?? 'balanced';
+      this.system(`${p.name}'s seat is on autopilot until they return`);
+    }
+  }
+
+  /** Host aborts the running game and returns everyone to the lobby. */
+  endGame(hostId: string): void {
+    if (hostId !== this.hostId) throw new RoomError('only the host can end the game');
+    if (!this.engine) throw new RoomError('no game is running');
+    this.engine = null;
+    this.system('Host ended the game — back to the lobby');
+  }
+
+  /** Host kicks an ACTIVE-Game player mid-match: their seat converts to the
+   *  bot so play continues (full removal stays lobby-only). */
+  kickInGame(hostId: string, targetId: string): void {
+    if (hostId !== this.hostId) throw new RoomError('only the host can kick players');
+    if (targetId === this.hostId) throw new RoomError('the host cannot be kicked');
+    if (!this.engine) throw new RoomError('players can only be kicked in the lobby');
+    const p = this.players.get(targetId);
+    if (!p) throw new RoomError('not in room');
+    if (p.kind === 'ai') throw new RoomError('already an AI seat');
+    p.kind = 'ai';
+    p.persona = p.persona ?? 'balanced';
+    this.system(`${p.name} was handed to the autopilot by the host`);
   }
 
   /** Host removes a player from the room. Lobby only — never mid-game (the

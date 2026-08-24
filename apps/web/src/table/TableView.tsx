@@ -390,6 +390,20 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
       </button>
       {room.lobby?.hostId === room.myPlayerId && (
         <button
+          className="endgame-toggle"
+          onClick={() => {
+            if (window.confirm('End the current game and take everyone back to the lobby?')) {
+              room.endGame();
+            }
+          }}
+          aria-label="End game (host)"
+          title="End the current game — everyone returns to the lobby (host)"
+        >
+          ⏹ End game
+        </button>
+      )}
+      {room.lobby?.hostId === room.myPlayerId && (
+        <button
           className="restart-toggle"
           onClick={() => void room.restartGame()}
           aria-label="Restart game"
@@ -426,6 +440,17 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
               style={seat.style}
             >
               <FloatingEmote emote={room.emotes[p.id]} />
+              {room.lobby?.hostId === room.myPlayerId &&
+                room.lobby?.players.find((lp) => lp.id === p.id)?.kind !== 'ai' && (
+                <button
+                  className="autopilot-toggle"
+                  onClick={() => room.kickLive(p.id)}
+                  aria-label={`Hand ${p.name}'s seat to the autopilot`}
+                  title={`Hand ${p.name}'s seat to the autopilot bot (host)`}
+                >
+                  🤖
+                </button>
+              )}
               <div
                 className="seat-cards hand-grid"
                 data-hand-for={p.id}

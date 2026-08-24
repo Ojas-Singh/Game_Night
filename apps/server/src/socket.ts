@@ -217,6 +217,30 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
       }
     });
 
+    socket.on('room:end_game', (_, ack) => {
+      try {
+        const { room, playerId } = requireRoom();
+        room.endGame(playerId);
+        ack?.({ ok: true });
+        afterChange(room);
+      } catch (err) {
+        ack?.({ ok: false, error: msg(err) });
+        log.warn('end_game_failed', { error: msg(err) });
+      }
+    });
+
+    socket.on('room:kick_live', ({ playerId: targetId }, ack) => {
+      try {
+        const { room, playerId } = requireRoom();
+        room.kickInGame(playerId, targetId);
+        ack?.({ ok: true });
+        afterChange(room);
+      } catch (err) {
+        ack?.({ ok: false, error: msg(err) });
+        log.warn('kick_live_failed', { error: msg(err) });
+      }
+    });
+
     socket.on('room:set_test_mode', ({ enabled }) => {
       try {
         const { room, playerId } = requireRoom();
