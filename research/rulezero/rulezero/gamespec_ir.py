@@ -191,6 +191,94 @@ def validate_ir(doc: dict) -> list[str]:
     terms = [p for p in doc.get("phases", []) if p.get("kind") == "terminal"]
     need(len(terms) >= 1, "spec lacks any terminal phase (§11)")
 
+    # ---- reachability: every phase must be reachable from phase 0 --------
+    # Edges: fallthrough (i -> i+1) plus every declared goto target.
+    ids = [ph["id"] for ph in doc.get("phases", [])]
+    adj: dict[int, set[int]] = {}
+    for i, ph in enumerate(doc.get("phases", [])):
+        edges: set[int] = set()
+        if i + 1 < len(ids):
+            edges.add(i + 1)
+        def add_goto(g):
+            if isinstance(g, str) and g in ids:
+                edges.add(ids.index(g))
+        add_goto(ph.get("goto"))
+        if ph.get("kind") == "award":
+            # award gotos live inside the award sub-object (runtime parity).
+            add_goto(ph.get("award", {}).get("goto"))
+        if ph.get("kind") == "decision":
+            for a in ph["decision"].get("actions", []):
+                add_goto(a.get("goto"))
+                for eff in a.get("effects", []):
+                    if eff.get("op") == "compareGoto":
+                        for g in (eff.get("gt"), eff.get("lt"), eff.get("eq")):
+                            add_goto(g)
+        elif ph.get("kind") == "reaction":
+            for a in ph["reaction"].get("actions", []):
+                add_goto(a.get("goto"))
+        adj[i] = edges
+    seen: set[int] = set()
+    stack = [0]
+    while stack:
+        i = stack.pop()
+        if i in seen:
+            continue
+        seen.add(i)
+        stack.extend(adj[i] - seen)
+    for i, ph in enumerate(doc.get("phases", [])):
+        if i not in seen:
+            errs.append(f"phase {ph['id']}: unreachable from entry")
+
+    # ---- no-progress loops: a reachable cycle containing NO phase kind
+    # that consumes player/chance input can spin forever --------------------
+    KINDS_PROGRESS = {"chance", "decision", "reaction"}
+    for start in seen:
+        # find cycles reachable from `start` using iterative DFS coloring
+        color = {i: 0 for i in seen}
+        def dfs(i, path):
+            color[i] = 1
+            path.append(i)
+            for j in sorted(adj[i]):
+                if j not in seen:
+                    continue
+                if color[j] == 1:
+                    cyc = path[path.index(j):]
+                    if not any(doc["phases"][k]["kind"] in KINDS_PROGRESS
+                               for k in cyc):
+                        errs.append(
+                            "no-progress loop: "
+                            + " -> ".join(ids[k] for k in cyc))
+                        return True
+                elif color[j] == 0:
+                    if dfs(j, path):
+                        return True
+            path.pop()
+            color[i] = 2
+            return False
+        import sys as _sys
+        _sys.setrecursionlimit(max(1000, len(ids) * 4))
+        if dfs(start, []):
+            break
+
+    # ---- impossible actors -------------------------------------------------
+    for ph in doc.get("phases", []):
+        dec = ph.get("decision", {})
+        act = dec.get("actor")
+        if isinstance(act, int) and not 0 <= act < int(n_players):
+            errs.append(f"phase {ph['id']}: actor seat {act} out of range")
+
+    # ---- action with no state transition -----------------------------------
+    for i, ph in enumerate(doc.get("phases", [])):
+        if ph.get("kind") != "decision":
+            continue
+        for a in ph["decision"].get("actions", []):
+            if (not a.get("effects") and not a.get("goto")
+                    and i + 1 < len(ids)
+                    and ids[i + 1] == ph["id"]):
+                errs.append(
+                    f"phase {ph['id']}/{a['id']}: no state transition "
+                    f"(falls through to itself)")
+
     if errs:
         raise IRValidationError("; ".join(errs))
     return []
