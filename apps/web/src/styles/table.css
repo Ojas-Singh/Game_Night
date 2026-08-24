@@ -2430,3 +2430,31 @@
   .po-board-wrap { height: calc(100% - 150px); }
   .po-back-mark { display: none; }
 }
+
+/* ---- RuleZero generic renderer -------------------------------------- */
+.rulezero-table { max-width: 720px; margin: 0 auto; padding: 12px; }
+.rz-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
+.rz-phase { font-weight: 600; }
+.rz-your-turn { color: #2e7d32; font-weight: 700; }
+.rz-zones { display: flex; flex-wrap: wrap; gap: 10px; }
+.rz-zone { border: 1px solid var(--border, #ccc); border-radius: 8px; padding: 8px 10px; min-width: 110px; }
+.rz-zone-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px; }
+.rz-zone-id { font-family: monospace; font-size: 12px; opacity: .75; }
+.rz-owner { font-size: 11px; opacity: .65; }
+.rz-mine { border-color: #2e7d32; }
+.rz-cards { display: flex; gap: 6px; min-height: 30px; flex-wrap: wrap; }
+.rz-card { background: #fff; color: #111; border: 1px solid #999; border-radius: 4px;
+  padding: 3px 7px; font-weight: 600; font-size: 14px; }
+.rz-facedown { background: repeating-linear-gradient(45deg,#35507a,#35507a 5px,#2a4066 5px,#2a4066 10px);
+  width: 20px; height: 28px; padding: 0; }
+.rz-scores { margin-top: 10px; display: flex; gap: 14px; font-variant-numeric: tabular-nums; }
+.rz-actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.rz-action { border: 1px solid currentColor; border-radius: 6px; padding: 6px 12px; cursor: pointer;
+  background: transparent; }
+.rz-action:hover { background: rgba(127,127,127,.15); }
+.rz-aid { font-family: monospace; opacity: .7; margin-right: 4px; }
+.rz-terminal { margin-top: 12px; font-weight: 700; }
+.rz-info-toggle { margin-top: 10px; }
+.rz-info { font-size: 11px; white-space: pre-wrap; word-break: break-word;
+  background: rgba(127,127,127,.1); padding: 8px; border-radius: 6px; max-height: 200px; overflow: auto; }
+.rz-demo-actions { display: flex; gap: 8px; margin: 10px 0; }

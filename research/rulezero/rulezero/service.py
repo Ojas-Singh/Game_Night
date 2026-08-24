@@ -97,22 +97,46 @@ class Session:
         self.state = st
 
     def view(self, player: int) -> dict:
+        """Structured per-player view. Zone contents are filtered by
+        VISIBILITY AT THE SOURCE: hidden zones expose only counts, owner
+        zones only to their owner, public zones to everyone. The browser
+        can therefore render exactly what it receives — no string parsing,
+        no way to leak what was never sent."""
         st = self.state
         table = [] if (st.is_terminal() or st.is_chance_node()) \
             else st._action_table()
         candidates = [{"candidateId": f"A{i}", "environmentActionId": i,
                        "label": st.action_to_string(player, i)}
                       for i in range(len(table))]
+
+        def zone_entry(zid: str) -> dict:
+            vis = st.zone_vis.get(zid, "hidden")
+            cards = st.zones.get(zid, [])
+            digits = ''.join(ch for ch in zid if ch.isdigit())
+            owner = int(digits) if digits else None
+            if vis == "public" or (vis == "owner" and owner == player) \
+                    or st.is_terminal():
+                return {"id": zid, "visibility": vis, "owner": owner,
+                        "cards": list(cards)}
+            return {"id": zid, "visibility": vis, "owner": owner,
+                    "count": len(cards)}
+
+        zones = [zone_entry(zid) for zid in sorted(st.zones)]
+        scores = {k[5:]: v for k, v in sorted(st.vars.items())
+                  if k.startswith("score")}
         return {
             "protocol": PROTOCOL,
             "specHash": self.spec_hash,
             "player": player,
+            "phase": st.ir["phases"][st.phase_idx]["id"],
             "observation": st.observation_string(player),
             "informationState": st.information_state_string(player),
             "isTerminal": st.is_terminal(),
             "currentActor": (None if st.is_terminal()
                              else st.current_player()),
             "candidates": candidates,
+            "zones": zones,
+            "scores": scores,
         }
 
 
