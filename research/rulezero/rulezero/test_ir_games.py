@@ -298,6 +298,61 @@ def main() -> int:
           f"claim reaction-window traversals ({reached_window})")
     ok = ok and reached_window >= 60
 
+    # ---- §12: restoration round-trip + §7 perfect-recall witness -------
+    from rulezero.gamespec_runtime import IRState
+
+    def _to_dict(st: IRState) -> dict:
+        return {"zones": st.zones, "vis": st.zone_vis, "vars": st.vars,
+                "phase": st.phase_idx, "actor": st.actor,
+                "rot": st.rotate_ptr, "last": st.last_actor,
+                "cl": st.chance_left, "ca": st.chance_actor,
+                "win": st.window}
+
+    def _from_dict(game, d: dict) -> IRState:
+        st = IRState(game)
+        st.zones = {k: list(v) for k, v in d["zones"].items()}
+        st.zone_vis = dict(d["vis"])
+        st.vars = dict(d["vars"])
+        st.phase_idx = d["phase"]
+        st.actor = d["actor"]
+        st.rotate_ptr = d["rot"]
+        st.last_actor = d["last"]
+        st.chance_left = d["cl"]
+        st.chance_actor = d["ca"]
+        st.window = None if d["win"] is None else {
+            "queue": tuple(d["win"]["queue"]), "i": d["win"]["i"],
+            "resume": d["win"]["resume"]}
+        return st
+
+    gk, _ = compile_ir(KUHNISH)
+    mid = gk.new_initial_state()
+    rr = random.Random(4)
+    while not mid.is_terminal() and mid.phase_idx < 2:
+        if mid.is_chance_node():
+            aids, _p = zip(*mid.chance_outcomes())
+            mid.apply_action(rr.choice(aids))
+        else:
+            mid.apply_action(rr.choice(mid.legal_actions(mid.current_player())))
+    restored = _from_dict(gk, _to_dict(mid))
+    print(("PASS" if str(restored) == str(mid) and
+           restored.observation_string(0) == mid.observation_string(0)
+           else "FAIL"), "restore round-trip ir_kuhnish")
+    ok = ok and str(restored) == str(mid)
+
+    # Perfect recall / indistinguishability: two worlds differing ONLY in
+    # p1's hidden card are indistinguishable to p0.
+    w1, w2 = gk.new_initial_state(), gk.new_initial_state()
+    for w, card1 in ((w1, 10), (w2, 11)):
+        w.apply_action(9)           # p0 gets the SAME card in both worlds
+        w.apply_action(card1)       # p1's card differs
+    same = (w1.information_state_string(0) == w2.information_state_string(0))
+    print(("PASS" if same else "FAIL"), "perfect-recall indistinguishable worlds")
+    ok = ok and same
+    differ_for_p1 = w1.information_state_string(1) != w2.information_state_string(1)
+    print(("PASS" if differ_for_p1 else "FAIL"),
+          "information states distinguish for the owner")
+    ok = ok and differ_for_p1
+
     # validator rejects broken specs
     try:
         bad = dict(KUHNISH)
