@@ -72,7 +72,7 @@ class Session:
                 "queue": list(st.window["queue"]),
                 "i": st.window["i"],
                 "resume": st.window["resume"]},
-            "history": [[int(p), int(a)] for p, a in st.history()],
+            "history": [[int(p), int(a)] for p, a in st.full_history()],
         }
 
     def restore(self, snap: dict):
@@ -194,6 +194,34 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
             return session, {"ok": True, "stats": stats}
         except Exception as e:  # noqa: BLE001 — protocol boundary
             return session, {"ok": False, "error": str(e)}
+    if op == "labSolve":
+        from .solver_agents import choose_agent_for_game, solve_game_cfr
+
+        try:
+            spec = dict(msg["spec"])
+            sol = solve_game_cfr(spec, int(msg.get("iterations", 300)))
+            return session, {"ok": True,
+                             "recommended": choose_agent_for_game(spec),
+                             **{k: v for k, v in sol.items() if k != "policy"},
+                             "strategy": sol["policy"]}
+        except Exception as e:  # noqa: BLE001
+            return session, {"ok": False, "error": str(e)}
+    if op == "labStrategy":
+        from .solver_agents import CFRAgent
+
+        try:
+            agent = CFRAgent(dict(msg["spec"]), int(msg.get("iterations", 300)))
+            legal, probs = agent.probs_for(str(msg["infoState"]))
+            return session, {"ok": True,
+                             "actions": legal, "probs": probs,
+                             "meta": agent.meta}
+        except Exception as e:  # noqa: BLE001
+            return session, {"ok": False, "error": str(e)}
+    if op == "labRecommend":
+        from .solver_agents import choose_agent_for_game
+
+        return session, {"ok": True,
+                         "agent": choose_agent_for_game(dict(msg["spec"]))}
     if op == "create":
         seed = msg.get("seed")
         session = Session(msg["spec"], None if seed is None else int(seed))

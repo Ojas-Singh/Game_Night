@@ -13,6 +13,11 @@ from .gamespec_runtime import IRGame
 
 AgentFn = Callable[[str, list[dict[str, Any]]], int]  # (infoState, candidates)->idx
 
+
+def _cfr_agent_factory(seed: int = 0):
+    """Deferred: built per-spec in simulate() because it needs the spec."""
+    raise NotImplementedError("cfr agents are bound per-spec inside simulate()")
+
 EPISODE_LIMIT = 20_000      # §33: hard caps for lab jobs
 STEP_CAP = 5_000
 
@@ -61,12 +66,28 @@ def simulate(
     if len(agent_specs) != n_players:
         raise ValueError(f"need {n_players} agent specs")
 
-    fns: list[AgentFn] = []
-    for i, asp in enumerate(agent_specs):
-        name = asp.get("agent", "random")
+    cfr_iters = int(spec.get("_cfrIterations", 300))
+
+    def make(i: int) -> AgentFn:
+        name = agent_specs[i].get("agent", "random")
+        if name == "cfr":
+            from .solver_agents import CFRAgent
+
+            agent = CFRAgent(spec, iterations=cfr_iters)
+            return lambda info, cands: _env_apply(agent, info, cands)
         if name not in AGENTS:
-            raise ValueError(f"unknown agent {name!r}; available {agent_names()}")
-        fns.append(AGENTS[name](asp.get("seed", seed + i)))
+            raise ValueError(f"unknown agent {name!r}; available "
+                             f"{agent_names() + ['cfr']}")
+        return AGENTS[name](agent_specs[i].get("seed", seed + i))
+
+    def _env_apply(agent, info: str, cands: list[dict[str, Any]]) -> int:
+        idx = agent.act(info, [c["environmentActionId"] for c in cands])
+        for j, c in enumerate(cands):
+            if c["environmentActionId"] == idx:
+                return j
+        return 0
+
+    fns = [make(i) for i in range(len(agent_specs))]
 
     started = time.time()
     game = IRGame(spec)

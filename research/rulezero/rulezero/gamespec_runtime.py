@@ -45,6 +45,8 @@ class IRState(pyspiel.State):
 
     def __init__(self, game):
         super().__init__(game)
+        self._hist: list[int] = []
+        self._hist_pairs: list[tuple[int, int]] = []
         self.ir = game.ir
         self.n = game.num_players()
         ents = self.ir.get("entities", {})
@@ -240,14 +242,23 @@ class IRState(pyspiel.State):
             return cih["rank"] in self.zones[zid]
         return True
 
-    def legal_actions(self, player):
-        if self.is_terminal() or self.is_chance_node():
+    def legal_actions(self, player=None):
+        # OpenSpiel convention: None means "the player to act".
+        if self.is_terminal():
             return []
-        if player != self.current_player():
+        if self.is_chance_node():
+            # Chance nodes expose their outcomes as actions (OpenSpiel
+            # convention) so generic walkers / TabularPolicy can traverse.
+            if player is None or player == pyspiel.PlayerId.CHANCE:
+                return [c for c, _ in self.chance_outcomes()]
+            return []
+        if player is not None and player != self.current_player():
             return []
         return list(range(len(self._action_table())))
 
     def apply_action(self, action: int):
+        self._hist.append(int(action))
+        self._hist_pairs.append((self.current_player(), int(action)))
         if self.is_chance_node():
             ph = self._phase()
             ch = ph["chance"]
@@ -326,9 +337,13 @@ class IRState(pyspiel.State):
         parts.append(f"vars[{vs}]")
         return " ".join(parts)
 
-    def information_state_string(self, player: int):
-        hist = "".join(f"p{_p}:{a} " for _p, a in self.history()
-                       if isinstance(_p, int))
+    def information_state_string(self, player=None):
+        if player is None:
+            player = self.current_player()
+        # Only announced decision actions are public; chance outcomes are
+        # private and enter the info state solely through zone visibility.
+        hist = "".join(f"p{_p}:{a} " for _p, a in self._hist_pairs
+                       if isinstance(_p, int) and _p >= 0)
         return f"[p{player}] {self.observation_string(player)} hist={hist}"
 
     def action_to_string(self, player, action):
@@ -351,7 +366,45 @@ class IRState(pyspiel.State):
         st.window = None if self.window is None else {
             "queue": tuple(self.window["queue"]), "i": self.window["i"],
             "resume": self.window["resume"]}
+        st._hist = list(self._hist)
+        st._hist_pairs = list(self._hist_pairs)
         return st
+
+    def add_transition(self, player: int, action: int):
+        """Replay/restore hook: record an attributed transition."""
+        self._hist.append(int(action))
+        self._hist_pairs.append((int(player), int(action)))
+
+    def history_str(self) -> str:
+        return " ".join(str(a) for a in self._hist)
+
+    def history(self):
+        return list(self._hist)
+
+    def full_history(self):
+        return list(self._hist_pairs)
+
+    def child(self, action):
+        """Python-level successor (OpenSpiel State interface); avoids the
+        C++ Clone->ApplyAction path that pure-python states can't dispatch."""
+        c = self.clone()
+        c.apply_action(action)
+        return c
+
+    def legal_actions_mask(self, player=None):
+        mask = [0] * self.get_game().num_distinct_actions()
+        for a in self.legal_actions(player):
+            if 0 <= a < len(mask):
+                mask[a] = 1
+        return mask
+
+    def actions_to_string(self, player, actions):
+        return [self.action_to_string(player, a) for a in actions]
+
+    def apply_actions(self, actions):
+        for a in actions:
+            self.apply_action(a)
+        return self
 
     def __game(self):
         return self.get_game()
