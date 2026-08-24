@@ -45,17 +45,25 @@ class LabClient {
 
   private ensure(): ChildProcessWithoutNullStreams {
     if (!this.proc) {
-      this.proc = spawn(PY, ['-m', 'rulezero.service'], {
+      const proc = spawn(PY, ['-m', 'rulezero.service'], {
         cwd: HOME,
         env: { ...process.env, PYTHONPATH: HOME },
       }) as ChildProcessWithoutNullStreams;
-      this.rl = createInterface(this.proc.stdout);
-      this.proc.stderr.on('data', (d: Buffer) =>
+      // CRITICAL: an unhandled 'error' event (e.g. ENOENT when the python
+      // service is unavailable in a deployment) would throw and take down
+      // the whole game server. Record it and let in-flight asks reject.
+      proc.on('error', (err: Error) => {
+        console.error('[lab-service] spawn/pipe error:', err.message);
+        this.failures++;
+      });
+      this.rl = createInterface(proc.stdout);
+      proc.stderr.on('data', (d: Buffer) =>
         console.error('[lab-service]', d.toString().trim()));
-      this.proc.on('exit', () => {
+      proc.on('exit', () => {
         this.proc = null;
         this.rl = null;
       });
+      this.proc = proc;
     }
     return this.proc;
   }
@@ -68,9 +76,17 @@ class LabClient {
         const timeout = setTimeout(
           () => reject(new Error('lab service timeout')), 120_000);
         const rl = this.rl!;
+        const fail = (e: Error) => {
+          clearTimeout(timeout);
+          rl.off('line', onLine);
+          proc.off('error', fail);
+          reject(e);
+        };
+        proc.on('error', fail);
         const onLine = (line: string) => {
           clearTimeout(timeout);
           rl.off('line', onLine);
+          proc.off('error', fail);
           try {
             const parsed = JSON.parse(line);
             if (parsed.ok === false) reject(new Error(parsed.error ?? 'error'));
