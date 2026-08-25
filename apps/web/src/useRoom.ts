@@ -150,15 +150,34 @@ export function collectFlights(
         rank,
       });
     } else if (ev.type === 'CARD_REPLACED' || ev.type === 'KEEP_DRAWN_SWAP') {
-      // Swapping the drawn card into your hand throws the OLD card onto the
-      // discard pile — animate that trip explicitly so the exchange reads.
+      // The full exchange, both halves visible:
+      //  1. OLD card flies FROM its exact slot (pre-update geometry) to the
+      //     discard pile — the flush half.
+      //  2. DRAWN card flies deck -> the very slot it now occupies, with a
+      //     golden landing shimmer — so "what arrived" is unambiguous.
       const actor = String(ev.playerId ?? '');
+      const replacedId =
+        typeof p?.replacedCardId === 'string' ? p.replacedCardId : undefined;
+      const keptId =
+        typeof p?.keptCardId === 'string' ? p.keptCardId : undefined;
+      if (keptId && actor !== myPlayerId) {
+        consumedNewCards.add(keptId);
+        noteDrawn?.(keptId);
+        out.push({
+          id: `DRAWN-${ev.seq}`,
+          seq: ev.seq,
+          fromPlayerId: 'deck',
+          toDiscard: false,
+          toPlayerId: actor,
+          toCardId: keptId,
+          rank,
+        });
+      }
       out.push({
         id: `${ev.type}-${ev.seq}`,
         seq: ev.seq,
         fromPlayerId: actor === myPlayerId ? 'deck' : actor,
-        fromCardId:
-          typeof p?.replacedCardId === 'string' ? p.replacedCardId : undefined,
+        fromCardId: replacedId,
         toDiscard: true,
         rank,
       });
