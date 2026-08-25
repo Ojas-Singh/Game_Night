@@ -76,8 +76,12 @@ function ensureVisible(from: FlightPos, to: FlightPos, centre: FlightPos): Fligh
 }
 
 export default function CardFlights({
-  flights, anchors, myId, onDone, seatFallback = {},
-}: CardFlightsProps) {
+  flights, anchors, myId, onDone, seatFallback = {}, prevCards = {},
+}: CardFlightsProps & {
+  /** Positions captured before the last update — flight ORIGINS for cards
+   *  that have already left the DOM (swapped to discard, flushed). */
+  prevCards?: Record<string, FlightPos>;
+}) {
   const centre = { x: anchors.size.w / 2, y: anchors.size.h / 2 };
   const handOrSeat = (pid: string): FlightPos | undefined =>
     anchors.hands[pid] ?? seatFallback[pid];
@@ -87,7 +91,7 @@ export default function CardFlights({
         // Prefer the EXACT card element when we know it, then the measured
         // hand anchor, then the geometry-only seat position — the ghost must
         // always have somewhere real to start and land.
-        const from = resolvePoint(
+        const from = (f.fromCardId && prevCards[f.fromCardId]) || resolvePoint(
           f.fromCardId ? anchors.cards[f.fromCardId] : undefined,
           [
             f.fromPlayerId === 'deck' ? anchors.deck : undefined,

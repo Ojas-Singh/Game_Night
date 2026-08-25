@@ -102,7 +102,13 @@ export function collectFlights(
       // Identify the exact NEW card in their hand (diff vs previous view) so
       // the flight lands on that precise slot instead of the hand centre.
       let landedCardId: string | undefined;
-      if (drawer !== myPlayerId && prev) {
+      const beforeCount = prev ? (prev.handCardIds?.[drawer]?.length ?? 0) : -1;
+      if (
+        drawer !== myPlayerId &&
+        prev &&
+        next.phase !== 'INITIAL_PEEK' && // dealing/peeks never animate as draws
+        (next.handCardIds?.[drawer]?.length ?? 0) === beforeCount + 1 // a draw adds exactly one
+      ) {
         const before = new Set(prev.handCardIds?.[drawer] ?? []);
         landedCardId = (next.handCardIds?.[drawer] ?? []).find(
           (id) => !before.has(id) && !consumedNewCards.has(id),
@@ -151,6 +157,8 @@ export function collectFlights(
         id: `${ev.type}-${ev.seq}`,
         seq: ev.seq,
         fromPlayerId: actor === myPlayerId ? 'deck' : actor,
+        fromCardId:
+          typeof p?.replacedCardId === 'string' ? p.replacedCardId : undefined,
         toDiscard: true,
         rank,
       });

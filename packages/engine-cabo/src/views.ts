@@ -34,6 +34,15 @@ export function buildPlayerView(state: CaboState, viewerId: string, opts?: { rev
   // value so a tester can watch the full flow.
   const revealAll = opts?.revealAll === true;
   const knownIds = new Set(state.knowledge[viewerId] ?? []);
+  // INITIAL_PEEK: your bottom two cards are yours to memorise from the deal,
+  // so their values ship while you have not peeked yet. State-driven — no
+  // event replay needed, survives reconnects and coalesced broadcasts.
+  if (state.initialPeeksRemaining.includes(viewerId)) {
+    const mine = state.hands[viewerId] ?? [];
+    for (const idx of [1, 3]) {
+      if (mine[idx]) knownIds.add(mine[idx]!.id);
+    }
+  }
   const allCards: Card[] = [
     ...state.deck,
     ...state.discard,
