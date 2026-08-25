@@ -27,21 +27,24 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
   const others = view.players.filter((p) => p.id !== me.id);
   // Cards inside their brief reveal window render face-up; afterwards they
   // flip back down (knowledge retained as a small "seen" marker).
-  // INITIAL_PEEK is derived from VIEW STATE (not event deltas) so my bottom
-  // two cards ALWAYS show during the memorize moment — even after a
-  // reconnect or when several events coalesce into one broadcast.
+  // The server records the ids shown during the automatic starting peek, so
+  // the first view can reveal exactly the bottom two cards even though the
+  // phase has already advanced past INITIAL_PEEK.
   const initialPeekIds = (() => {
-    // The client view exposes needsInitialPeek (bool) + phase — use those.
+    const recorded = view.initialPeekCardIds ?? [];
+    if (recorded.length > 0) return new Set(recorded);
+    // Compatibility fallback for an older server view while a round is still
+    // waiting for a player's manual initial peek.
     if (view.phase !== 'INITIAL_PEEK' || !view.needsInitialPeek) return new Set<string>();
-    const meId = room.myPlayerId;
-    if (!meId) return new Set<string>();
-    const ids = view.handCardIds[meId] ?? [];
+    const ids = view.handCardIds[me.id] ?? [];
     return new Set([ids[1], ids[3]].filter(Boolean) as string[]);
   })();
   const flashActive = (cardId: string): boolean => {
-    if (initialPeekIds.has(cardId)) return true;
     const f = room.peekFlash[cardId];
-    return !!f && Date.now() - f.at < f.ms;
+    if (f && Date.now() - f.at < f.ms) return true;
+    // Manual-peek compatibility: while the engine is still waiting for this
+    // viewer's initial action, keep the selected cards visible from state.
+    return view.phase === 'INITIAL_PEEK' && view.needsInitialPeek && initialPeekIds.has(cardId);
   };
 
   // Seat geometry: 2..6 opponents distribute around the top arc.
@@ -60,6 +63,9 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
    * cards' old slots instead of measuring their new slots.
    */
   const previousCardPositions = useRef<Record<string, FlightPos>>({});
+  /** Snapshot from immediately before the latest view update. Cards that
+   * leave the DOM use this as their exact flight origin. */
+  const flightOriginPositions = useRef<Record<string, FlightPos>>({});
   const [anchors, setAnchors] = useState<{
     size: { w: number; h: number };
     // The table container's viewport rect — used to place the avatar/name
@@ -87,6 +93,12 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
     if (!table) return;
     previousCardPositions.current = readCardPositions(table, table.getBoundingClientRect());
   }, [readCardPositions]);
+
+  // Capture the old geometry before the effects below overwrite the current
+  // snapshot with the newly rendered view.
+  useLayoutEffect(() => {
+    flightOriginPositions.current = previousCardPositions.current;
+  }, [view.revision]);
 
   // ---- Swap ghosts (peek style) ------------------------------------------
   // On a swap, each card flies to its partner's OLD slot. This effect runs
@@ -331,6 +343,56 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
     return false;
   };
 
+  const renderOpponentCard = (
+    playerId: string,
+    cardId: string,
+    facing: number,
+    selectable: boolean,
+  ) => {
+    if (isEmptySlot(cardId)) return <div key={cardId} className="card-slot-empty small" />;
+    const known = view.knownCards[cardId];
+    const revealed = room.testMode || (!!known && (flashActive(cardId) || mode === 'round-over'));
+    return (
+      <Card
+        key={cardId}
+        cardId={cardId}
+        card={known ?? null}
+        faceDown={!revealed}
+        justDrawn={!!room.drawFlash?.[cardId]}
+        seenMarker={!!known && !revealed}
+        contentRotate={-facing}
+        small
+        test={room.testMode}
+        peekedBy={peekedBy(cardId)}
+        swapped={wasSwapped(cardId)}
+        selectable={selectable}
+        onClick={() => onOpponentCardClick(playerId, cardId)}
+      />
+    );
+  };
+
+  const renderOwnCard = (cardId: string) => {
+    if (isEmptySlot(cardId)) return <div key={cardId} className="card-slot-empty" />;
+    const known = view.knownCards[cardId];
+    const revealed = room.testMode || (!!known && (flashActive(cardId) || mode === 'round-over'));
+    const highlight = mode === 'power-blind-swap' && selectedOwn === cardId;
+    return (
+      <Card
+        key={cardId}
+        cardId={cardId}
+        card={known ?? null}
+        faceDown={!revealed}
+        seenMarker={!!known && !revealed}
+        highlight={!!highlight}
+        test={room.testMode}
+        peekedBy={peekedBy(cardId)}
+        swapped={wasSwapped(cardId)}
+        lifted={mode === 'draw-decision' || mode === 'power-peek-own' || mode === 'transfer'}
+        onClick={() => onMyCardClick(cardId)}
+      />
+    );
+  };
+
   // Avatar/name pills live OUTSIDE the felt — at the screen edges, away from
   // the deck — each still aligned toward its owner's seat so it reads clearly.
   // Positions are computed from the measured table rectangle + the seat's
@@ -462,42 +524,20 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
                 </button>
               )}
               <div
-                className="seat-cards hand-grid"
+                className="hand-shell"
                 data-hand-for={p.id}
                 style={seat.facing ? { transform: `rotate(${seat.facing}deg)` } : undefined}
               >
-                {(view.handCardIds[p.id] ?? []).map((cardId) =>
-                  isEmptySlot(cardId) ? (
-                    <div key={cardId} className="card-slot-empty small" />
-                  ) : (
-                    (() => {
-                      const known = view.knownCards[cardId];
-                      // Memory game: a card renders face-up ONLY while it is
-                      // being revealed (peek flash / round reveal) or in Test
-                      // Mode. Knowing a value never keeps it face-up — the
-                      // "seen" dot is the only reminder.
-                      const revealed =
-                        room.testMode || (!!known && (flashActive(cardId) || mode === 'round-over'));
-                      return (
-                        <Card
-                          key={cardId}
-                          cardId={cardId}
-                          card={known ?? null}
-                          faceDown={!revealed}
-                          justDrawn={!!room.drawFlash?.[cardId]}
-                          seenMarker={!!known && !revealed}
-                          contentRotate={-seat.facing}
-                          small
-                          test={room.testMode}
-                          peekedBy={peekedBy(cardId)}
-                          swapped={wasSwapped(cardId)}
-                          selectable={selectable}
-                          onClick={() => onOpponentCardClick(p.id, cardId)}
-                        />
-                      );
-                    })()
-                  ),
-                )}
+                <div className="hand-overflow hand-grid">
+                  {(view.handCardIds[p.id] ?? []).slice(4).map((cardId) =>
+                    renderOpponentCard(p.id, cardId, seat.facing, selectable),
+                  )}
+                </div>
+                <div className="seat-cards hand-grid">
+                  {(view.handCardIds[p.id] ?? []).slice(0, 4).map((cardId) =>
+                    renderOpponentCard(p.id, cardId, seat.facing, selectable),
+                  )}
+                </div>
               </div>
             </div>
           );
@@ -572,6 +612,7 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
             anchors={anchors}
             myId={me.id}
             onDone={dropFlight}
+            prevCards={flightOriginPositions.current}
             seatFallback={Object.fromEntries(
               others.map((p, i) => {
                 const st = seats[i % Math.max(seats.length, 1)];
@@ -595,38 +636,13 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
         {/* my hand */}
         <div className={`seat seat-me ${isMyTurn ? 'active' : ''}`}>
           <FloatingEmote emote={room.emotes[me.id]} />
-          <div className="my-hand hand-grid" data-hand-for={me.id}>
-            {myHand.map((cardId) =>
-              isEmptySlot(cardId) ? (
-                <div key={cardId} className="card-slot-empty" />
-              ) : (
-                (() => {
-                  const known = view.knownCards[cardId];
-                  // Memory game: your own cards render face-up ONLY during
-                  // a reveal window (peek flash / round reveal) or Test
-                  // Mode — never just because it's your turn or you once
-                  // saw the value. The "seen" dot is the only reminder.
-                  const revealed =
-                    room.testMode || (!!known && (flashActive(cardId) || mode === 'round-over'));
-                  const highlight = mode === 'power-blind-swap' && selectedOwn === cardId;
-                  return (
-                    <Card
-                      key={cardId}
-                      cardId={cardId}
-                      card={known ?? null}
-                      faceDown={!revealed}
-                      seenMarker={!!known && !revealed}
-                      highlight={!!highlight}
-                      test={room.testMode}
-                      peekedBy={peekedBy(cardId)}
-                      swapped={wasSwapped(cardId)}
-                      lifted={mode === 'draw-decision' || mode === 'power-peek-own' || mode === 'transfer'}
-                      onClick={() => onMyCardClick(cardId)}
-                    />
-                  );
-                })()
-              ),
-            )}
+          <div className="hand-shell hand-shell-me" data-hand-for={me.id}>
+            <div className="hand-overflow hand-grid">
+              {myHand.slice(4).map((cardId) => renderOwnCard(cardId))}
+            </div>
+            <div className="my-hand hand-grid">
+              {myHand.slice(0, 4).map((cardId) => renderOwnCard(cardId))}
+            </div>
           </div>
           {view.drawnCard && (
             <div className="draw-slot">

@@ -23,11 +23,17 @@ export function players(n: number): GamePlayer[] {
  * cards, player1's hand is [order[0], order[3], order[6], order[9]], etc.
  * The first post-deal draw is order[12].
  */
-export function setup(order: Card[], opts?: { rules?: Partial<CaboRules>; players?: number }): CaboEngine {
+export function setup(
+  order: Card[],
+  opts?: { rules?: Partial<CaboRules>; players?: number; firstTurnSeat?: number },
+): CaboEngine {
   const engine = new CaboEngine();
   engine.createGame(players(opts?.players ?? 3), {
     forcedDeck: order.slice().reverse(),
     rules: opts?.rules,
+    // Existing rule tests exercise the p1 turn flow; production omits this
+    // debug override and receives the engine's seeded random opener.
+    firstTurnSeat: opts?.firstTurnSeat ?? 0,
   });
   return engine;
 }

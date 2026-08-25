@@ -35,6 +35,15 @@ describe('hidden-information filtering', () => {
     expect(Object.keys(v2.knownCards).sort()).toEqual(['b1', 'b2']);
   });
 
+  it('ships only this viewer\u2019s starting-peek ids after the automatic peek', () => {
+    const e = setup(order());
+    for (const p of e.getState().players) {
+      mustOk(e, { type: 'PEEK_STARTING', playerId: p.id, cardIndexes: [1, 3] });
+    }
+    expect(e.getPlayerState('p1').initialPeekCardIds).toEqual(['a2', 'a4']);
+    expect(e.getPlayerState('p2').initialPeekCardIds).toEqual(['b2', 'b4']);
+  });
+
   it('initial peeks grant knowledge only of the peeked cards', () => {
     const e = setup(order());
     // Only p1 and p2 peek indexes [0,1]; p3 peeks [2,3].

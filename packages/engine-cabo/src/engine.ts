@@ -81,6 +81,9 @@ export class CaboEngine {
   /** Restore a previously serialized state (reconnect / redis restore). */
   restoreState(state: CaboState, rules?: Partial<CaboRules>): void {
     if (state.stateVersion !== 1) INVALID('unsupported state version');
+    // Keep snapshots written before starting-peek metadata was introduced
+    // loadable; this field only drives the client reveal.
+    state.initialPeekCardIds ??= {};
     this.state = state;
     this.rules = { ...DEFAULT_CABO_RULES, ...rules };
     this.rng = createRng();
@@ -100,6 +103,10 @@ export class CaboEngine {
     this.rng = createRng(options.seed);
 
     const deck = options.forcedDeck ? options.forcedDeck.slice() : shuffle(standardDeck(), this.rng);
+    // The host starts the room, but does not automatically get the first
+    // turn. Use the authoritative RNG so production games are random while
+    // seeded/debug games remain reproducible.
+    const firstTurnSeat = options.firstTurnSeat ?? this.rng.int(seats.length);
 
     const state: CaboState = {
       stateVersion: 1,
@@ -110,12 +117,13 @@ export class CaboEngine {
       knowledge: {},
       deck,
       discard: [],
-      currentTurn: options.firstTurnSeat ?? 0,
+      currentTurn: firstTurnSeat,
       drawnCard: null,
       pendingPower: null,
       pendingTransfer: null,
       cabo: null,
       initialPeeksRemaining: seats.map((p) => p.id),
+      initialPeekCardIds: {},
       scores: null,
       roundWinnerId: null,
       tiedWinnerIds: [],
@@ -126,6 +134,7 @@ export class CaboEngine {
     for (const p of seats) {
       state.hands[p.id] = [];
       state.knowledge[p.id] = [];
+      state.initialPeekCardIds[p.id] = [];
     }
 
     // Deal starting cards round-robin so positions feel physical.
@@ -350,10 +359,13 @@ export class CaboEngine {
     const s = this.getState();
     switch (a.type) {
       case 'PEEK_STARTING': {
+        const peekedIds: string[] = [];
         for (const i of a.cardIndexes) {
           const card = s.hands[a.playerId]![i]!;
           this.learn(a.playerId, card.id);
+          peekedIds.push(card.id);
         }
+        s.initialPeekCardIds[a.playerId] = peekedIds;
         s.initialPeeksRemaining = s.initialPeeksRemaining.filter((id) => id !== a.playerId);
         this.emit('INITIAL_PEEKED', { playerId: a.playerId, count: a.cardIndexes.length });
         if (s.initialPeeksRemaining.length === 0) {

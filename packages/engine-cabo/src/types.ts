@@ -75,6 +75,9 @@ export interface CaboState {
   cabo: CaboCall | null;
   /** Players that still owe their initial peek. */
   initialPeeksRemaining: string[];
+  /** Card ids each player was shown at the start of this round. Values stay
+   * protected by the per-player knowledge filter. */
+  initialPeekCardIds: Record<string, string[]>;
   scores: Record<string, number> | null;
   roundWinnerId: string | null;
   /** Set when the round ends in a score tie. */

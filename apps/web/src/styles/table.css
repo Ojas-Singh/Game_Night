@@ -701,10 +701,9 @@
   pointer-events: none;
 }
 
-/* Hands: a 2x2 grid like a real Cabo table. We use column flow with exactly
-   two rows, so extra (penalty) cards always slot in to the right or into any
-   empty 2x2 gap — existing cards never change their screen position and a
-   player can never spill into a third row. */
+/* Hands: the memory-critical cards stay in a fixed 2x2 grid. Overflow cards
+   (usually wrong-flush penalties) are a separate group on the LEFT, leaving
+   the right side clear for the drawn card and keeping every card clickable. */
 .hand-grid {
   display: grid;
   grid-auto-flow: column;
@@ -713,7 +712,21 @@
   gap: 8px;
   justify-items: center;
 }
+.hand-shell {
+  position: relative;
+  display: inline-block;
+  flex: none;
+}
+.hand-overflow {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 0;
+  z-index: 21;
+}
 .seat-opponent .hand-grid {
+  gap: 5px;
+}
+.seat-opponent .hand-overflow {
   gap: 5px;
 }
 
@@ -721,7 +734,7 @@
    so we never shift the whole deck to reveal it. */
 .draw-slot {
   position: absolute;
-  left: calc(50% + 96px);
+  left: calc(100% + 12px);
   top: 50%;
   transform: translateY(-50%);
   display: flex;
@@ -2091,7 +2104,7 @@
   .home-join { flex-direction: column; }
   .home-title { font-size: 36px; }
   .seat-me { bottom: 0%; }
-  .draw-slot { left: calc(50% + 64px); }
+  .draw-slot { left: calc(100% + 8px); }
   /* Control stack (chat / sound / info) moves to the LEFT edge on phones,
      stacked above the host-only Test Mode pill — frees the right side for
      the drawn card and the "keep or discard" flow. */

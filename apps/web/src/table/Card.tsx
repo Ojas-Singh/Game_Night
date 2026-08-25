@@ -65,7 +65,10 @@ export default function Card({
 
   return (
     <motion.button
-      initial={{ opacity: 0, scale: 0.7 }}
+      // Card flights and the explicit starting-peek flash own the visual
+      // entrances. Animating every card on the initial table mount made the
+      // opening look like random draws and could hide the two real reveals.
+      initial={false}
       animate={{ opacity: 1, scale: 1 }}
       // POSITION layout animation ONLY for cards actually re-slotted by a
       // swap (the `swapped` flag). Applying it to every card made the whole

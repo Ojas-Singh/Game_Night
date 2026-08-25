@@ -87,11 +87,50 @@ export function collectFlights(
         toDiscard: true,
         rank,
       });
-    } else if (ev.type === 'CARD_DISCARDED' || ev.type === 'CARD_REPLACED') {
+    } else if (ev.type === 'CARD_REPLACED' || ev.type === 'KEEP_DRAWN_SWAP') {
+      // A keep is a two-card exchange, not a normal discard:
+      //  1. the existing card flies from its old slot to the discard pile;
+      //  2. the drawn card flies into that exact slot. Both trails make the
+      //     replacement readable even when several players act quickly.
+      const actor = String(ev.playerId ?? '');
+      const replacedId =
+        typeof p?.replacedCardId === 'string' ? p.replacedCardId :
+          typeof p?.cardId === 'string' ? p.cardId : undefined;
+      const keptId = typeof p?.keptCardId === 'string' ? p.keptCardId : undefined;
+      if (keptId) {
+        if (actor !== myPlayerId) {
+          consumedNewCards.add(keptId);
+          noteDrawn?.(keptId);
+        }
+        out.push({
+          id: `DRAWN-${ev.seq}`,
+          seq: ev.seq,
+          fromPlayerId: 'deck',
+          // For the local player the previous view contains the drawn card
+          // in the draw slot, so CardFlights can use that exact old anchor.
+          // Opponents do not receive that card in their previous view and
+          // therefore fall back to the deck anchor.
+          fromCardId: actor === myPlayerId ? keptId : undefined,
+          toDiscard: false,
+          toPlayerId: actor,
+          toCardId: keptId,
+          rank: 0,
+        });
+      }
+      out.push({
+        id: `${ev.type}-${ev.seq}`,
+        seq: ev.seq,
+        fromPlayerId: actor,
+        fromCardId: replacedId,
+        toDiscard: true,
+        rank,
+      });
+    } else if (ev.type === 'CARD_DISCARDED') {
       out.push({
         id: `${ev.type}-${ev.seq}`,
         seq: ev.seq,
         fromPlayerId: ev.playerId ?? '',
+        fromCardId: typeof p?.cardId === 'string' ? p.cardId : undefined,
         toDiscard: true,
         rank,
       });
@@ -130,14 +169,14 @@ export function collectFlights(
     } else if (ev.type === 'PENALTY_DRAWN') {
       const drawer = String(ev.playerId ?? '');
       let landedCardId: string | undefined;
-      if (drawer !== myPlayerId && prev) {
+      if (prev) {
         const before = new Set(prev.handCardIds?.[drawer] ?? []);
         landedCardId = (next.handCardIds?.[drawer] ?? []).find(
           (id) => !before.has(id) && !consumedNewCards.has(id),
         );
         if (landedCardId) {
           consumedNewCards.add(landedCardId);
-          noteDrawn?.(landedCardId);
+          if (drawer !== myPlayerId) noteDrawn?.(landedCardId);
         }
       }
       out.push({
@@ -145,41 +184,9 @@ export function collectFlights(
         seq: ev.seq,
         fromPlayerId: 'deck',
         toDiscard: false,
-        toPlayerId: drawer === myPlayerId ? undefined : drawer,
-        toCardId: drawer === myPlayerId ? undefined : landedCardId,
-        rank,
-      });
-    } else if (ev.type === 'CARD_REPLACED' || ev.type === 'KEEP_DRAWN_SWAP') {
-      // The full exchange, both halves visible:
-      //  1. OLD card flies FROM its exact slot (pre-update geometry) to the
-      //     discard pile — the flush half.
-      //  2. DRAWN card flies deck -> the very slot it now occupies, with a
-      //     golden landing shimmer — so "what arrived" is unambiguous.
-      const actor = String(ev.playerId ?? '');
-      const replacedId =
-        typeof p?.replacedCardId === 'string' ? p.replacedCardId : undefined;
-      const keptId =
-        typeof p?.keptCardId === 'string' ? p.keptCardId : undefined;
-      if (keptId && actor !== myPlayerId) {
-        consumedNewCards.add(keptId);
-        noteDrawn?.(keptId);
-        out.push({
-          id: `DRAWN-${ev.seq}`,
-          seq: ev.seq,
-          fromPlayerId: 'deck',
-          toDiscard: false,
-          toPlayerId: actor,
-          toCardId: keptId,
-          rank,
-        });
-      }
-      out.push({
-        id: `${ev.type}-${ev.seq}`,
-        seq: ev.seq,
-        fromPlayerId: actor === myPlayerId ? 'deck' : actor,
-        fromCardId: replacedId,
-        toDiscard: true,
-        rank,
+        toPlayerId: drawer,
+        toCardId: landedCardId,
+        rank: 0,
       });
     } else if (ev.type === 'POWER_RESOLVED') {
       const pow = String(p?.power ?? '');
@@ -200,19 +207,6 @@ export function collectFlights(
       // Swaps (BLIND_SWAP) produce NO ghost flights: the REAL
       // cards glide to their new slots via framer layout animation, and both
       // get a brief glow (swapMarks) — one clear movement, no overlay noise.
-    } else if (ev.type === 'PENALTY_DRAWN') {
-      // A secret penalty card flies from the deck to the penalized player's
-      // hand — face-down (no rank in the shared log), so everyone sees the
-      // movement but not the value.
-      const toPlayerId = String(ev.playerId ?? '');
-      out.push({
-        id: `${ev.type}-${ev.seq}`,
-        seq: ev.seq,
-        fromPlayerId: 'deck',
-        toDiscard: false,
-        toPlayerId,
-        rank: 0,
-      });
     }
   }
   return out;
@@ -366,28 +360,28 @@ export function useRoom(): RoomApi {
 
   const flashKnowledge = useCallback((prev: AnyGameView | null, next: AnyGameView): void => {
     if (next.gameId !== 'cabo') return; // cabo-only card-flash machinery
-    // prev === null on the FIRST view after (re)join — the starting peek of
-    // the bottom two cards arrives that way, so it must flash too (longer:
-    // it's the memorize-your-cards moment). Pair One has no private peek:
-    // skip the join-time mega-flash; its flips flash via the normal path.
-    if (next.gameId !== 'cabo') return;
-    if (!prev || prev.gameId !== 'cabo') return;
-    const before = new Set(Object.keys(prev.knownCards));
-    const ids = new Set(Object.keys((next as CaboPlayerView).knownCards).filter((id) => !before.has(id)));
-    // Also re-flash EVERY card a fresh CARD_FLIPPED event reveals, EVEN IF we
-    // already knew it. Pair One players flip already-open cards constantly
-    // (that's how memory works), and without this such a card would snap back
-    // face-down the instant the turn resolved instead of staying up for the
-    // shared reveal window.
-    const lastSeq = prev.events.length > 0 ? prev.events[prev.events.length - 1]!.seq : 0;
-    for (const e of (next as CaboPlayerView).events) {
-      if (e.seq <= lastSeq || e.type !== 'CARD_FLIPPED') continue;
-      for (const id of (e.payload?.cardIds as string[] | undefined) ?? []) {
-        if (id) ids.add(id);
+    const cabo = next as CaboPlayerView;
+    const firstCaboView = !prev || prev.gameId !== 'cabo';
+    const comingFromInitialPeek = prev?.gameId === 'cabo' && prev.phase === 'INITIAL_PEEK';
+    const ids = new Set<string>();
+
+    // The server may finish the automatic starting peeks before the first
+    // socket view is emitted. Use the explicit, viewer-safe ids instead of
+    // relying on needsInitialPeek or replaying INITIAL_PEEKED events.
+    if (firstCaboView || comingFromInitialPeek) {
+      for (const id of cabo.initialPeekCardIds ?? []) {
+        if (cabo.knownCards[id]) ids.add(id);
+      }
+    }
+
+    if (!firstCaboView && prev.gameId === 'cabo') {
+      const before = new Set(Object.keys(prev.knownCards));
+      for (const id of Object.keys(cabo.knownCards)) {
+        if (!before.has(id)) ids.add(id);
       }
     }
     if (ids.size === 0) return;
-    const ms = prev ? PEEK_FLASH_MS : START_FLASH_MS;
+    const ms = firstCaboView || comingFromInitialPeek ? START_FLASH_MS : PEEK_FLASH_MS;
     const at = Date.now();
     setPeekFlash((cur) => {
       const updated = { ...cur };
@@ -399,7 +393,7 @@ export function useRoom(): RoomApi {
       setPeekFlash((cur) => {
         const nextMap: Record<string, { at: number; ms: number }> = {};
         for (const [id, f] of Object.entries(cur)) {
-          if (at - f.at < f.ms - 50) nextMap[id] = f;
+          if (Date.now() - f.at < f.ms - 50) nextMap[id] = f;
         }
         return nextMap;
       });

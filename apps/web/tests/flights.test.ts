@@ -51,6 +51,44 @@ describe('collectFlights', () => {
     ]);
   });
 
+  it('maps KEEP_DRAWN replacement to two exact, readable flights', () => {
+    const prev = {
+      ...view([]),
+      handCardIds: { A: ['old', '__slot__1', '__slot__2', '__slot__3'] },
+      drawnCard: { id: 'drawn' },
+    } as unknown as CaboPlayerView;
+    const next = {
+      ...view([
+        {
+          seq: 20,
+          type: 'CARD_REPLACED',
+          playerId: 'A',
+          payload: { replacedCardId: 'old', keptCardId: 'drawn', rank: 4 },
+        },
+      ]),
+      handCardIds: { A: ['drawn', '__slot__1', '__slot__2', '__slot__3'] },
+    } as unknown as CaboPlayerView;
+
+    const flights = collectFlights(prev, next, 'A');
+    expect(flights).toHaveLength(2);
+    expect(flights[0]).toMatchObject({
+      id: 'DRAWN-20',
+      fromPlayerId: 'deck',
+      fromCardId: 'drawn',
+      toPlayerId: 'A',
+      toCardId: 'drawn',
+      toDiscard: false,
+      rank: 0,
+    });
+    expect(flights[1]).toMatchObject({
+      id: 'CARD_REPLACED-20',
+      fromPlayerId: 'A',
+      fromCardId: 'old',
+      toDiscard: true,
+      rank: 4,
+    });
+  });
+
   it('maps a draw to a face-down flight FROM the deck (no rank leaked)', () => {
     const next = view([
       { seq: 5, type: 'CARD_DRAWN', playerId: 'F', payload: { deckCount: 20 } },

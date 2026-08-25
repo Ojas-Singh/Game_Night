@@ -19,6 +19,8 @@ export interface CaboPlayerView extends PlayerView {
   drawnCard: Card | null;
   /** Viewer still owes their initial peek. */
   needsInitialPeek: boolean;
+  /** Card ids shown to this viewer at the start of the round. */
+  initialPeekCardIds: string[];
   cabo: { callerId: string } | null;
   scores: Record<string, number> | null;
   roundWinnerId: string | null;
@@ -95,5 +97,6 @@ export function buildPlayerView(state: CaboState, viewerId: string, opts?: { rev
     roundWinnerId: state.roundWinnerId,
     tiedWinnerIds: state.tiedWinnerIds,
     discardTopRank: discardTop?.rank ?? null,
+    initialPeekCardIds: [...(state.initialPeekCardIds?.[viewerId] ?? [])],
   };
 }

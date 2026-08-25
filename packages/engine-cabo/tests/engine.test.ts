@@ -63,6 +63,24 @@ describe('deck & dealing', () => {
       standardDeck().map((card) => card.id),
     );
   });
+
+  it('chooses a seeded random opener unless a test override is supplied', () => {
+    const openerFor = (seed: number, firstTurnSeat?: number) => {
+      const e = new CaboEngine();
+      e.createGame(
+        [
+          { id: 'x', name: 'X', seat: 0 },
+          { id: 'y', name: 'Y', seat: 1 },
+          { id: 'z', name: 'Z', seat: 2 },
+        ],
+        firstTurnSeat === undefined ? { seed } : { seed, firstTurnSeat },
+      );
+      return e.getState().currentTurn;
+    };
+    expect(openerFor(17)).toBe(openerFor(17));
+    expect(new Set([17, 18, 19, 20, 21].map((seed) => openerFor(seed))).size).toBeGreaterThan(1);
+    expect(openerFor(17, 0)).toBe(0);
+  });
 });
 
 describe('scoring', () => {

@@ -92,7 +92,10 @@ export default function CardFlights({
         // hand anchor, then the geometry-only seat position — the ghost must
         // always have somewhere real to start and land.
         const from = (f.fromCardId && prevCards[f.fromCardId]) || resolvePoint(
-          f.fromCardId ? anchors.cards[f.fromCardId] : undefined,
+          // A deck-origin flight may carry the kept card id only so the
+          // local player's previous draw-slot anchor can be used. Never use
+          // the card's CURRENT hand position as its source in that case.
+          f.fromCardId && f.fromPlayerId !== 'deck' ? anchors.cards[f.fromCardId] : undefined,
           [
             f.fromPlayerId === 'deck' ? anchors.deck : undefined,
             f.fromPlayerId !== 'deck' ? handOrSeat(f.fromPlayerId) : undefined,
