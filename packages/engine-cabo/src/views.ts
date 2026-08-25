@@ -36,6 +36,9 @@ export function buildPlayerView(state: CaboState, viewerId: string, opts?: { rev
   // value so a tester can watch the full flow.
   const revealAll = opts?.revealAll === true;
   const knownIds = new Set(state.knowledge[viewerId] ?? []);
+  // Starting-peek metadata is viewer-scoped presentation state. Re-add its
+  // ids explicitly so a restored/coalesced round still ships both values.
+  for (const id of state.initialPeekCardIds?.[viewerId] ?? []) knownIds.add(id);
   // INITIAL_PEEK: your bottom two cards are yours to memorise from the deal,
   // so their values ship while you have not peeked yet. State-driven — no
   // event replay needed, survives reconnects and coalesced broadcasts.

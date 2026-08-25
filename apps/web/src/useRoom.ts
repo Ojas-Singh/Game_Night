@@ -363,12 +363,17 @@ export function useRoom(): RoomApi {
     const cabo = next as CaboPlayerView;
     const firstCaboView = !prev || prev.gameId !== 'cabo';
     const comingFromInitialPeek = prev?.gameId === 'cabo' && prev.phase === 'INITIAL_PEEK';
+    const previousStartingIds = prev?.gameId === 'cabo' ? prev.initialPeekCardIds ?? [] : [];
+    const startingIdsChanged =
+      (cabo.initialPeekCardIds?.length ?? 0) > 0 &&
+      cabo.initialPeekCardIds.join('|') !== previousStartingIds.join('|');
+    const startingReveal = firstCaboView || comingFromInitialPeek || startingIdsChanged;
     const ids = new Set<string>();
 
     // The server may finish the automatic starting peeks before the first
     // socket view is emitted. Use the explicit, viewer-safe ids instead of
     // relying on needsInitialPeek or replaying INITIAL_PEEKED events.
-    if (firstCaboView || comingFromInitialPeek) {
+    if (startingReveal) {
       for (const id of cabo.initialPeekCardIds ?? []) {
         if (cabo.knownCards[id]) ids.add(id);
       }
@@ -381,7 +386,7 @@ export function useRoom(): RoomApi {
       }
     }
     if (ids.size === 0) return;
-    const ms = firstCaboView || comingFromInitialPeek ? START_FLASH_MS : PEEK_FLASH_MS;
+    const ms = startingReveal ? START_FLASH_MS : PEEK_FLASH_MS;
     const at = Date.now();
     setPeekFlash((cur) => {
       const updated = { ...cur };

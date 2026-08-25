@@ -5,7 +5,7 @@ import type { FlightPos } from './CardFlights.js';
 import type { CaboPlayerView } from '@cabo/views.js';
 import Card from './Card.js';
 import TableCenter from './TableCenter.js';
-import SeatPlanner from './SeatPlanner.js';
+import SeatPlanner, { orderPlayersForViewer } from './SeatPlanner.js';
 import ScoreBoard from './ScoreBoard.js';
 import CardFlights, { SwapGhosts } from './CardFlights.js';
 import { useGuidance } from './guidance.js';
@@ -24,7 +24,9 @@ import Avatar from './Avatar.js';
  */
 export default function TableView({ room, view }: { room: RoomApi; view: CaboPlayerView }) {
   const me = view.players.find((p) => p.id === room.myPlayerId) ?? view.players[0]!;
-  const others = view.players.filter((p) => p.id !== me.id);
+  // Rotate the seat-ordered roster around the local player so the visual
+  // left-to-right arc is also the next-player-to-previous-player circle.
+  const others = orderPlayersForViewer(view.players, me.id);
   // Cards inside their brief reveal window render face-up; afterwards they
   // flip back down (knowledge retained as a small "seen" marker).
   // The server records the ids shown during the automatic starting peek, so
@@ -33,13 +35,37 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
   const initialPeekIds = (() => {
     const recorded = view.initialPeekCardIds ?? [];
     if (recorded.length > 0) return new Set(recorded);
-    // Compatibility fallback for an older server view while a round is still
-    // waiting for a player's manual initial peek.
-    if (view.phase !== 'INITIAL_PEEK' || !view.needsInitialPeek) return new Set<string>();
+    // Compatibility fallback for an older server view. The local player's
+    // known bottom-row values are safe to reveal; opponent values remain
+    // opaque because they are absent from this filtered view.
     const ids = view.handCardIds[me.id] ?? [];
-    return new Set([ids[1], ids[3]].filter(Boolean) as string[]);
+    return new Set([ids[1], ids[3]].filter(
+      (id): id is string => !!id && !!view.knownCards[id],
+    ));
   })();
+  const startingPeekKey = [...initialPeekIds].join('|');
+  const startingPeekActiveKey = useRef<string | null>(null);
+  const [activeStartingPeekKey, setActiveStartingPeekKey] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    if (!startingPeekKey || startingPeekActiveKey.current === startingPeekKey) return;
+    startingPeekActiveKey.current = startingPeekKey;
+    setActiveStartingPeekKey(startingPeekKey);
+    const timer = window.setTimeout(() => {
+      setActiveStartingPeekKey((current) => current === startingPeekKey ? null : current);
+    }, 10_000);
+    return () => {
+      window.clearTimeout(timer);
+      // Reset the guard on unmount/dependency cleanup so React Strict Mode's
+      // development effect replay installs the timer again as well.
+      if (startingPeekActiveKey.current === startingPeekKey) {
+        startingPeekActiveKey.current = null;
+      }
+    };
+  }, [startingPeekKey]);
   const flashActive = (cardId: string): boolean => {
+    if (startingPeekKey && activeStartingPeekKey === startingPeekKey && initialPeekIds.has(cardId)) {
+      return true;
+    }
     const f = room.peekFlash[cardId];
     if (f && Date.now() - f.at < f.ms) return true;
     // Manual-peek compatibility: while the engine is still waiting for this
@@ -405,10 +431,10 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
     const sx = ell.left + (lx / 100) * ell.width; // seat's screen x
     const sy = ell.top + (ty / 100) * ell.height; // seat's screen y
     switch (seat.whoSide) {
-      // Opposite players: their pill sits beyond their cards, up at the top
-      // edge of the screen, horizontally aligned with their seat.
+      // Upper-side players keep their avatar directly above their actual
+      // deck, rather than being pushed to one shared screen-edge position.
       case 'above':
-        return { left: sx, top: Math.max(10, ell.top - 66), transform: 'translateX(-50%)' as const };
+        return { left: sx, top: Math.max(10, sy - 82), transform: 'translateX(-50%)' as const };
       // Side players: their pill hugs the near edge at the seat's height.
       case 'left':
         return { right: 18, top: sy, transform: 'translateY(-50%)' as const };

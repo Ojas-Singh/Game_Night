@@ -17,6 +17,21 @@ export interface Seat {
   whoSide: 'above' | 'left' | 'right';
 }
 
+/**
+ * Return the other players in circular turn order, starting immediately
+ * after the viewer. The engine's player list is seat-ordered, but rendering
+ * that list unchanged makes the table jump across the circle whenever the
+ * local player is not seat zero.
+ */
+export function orderPlayersForViewer<T extends { id: string }>(
+  players: readonly T[],
+  viewerId: string,
+): T[] {
+  const viewerIndex = players.findIndex((p) => p.id === viewerId);
+  if (viewerIndex < 0) return [...players];
+  return [...players.slice(viewerIndex + 1), ...players.slice(0, viewerIndex)];
+}
+
 export default function SeatPlanner(opponentCount: number): Seat[] {
   const n = Math.max(1, opponentCount);
   // Angles in degrees measured from the top (0° = directly opposite you).
@@ -37,9 +52,11 @@ export default function SeatPlanner(opponentCount: number): Seat[] {
     // bottom row) appear at the TOP of their hand from my perspective.
     // R = atan2(50 - xPct, yPct - 46) evaluated on the ellipse offsets:
     const facing = (Math.atan2(44 * Math.cos(rad), -34 * Math.sin(rad)) * 180) / Math.PI;
-    // POV band for the pill: angle 20..70 = right side of the table (from
-    // my view), 70..110 = opposite (above their cards), 110..160 = left.
-    const whoSide: Seat['whoSide'] = angle < 70 ? 'right' : angle > 110 ? 'left' : 'above';
+    // Keep the two upper-side seats above their decks when five people are
+    // playing. Putting them on the fixed screen edges makes their avatars
+    // look detached from the cards. The remaining seats sit at the sides.
+    const whoSide: Seat['whoSide'] =
+      angle >= 55 && angle <= 125 ? 'above' : angle < 90 ? 'right' : 'left';
     seats.push({
       angle,
       facing,

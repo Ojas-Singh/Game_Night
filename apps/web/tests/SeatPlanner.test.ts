@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import SeatPlanner from '../src/table/SeatPlanner.js';
+import SeatPlanner, { orderPlayersForViewer } from '../src/table/SeatPlanner.js';
 
 /** Extract left/top percentages from a seat style. */
 function pos(style: React.CSSProperties): { left: number; top: number } {
@@ -9,6 +9,12 @@ function pos(style: React.CSSProperties): { left: number; top: number } {
 }
 
 describe('SeatPlanner (player POV around the ellipse)', () => {
+  it('rotates opponents into circular order from the viewer', () => {
+    const players = [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }, { id: 'p4' }];
+    expect(orderPlayersForViewer(players, 'p1').map((p) => p.id)).toEqual(['p2', 'p3', 'p4']);
+    expect(orderPlayersForViewer(players, 'p3').map((p) => p.id)).toEqual(['p4', 'p1', 'p2']);
+  });
+
   it('produces exactly one seat per opponent', () => {
     for (let n = 1; n <= 5; n++) {
       expect(SeatPlanner(n)).toHaveLength(n);
@@ -58,5 +64,10 @@ describe('SeatPlanner (player POV around the ellipse)', () => {
     for (let i = 1; i < seats.length; i++) {
       expect(seats[i]!.angle).toBeGreaterThan(seats[i - 1]!.angle);
     }
+  });
+
+  it('keeps the two upper seats attached to their local decks for five players', () => {
+    const seats = SeatPlanner(4);
+    expect(seats.filter((seat) => seat.whoSide === 'above')).toHaveLength(2);
   });
 });
