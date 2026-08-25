@@ -2554,3 +2554,47 @@
 
 .leave-toggle.as-endgame { background: #7d2b3a; color: #fff; border: 1px solid rgba(255,255,255,.3); }
 .leave-toggle.as-endgame:hover { background: #93374a; }
+
+/* ==== Turn clarity: active player's avatar pops + glows ================
+   Animates ONLY the inner avatar — the pill button's own transform is
+   reserved for translateX(-50%) centring and must not be overridden. */
+.seat-who.is-turn-pill .avatar {
+  animation:
+    turn-pop 0.85s cubic-bezier(0.34, 1.56, 0.64, 1),
+    turn-bob 1.6s ease-in-out 0.85s infinite;
+}
+.seat-who.is-turn-pill .avatar.ring svg {
+  box-shadow:
+    0 0 10px 3px rgba(255, 217, 138, 0.85),
+    0 0 26px 8px rgba(255, 180, 60, 0.35);
+  border-radius: 50%;
+}
+.seat-who.is-turn-pill .seat-name {
+  color: var(--tk-accent, #ffd98a);
+  text-shadow: 0 0 8px rgba(255, 217, 138, 0.5);
+}
+@keyframes turn-pop {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.32); }
+  100% { transform: scale(1.06); }
+}
+@keyframes turn-bob {
+  0%, 100% { transform: scale(1.06) translateY(0); }
+  50% { transform: scale(1.06) translateY(-4px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seat-who.is-turn-pill .avatar { animation: none; transform: scale(1.06); }
+}
+
+/* ==== Opponent draw landing: golden shimmer on the exact new card ====== */
+.card.just-drawn {
+  box-shadow:
+    0 0 0 2px var(--tk-accent, #ffd98a),
+    0 0 22px 6px rgba(255, 217, 138, 0.5);
+  animation: draw-landed 1.4s ease-out;
+}
+@keyframes draw-landed {
+  0% { filter: brightness(1.9); transform: scale(1.18); }
+  55% { filter: brightness(1.35); transform: scale(1.06); }
+  100% { filter: brightness(1); transform: scale(1); }
+}

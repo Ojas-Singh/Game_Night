@@ -31,12 +31,10 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
   // two cards ALWAYS show during the memorize moment — even after a
   // reconnect or when several events coalesce into one broadcast.
   const initialPeekIds = (() => {
-    const v = view as unknown as { phase?: string; initialPeeksRemaining?: string[] };
-    if (v.phase !== 'INITIAL_PEEK' || !Array.isArray(v.initialPeeksRemaining)) {
-      return new Set<string>();
-    }
+    // The client view exposes needsInitialPeek (bool) + phase — use those.
+    if (view.phase !== 'INITIAL_PEEK' || !view.needsInitialPeek) return new Set<string>();
     const meId = room.myPlayerId;
-    if (!meId || !v.initialPeeksRemaining!.includes(meId)) return new Set<string>();
+    if (!meId) return new Set<string>();
     const ids = view.handCardIds[meId] ?? [];
     return new Set([ids[1], ids[3]].filter(Boolean) as string[]);
   })();
