@@ -38,8 +38,10 @@ describe('room persistence', () => {
     const { player: p1 } = room.addPlayer('A');
     const { player: p2 } = room.addPlayer('B');
     room.startGame(room.hostId!);
-    // The starting peek is automatic (bottom row); p1 draws right away.
-    room.handleGameAction(p1.id, { type: 'DRAW', playerId: p1.id });
+    // The starting peek is automatic (bottom row); the opener is random.
+    const firstTurnId = room.engine!.getState().players[room.engine!.getState().currentTurn]!.id;
+    const otherId = firstTurnId === p1.id ? p2.id : p1.id;
+    room.handleGameAction(firstTurnId, { type: 'DRAW', playerId: firstTurnId });
 
     const before = room.engine!.getState();
     const store = new MemoryRoomStore();
@@ -53,39 +55,39 @@ describe('room persistence', () => {
     const after = restored.engine!.getState();
     expect(after.phase).toBe(before.phase);
     expect(after.revision).toBe(before.revision);
-    expect(after.hands[p1.id]!.length).toBe(before.hands[p1.id]!.length);
+    expect(after.hands[firstTurnId]!.length).toBe(before.hands[firstTurnId]!.length);
     expect(after.deck.length).toBe(before.deck.length);
 
     // The restored game keeps accepting actions (KEEP_DRAWN, then resolve
     // any pending power / end the turn as the state requires).
     expect(() =>
-      restored.handleGameAction(p1.id, { type: 'KEEP_DRAWN', playerId: p1.id, handIndex: 0 }),
+      restored.handleGameAction(firstTurnId, { type: 'KEEP_DRAWN', playerId: firstTurnId, handIndex: 0 }),
     ).not.toThrow();
     const st = restored.engine!.getState();
     if (st.phase === 'POWER_PENDING') {
       // The replaced card carried a power — perform it (peek own first card).
-      const own = st.hands[p1.id]!.find((c): c is NonNullable<typeof c> => !!c);
+      const own = st.hands[firstTurnId]!.find((c): c is NonNullable<typeof c> => !!c);
       if (st.pendingPower!.power === 'PEEK_OWN' && own) {
-        restored.handleGameAction(p1.id, {
+        restored.handleGameAction(firstTurnId, {
           type: 'POWER_APPLY',
-          playerId: p1.id,
+          playerId: firstTurnId,
           payload: { power: 'PEEK_OWN', cardId: own.id },
         });
       }
     }
     if (restored.engine!.getState().phase === 'TURN_END') {
-      restored.handleGameAction(p1.id, { type: 'END_TURN', playerId: p1.id });
+      restored.handleGameAction(firstTurnId, { type: 'END_TURN', playerId: firstTurnId });
     }
     const afterState = restored.engine!.getState();
     const currentId = afterState.players[afterState.currentTurn]!.id;
     // Either the turn advanced, or the discarded card legitimately triggered
-    // a mandatory power that keeps it p1's move.
-    expect(currentId === p2.id || afterState.pendingPower?.playerId === p1.id).toBe(true);
+    // a mandatory power that keeps it on the opener's move.
+    expect(currentId === otherId || afterState.pendingPower?.playerId === firstTurnId).toBe(true);
 
     // Hidden-information filtering still works after restore.
-    const view = restored.engine!.getPlayerState(p2.id);
-    const p1CardIds = view.handCardIds[p1.id]!;
-    const leaked = p1CardIds.filter((id) => view.knownCards[id] !== undefined);
+    const view = restored.engine!.getPlayerState(otherId);
+    const firstTurnCardIds = view.handCardIds[firstTurnId]!;
+    const leaked = firstTurnCardIds.filter((id) => view.knownCards[id] !== undefined);
     expect(leaked).toEqual([]);
   });
 

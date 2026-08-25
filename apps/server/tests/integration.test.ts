@@ -78,6 +78,10 @@ function startGame(sock: TestSocket): Promise<{ ok: boolean; error?: string }> {
   return new Promise((resolve) => sock.emit('room:start_game', {}, resolve));
 }
 
+function addAi(sock: TestSocket, persona = 'balanced'): Promise<{ ok: boolean; error?: string; playerId?: string }> {
+  return new Promise((resolve) => sock.emit('room:add_ai', { persona }, resolve));
+}
+
 function gameAction(sock: TestSocket, action: unknown): Promise<{ ok: boolean; error?: string }> {
   return new Promise((resolve) => sock.emit('game:action', { action }, resolve));
 }
@@ -205,6 +209,73 @@ describe('socket integration', () => {
     },
     60_000,
   );
+
+  it('starts and wakes an AI seat when the host is the only human', async () => {
+    const host = await connect();
+    const tracker = new ViewTracker(host);
+    const created = await createRoom(host, 'Host');
+    const ai = await addAi(host, 'scholar');
+    expect(ai.ok).toBe(true);
+    expect(ai.playerId).toBeTruthy();
+
+    expect((await startGame(host)).ok).toBe(true);
+    const started = await tracker.waitFor((v) => v.phase === 'TURN_DRAW');
+    const baselineSeq = started.events.at(-1)?.seq ?? 0;
+    const isAiAction = (event: { seq: number; type: string; playerId?: string; payload?: Record<string, unknown> }) =>
+      event.seq > baselineSeq &&
+      (event.playerId ?? event.payload?.playerId) === ai.playerId &&
+      event.type !== 'TURN_STARTED';
+
+    // If the random opener is the human, make one safe turn so the AI gets
+    // an opportunity. If the opener is already the AI, this loop simply
+    // waits for the bot's first public action.
+    const deadline = Date.now() + 7_000;
+    let inFlight = false;
+    while (Date.now() < deadline) {
+      const view = tracker.latest;
+      if (view) {
+        const currentId = view.players.find((p) => p.isCurrentTurn)?.id;
+        const aiActed = view.events.some(isAiAction);
+        if (aiActed) break;
+        if (currentId === created.playerId && !inFlight) {
+          const own = (view.handCardIds[created.playerId] ?? []).find((id) => !id.startsWith('__slot__'));
+          const other = view.players.find((p) => p.id === ai.playerId);
+          const target = other && (view.handCardIds[other.id] ?? []).find((id) => !id.startsWith('__slot__'));
+          let action: Record<string, unknown> | null = null;
+          if (view.phase === 'TURN_DRAW') action = { type: 'DRAW', playerId: created.playerId };
+          else if (view.phase === 'DRAW_DECISION') action = { type: 'DISCARD_DRAWN', playerId: created.playerId };
+          else if (view.phase === 'POWER_PENDING' && view.pendingPower && own) {
+            const power = view.pendingPower.power;
+            const payload =
+              power === 'PEEK_OWN'
+                ? { power, cardId: own }
+                : power === 'PEEK_OTHER' && target
+                  ? { power, targetPlayerId: ai.playerId, cardId: target }
+                  : power === 'BLIND_SWAP' && target
+                    ? { power, ownCardId: own, targetPlayerId: ai.playerId, targetCardId: target }
+                    : null;
+            if (payload) action = { type: 'POWER_APPLY', playerId: created.playerId, payload };
+          } else if (view.phase === 'TRANSFER_PENDING' && own) {
+            action = { type: 'TRANSFER_CARD', playerId: created.playerId, cardId: own };
+          } else if (view.phase === 'TURN_END') {
+            action = { type: 'END_TURN', playerId: created.playerId };
+          }
+          if (action) {
+            inFlight = true;
+            await gameAction(host, action);
+            inFlight = false;
+          }
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    expect(tracker.latest?.events.some(isAiAction)).toBe(true);
+    await new Promise<void>((resolve) => {
+      host.emit('room:end_game', undefined, () => resolve());
+    });
+    host.close();
+  }, 15_000);
 
   it('reconnects with token after disconnect and restores the same seat', async () => {
     const host = await connect();

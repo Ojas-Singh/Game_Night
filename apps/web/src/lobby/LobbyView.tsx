@@ -1,12 +1,12 @@
 import { Link } from 'react-router-dom';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { RoomApi } from '../useRoom.js';
 import ChatPanel from '../chat/ChatPanel.js';
 import DebugPanel from '../DebugPanel.js';
 import { loadName } from '../session.js';
 import Avatar from '../table/Avatar.js';
 import InfoModal from '../table/InfoModal.js';
-import { loadAvatar, saveAvatar } from '../avatar.js';
+import { loadAvatar, randomAvatar, saveAvatar } from '../avatar.js';
 import { AVATAR_COLORS, EYE_STYLES, MOUTH_STYLES, HAT_STYLES } from '../avatar.js';
 import type { Avatar as AvatarModel } from '../server-protocol.js';
 
@@ -18,14 +18,27 @@ const AI_PERSONA_LABELS: Record<string, string> = {
   scholar: 'Scholar',
 };
 
+const AI_PERSONA_OPTIONS = [
+  { id: 'balanced', label: 'Balanced', description: 'Adapts to the table and takes solid value lines.' },
+  { id: 'scholar', label: 'Scholar', description: 'Tracks information carefully and plays the odds.' },
+  { id: 'conservative', label: 'Conservative', description: 'Protects a low score and avoids wild guesses.' },
+  { id: 'aggressor', label: 'Aggressor', description: 'Pressures opponents and attacks every opening.' },
+  { id: 'baiter', label: 'Baiter', description: 'Sets traps with discards and deceptive plays.' },
+] as const;
+
 export default function LobbyView({ room }: { room: RoomApi }) {
   const lobby = room.lobby!;
-  const [persona, setPersona] = useState('balanced');
   const me = lobby.players.find((p) => p.isYou);
   const isHost = me?.isHost ?? false;
-  const [name, setName] = useState(me?.name ?? loadName());
+  const [nameDraft, setNameDraft] = useState(me?.name ?? loadName());
+  const [editingName, setEditingName] = useState(false);
   const [avatar, setAvatar] = useState<AvatarModel>(me?.avatar ?? loadAvatar());
   const [copied, setCopied] = useState(false);
+  const [aiMenuOpen, setAiMenuOpen] = useState(false);
+  const [addingPersona, setAddingPersona] = useState<string | null>(null);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
   // Rules live on each game tile — tap a tile's ⓘ to read them. No auto-popup.
   const [rulesGame, setRulesGame] = useState<GameId | null>(null);
 
@@ -35,11 +48,9 @@ export default function LobbyView({ room }: { room: RoomApi }) {
     saveAvatar(next);
     room.setAvatar(next);
   };
-  const nameRef = useRef(name);
-
   useEffect(() => {
-    nameRef.current = me?.name ?? nameRef.current;
-  }, [me?.name]);
+    if (!editingName) setNameDraft(me?.name ?? loadName());
+  }, [editingName, me?.name]);
 
   const inviteLink = `${window.location.origin}${window.location.pathname}#/game/${lobby.roomId}`;
 
@@ -58,7 +69,40 @@ export default function LobbyView({ room }: { room: RoomApi }) {
     setTimeout(() => setCopied(false), 1600);
   };
 
-  const canStart = lobby.players.filter((p) => p.connected).length >= 2;
+  const commitName = () => {
+    const clean = nameDraft.trim();
+    if (clean && clean !== me?.name) room.setName(clean);
+    setEditingName(false);
+  };
+
+  const surpriseMe = () => {
+    const next = randomAvatar();
+    setAvatar(next);
+    saveAvatar(next);
+    room.setAvatar(next);
+  };
+
+  const addAi = async (selectedPersona: string) => {
+    setAddingPersona(selectedPersona);
+    const result = await room.addAiPlayer(selectedPersona);
+    setAddingPersona(null);
+    if (result.ok) setAiMenuOpen(false);
+  };
+
+  const leaveRoom = () => {
+    room.leaveRoom();
+    window.location.hash = '#/';
+  };
+
+  const startGame = async () => {
+    setStarting(true);
+    setStartError(null);
+    const result = await room.startGame();
+    setStarting(false);
+    if (!result.ok) setStartError(result.error ?? 'Could not start the game');
+  };
+
+  const canStart = lobby.players.filter((p) => p.connected).length >= 2 && !lobby.inGame;
 
   return (
     <div className="lobby-wrap">
@@ -68,52 +112,142 @@ export default function LobbyView({ room }: { room: RoomApi }) {
             Room <span className="room-code">{lobby.roomId}</span>
           </h1>
           <div className="invite-row">
-            <button
-              className="ghost"
-              onClick={() => {
-                room.leaveRoom();
-                window.location.hash = '#/';
-              }}
-              title="Leave this room and start fresh"
-            >
-              🏠 Leave room
-            </button>
-            <button className="ghost" onClick={copyLink}>
-              {copied ? '✓ Copied!' : '🔗 Copy invite link'}
-            </button>
-            <span className="room-url">{inviteLink}</span>
+            {confirmLeave ? (
+              <div className="leave-confirm" role="alertdialog" aria-label="Leave room confirmation">
+                <span>Leave this table?</span>
+                <button className="leave-confirm-yes" onClick={leaveRoom}>
+                  <Icon name="logout" /> Leave
+                </button>
+                <button className="icon-btn" onClick={() => setConfirmLeave(false)} aria-label="Stay in room" title="Stay in room">
+                  <Icon name="close" />
+                </button>
+              </div>
+            ) : (
+              <button
+                className="lobby-action leave-action"
+                onClick={() => setConfirmLeave(true)}
+                title="Leave this room and return home"
+              >
+                <Icon name="logout" />
+                <span>Leave room</span>
+              </button>
+            )}
+            <div className="invite-card">
+              <span className="invite-card-icon"><Icon name="link" /></span>
+              <span className="invite-card-copy">
+                <strong>Invite friends</strong>
+                <span className="room-url">{inviteLink}</span>
+              </span>
+              <button className="copy-invite-btn" onClick={copyLink}>
+                <Icon name={copied ? 'check' : 'copy'} />
+                <span>{copied ? 'Copied' : 'Copy link'}</span>
+              </button>
+            </div>
           </div>
         </header>
 
         <div className="lobby-body">
           <section className="lobby-panel players-panel">
-            <h2 className="lobby-section-title">At the table</h2>
+            <div className="section-heading-row">
+              <div>
+                <h2 className="lobby-section-title">At the table</h2>
+                <p className="section-kicker">Choose your look and make a seat.</p>
+              </div>
+              {isHost && (
+                <div className="ai-seat-control">
+                  <button
+                    className="add-seat-btn"
+                    onClick={() => setAiMenuOpen((open) => !open)}
+                    disabled={lobby.players.length >= 6}
+                    aria-expanded={aiMenuOpen}
+                    aria-haspopup="menu"
+                    title={lobby.players.length >= 6 ? 'Table is full' : 'Add an AI player'}
+                  >
+                    <Icon name="plus" />
+                    <span>AI seat</span>
+                  </button>
+                  {aiMenuOpen && lobby.players.length < 6 && (
+                    <div className="ai-menu" role="menu">
+                      <div className="ai-menu-title">Choose an opponent</div>
+                      {AI_PERSONA_OPTIONS.map((option) => (
+                        <button
+                          key={option.id}
+                          className="ai-option"
+                          role="menuitem"
+                          disabled={addingPersona !== null}
+                          onClick={() => void addAi(option.id)}
+                        >
+                          <span className="ai-option-icon"><Icon name="bot" /></span>
+                          <span className="ai-option-copy">
+                            <strong>{option.label}</strong>
+                            <small>{option.description}</small>
+                          </span>
+                          {addingPersona === option.id && <span className="ai-option-loading">…</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <ul className="player-list">
               {lobby.players.map((p) => (
-                <li key={p.id} className={`player-row ${p.connected ? '' : 'disconnected'}`}>
-                  <Avatar avatar={p.avatar ?? { color: 0, eyes: 0, mouth: 0, hat: 0 }} size={38} />
-                  <span className="player-name">
-                    {p.kind === 'ai' ? '🤖 ' : ''}
-                    {p.name}
-                  </span>
+                <li key={p.id} className={`player-row ${p.connected ? '' : 'disconnected'} ${p.isYou ? 'is-you' : ''}`}>
+                  <div className="player-avatar-wrap">
+                    <Avatar avatar={p.avatar ?? { color: 0, eyes: 0, mouth: 0, hat: 0 }} size={42} ring={p.isYou} />
+                    {p.kind === 'ai' && <span className="player-ai-mark" title="AI player"><Icon name="bot" /></span>}
+                  </div>
+                  <div className="player-identity">
+                    <div className="player-name-line">
+                      {p.isYou && editingName ? (
+                        <input
+                          className="inline-name-input"
+                          value={nameDraft}
+                          maxLength={24}
+                          autoFocus
+                          onChange={(e) => setNameDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') commitName();
+                            if (e.key === 'Escape') {
+                              setNameDraft(p.name);
+                              setEditingName(false);
+                            }
+                          }}
+                          onBlur={commitName}
+                          aria-label="Edit your name"
+                        />
+                      ) : (
+                        <span className="player-name">{p.name}</span>
+                      )}
+                      {p.isYou && !editingName && (
+                        <button className="name-edit-btn" onClick={() => setEditingName(true)} aria-label="Edit your name" title="Edit your name">
+                          <Icon name="pencil" />
+                        </button>
+                      )}
+                    </div>
+                    <span className="player-subtitle">
+                      {p.kind === 'ai'
+                        ? `${AI_PERSONA_LABELS[p.aiPersona ?? 'balanced'] ?? 'Balanced'} strategy`
+                        : p.isYou ? 'That’s you' : p.connected ? 'Ready to play' : 'Reconnecting…'}
+                    </span>
+                  </div>
                   {p.kind === 'ai' && (
                     <span
                       className="badge ai"
                       title={`AI player — ${AI_PERSONA_LABELS[p.aiPersona ?? 'balanced'] ?? 'Balanced'} strategy`}
                     >
-                      {AI_PERSONA_LABELS[p.aiPersona ?? 'balanced'] ?? 'AI'}
+                      AI
                     </span>
                   )}
                   {p.isHost && <span className="badge host">Host</span>}
                   {p.isYou && <span className="badge you">You</span>}
-                  {!p.connected && <span className="badge dc">reconnecting…</span>}
                   {isHost && !p.isYou && !p.isHost && (
                     <button
                       className="kick-btn"
                       title={`Remove ${p.name} from the room`}
                       onClick={() => void room.kickPlayer(p.id)}
                     >
-                      ✕
+                      <Icon name="close" />
                     </button>
                   )}
                 </li>
@@ -158,39 +292,15 @@ export default function LobbyView({ room }: { room: RoomApi }) {
                 <Link className="ghost gamelab-host-link" to="/gamelab" title="Open the RuleZero Game Lab">
                   🧪 Game Lab
                 </Link>
-                <div className="add-ai-row">
-                  <label className="rule-label" htmlFor="ai-persona">
-                    🤖 Add AI player
-                  </label>
-                  <select
-                    id="ai-persona"
-                    className="persona-select"
-                    value={persona}
-                    onChange={(e) => setPersona(e.target.value)}
-                  >
-                    {Object.entries(AI_PERSONA_LABELS).map(([id, label]) => (
-                      <option key={id} value={id}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    className="ghost add-ai-btn"
-                    disabled={lobby.players.length >= 6}
-                    title={lobby.players.length >= 6 ? 'Table is full' : 'Seat an AI opponent'}
-                    onClick={() => void room.addAiPlayer(persona)}
-                  >
-                    + Seat AI
-                  </button>
-                </div>
                 <button
                   className="start-btn"
-                  disabled={!canStart}
-                  onClick={() => void room.startGame()}
+                  disabled={!canStart || starting}
+                  onClick={() => void startGame()}
                   title={canStart ? 'Deal everyone in' : 'Need at least 2 players'}
                 >
-                  Start Game
+                  {starting ? 'Dealing…' : 'Start Game'}
                 </button>
+                {startError && <p className="lobby-action-error">{startError}</p>}
               </div>
             ) : (
               <p className="waiting-host">
@@ -209,7 +319,16 @@ export default function LobbyView({ room }: { room: RoomApi }) {
       <aside className="lobby-side">
         <DebugPanel room={room} />
         <div className="lobby-panel avatar-panel">
-          <h2 className="lobby-section-title">Your avatar</h2>
+          <div className="avatar-panel-head">
+            <div>
+              <h2 className="lobby-section-title">Your look</h2>
+              <p className="section-kicker">Make a table personality.</p>
+            </div>
+            <button className="shuffle-look" onClick={surpriseMe} title="Randomize your avatar">
+              <Icon name="shuffle" />
+              <span>Surprise me</span>
+            </button>
+          </div>
           <div className="avatar-editor">
             <Avatar avatar={avatar} size={84} ring />
             <div className="avatar-options">
@@ -221,6 +340,8 @@ export default function LobbyView({ room }: { room: RoomApi }) {
                     style={{ background: hex }}
                     onClick={() => customize({ color: i })}
                     aria-label={`Color ${i + 1}`}
+                    aria-pressed={avatar.color === i}
+                    title={`Color ${i + 1}`}
                   />
                 ))}
               </div>
@@ -228,24 +349,6 @@ export default function LobbyView({ room }: { room: RoomApi }) {
               <PickerRow label="Mouth" options={MOUTH_STYLES} sel={avatar.mouth} onPick={(i) => customize({ mouth: i })} />
               <PickerRow label="Hat" options={HAT_STYLES} sel={avatar.hat} onPick={(i) => customize({ hat: i })} />
             </div>
-          </div>
-        </div>
-        <div className="lobby-panel name-panel">
-          <h2 className="lobby-section-title">Your name</h2>
-          <div className="name-row">
-            <input
-              type="text"
-              value={name}
-              maxLength={24}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && name.trim()) room.setName(name.trim());
-              }}
-              onBlur={() => {
-                if (name.trim() && name.trim() !== nameRef.current) room.setName(name.trim());
-              }}
-              placeholder="Your name"
-            />
           </div>
         </div>
         <ChatPanel room={room} expanded />
@@ -347,10 +450,47 @@ function PickerRow({
           className={`picker-opt ${sel === i ? 'sel' : ''}`}
           onClick={() => onPick(i)}
           title={opt}
+          aria-pressed={sel === i}
         >
           {opt}
         </button>
       ))}
     </div>
   );
+}
+
+type IconName = 'bot' | 'check' | 'close' | 'copy' | 'link' | 'logout' | 'pencil' | 'plus' | 'shuffle';
+
+function Icon({ name }: { name: IconName }) {
+  const common = {
+    width: 17,
+    height: 17,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.9,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+  };
+  switch (name) {
+    case 'bot':
+      return <svg {...common}><rect x="4" y="7" width="16" height="12" rx="3" /><path d="M12 4v3M8 12h.01M16 12h.01M8 16h8" /></svg>;
+    case 'check':
+      return <svg {...common}><path d="m5 12 4 4L19 6" /></svg>;
+    case 'close':
+      return <svg {...common}><path d="m6 6 12 12M18 6 6 18" /></svg>;
+    case 'copy':
+      return <svg {...common}><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>;
+    case 'link':
+      return <svg {...common}><path d="M10 13.5 14 10m-7.5 7.5-1 1a3.5 3.5 0 0 1-5-5l3-3a3.5 3.5 0 0 1 5 0m2-4 1-1a3.5 3.5 0 0 1 5 5l-3 3a3.5 3.5 0 0 1-5 0" /></svg>;
+    case 'logout':
+      return <svg {...common}><path d="M10 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4M14 8l4 4-4 4M9 12h9" /></svg>;
+    case 'pencil':
+      return <svg {...common}><path d="m4 16-.8 4.8L8 20l10.8-10.8a2.8 2.8 0 0 0-4-4L4 16Z" /><path d="m13.5 6.5 4 4" /></svg>;
+    case 'plus':
+      return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>;
+    case 'shuffle':
+      return <svg {...common}><path d="M16 3h5v5M4 7h2c4 0 5 10 10 10h5M16 21h5v-5M4 17h2c1.4 0 2.4-.8 3.2-1.8M14.8 8.8C15.6 7.8 16.6 7 18 7h3" /></svg>;
+  }
 }

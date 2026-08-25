@@ -196,9 +196,10 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
           room.startGame(room.hostId);
           const last = room.chat[room.chat.length - 1]!;
           io.to(room.id).emit('room:chat', last);
-          broadcastLobby(room);
-          broadcastGame(room);
-          persistRoom(room);
+          // Starting a room also needs to wake the AI pump. Keeping this on
+          // the shared change path prevents a freshly dealt AI game from
+          // waiting forever for its first timer.
+          afterChange(room);
         }
       } catch {
         /* ignore */
@@ -314,9 +315,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         ack?.({ ok: true });
         const last = room.chat[room.chat.length - 1]!;
         io.to(room.id).emit('room:chat', last);
-        broadcastLobby(room);
-        broadcastGame(room);
-        persistRoom(room);
+        afterChange(room);
       } catch (err) {
         ack?.(fail(err));
       }
@@ -329,9 +328,9 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         ack?.({ ok: true });
         const last = room.chat[room.chat.length - 1]!;
         io.to(room.id).emit('room:chat', last);
-        broadcastLobby(room);
-        broadcastGame(room);
-        persistRoom(room);
+        // This is the important first notification for AI-vs-human rooms:
+        // afterChange broadcasts the deal and schedules the bot turn.
+        afterChange(room);
       } catch (err) {
         ack?.(fail(err));
       }

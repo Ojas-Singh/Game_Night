@@ -1,9 +1,11 @@
 /**
- * Heuristic Cabo bot — plays sensible golf: keep low cards, ditch high ones,
- * flush known matches, use powers to reveal, call Cabo on a good estimate.
+ * Heuristic Cabo bot — plays risk-aware golf: keep low cards, ditch high ones,
+ * flush known matches, use powers against the most dangerous hand, and call
+ * Cabo only when the estimated lead is worth the risk.
  *
- * Deliberately simple and readable: it's the skill floor LLM agents must
- * clear, and the bulk-data generator for early self-play generations.
+ * This is the always-available fallback for live rooms, so it must remain
+ * explainable and view-only while still making decisions from remembered
+ * cards, unknown-card expectations, and each selected persona's risk profile.
  */
 
 import type { Card } from '@game-night/shared';
@@ -25,11 +27,53 @@ function cardValue(c: Card): number {
   return c.rank;
 }
 
+const isRealCard = (id: string): boolean => !id.startsWith('__slot__');
+
+function ownCardIds(view: CaboPlayerView, playerId: string): string[] {
+  return (view.handCardIds[playerId] ?? []).filter(isRealCard);
+}
+
+function estimatedCardValue(view: CaboPlayerView, id: string): number {
+  const known = view.knownCards[id];
+  return known ? cardValue(known) : UNKNOWN_EXPECTATION;
+}
+
+function estimatedHandValue(view: CaboPlayerView, playerId: string): number {
+  return ownCardIds(view, playerId).reduce((sum, id) => sum + estimatedCardValue(view, id), 0);
+}
+
+function worstCard(view: CaboPlayerView, playerId: string): { id: string; index: number; value: number } | null {
+  const ids = view.handCardIds[playerId] ?? [];
+  let worst: { id: string; index: number; value: number } | null = null;
+  ids.forEach((id, index) => {
+    if (!isRealCard(id)) return;
+    const value = estimatedCardValue(view, id);
+    if (!worst || value > worst.value) worst = { id, index, value };
+  });
+  return worst;
+}
+
+function strongestOpponent(view: CaboPlayerView, selfId: string) {
+  return view.players
+    .filter((p) => p.id !== selfId && p.cardCount > 0)
+    .sort((a, b) => estimatedHandValue(view, b.id) - estimatedHandValue(view, a.id))[0];
+}
+
+function bestTargetCard(view: CaboPlayerView, playerId: string): string | undefined {
+  const ids = ownCardIds(view, playerId);
+  // An unknown card is the best blind target: it gives the bot a chance to
+  // improve without voluntarily taking a card it already knows is good.
+  return ids.find((id) => !view.knownCards[id]) ??
+    ids.sort((a, b) => estimatedCardValue(view, b) - estimatedCardValue(view, a))[0];
+}
+
 export interface CaboHeuristicOptions {
   /** Estimated hand sum below which the bot calls Cabo (TURN_END). */
   caboThreshold?: number;
   /** Probability of flushing an opponent's KNOWN matching card. */
   flushOtherAggression?: number;
+  /** Fallback strategy personality used when no LLM agent is configured. */
+  persona?: string;
 }
 
 export class CaboHeuristicBot implements GameAgent {
@@ -41,15 +85,29 @@ export class CaboHeuristicBot implements GameAgent {
   constructor(opts: CaboHeuristicOptions & { idSuffix?: string } = {}) {
     this.id = `cabo-heuristic${opts.idSuffix ?? ''}`;
     this.label = 'Cabo Heuristic';
-    this.caboThreshold = opts.caboThreshold ?? 12;
-    this.flushOtherAggression = opts.flushOtherAggression ?? 0.9;
+    const thresholds: Record<string, number> = {
+      conservative: 9,
+      scholar: 11,
+      balanced: 12,
+      baiter: 13,
+      aggressor: 16,
+    };
+    const aggression: Record<string, number> = {
+      conservative: 0.65,
+      scholar: 0.85,
+      balanced: 0.92,
+      baiter: 0.78,
+      aggressor: 1,
+    };
+    this.caboThreshold = opts.caboThreshold ?? thresholds[opts.persona ?? 'balanced'] ?? 12;
+    this.flushOtherAggression = opts.flushOtherAggression ?? aggression[opts.persona ?? 'balanced'] ?? 0.92;
   }
 
   decide(obs: AgentObservation, ctx: AgentContext): AgentDecision {
     const v = obs.view;
     if (v.gameId !== 'cabo') throw new AgentError('CaboHeuristicBot got a non-cabo view');
     const me = { playerId: obs.selfId };
-    const ownIds = (v.handCardIds[obs.selfId] ?? []).filter((id) => !id.startsWith('__slot__'));
+    const ownIds = ownCardIds(v, obs.selfId);
     const knownOwn = () => ownIds.filter((id) => v.knownCards[id]).map((id) => ({ id, c: v.knownCards[id]! }));
 
     // --- Free interrupts: flushes -----------------------------------------
@@ -61,21 +119,24 @@ export class CaboHeuristicBot implements GameAgent {
           thought: `flushing my pair of ${matches[0]!.c.rank}s`,
         };
       }
-      if (matches.length === 1 && matches[0]!.c.rank >= 5) {
+      if (matches.length === 1) {
         return { action: { type: 'FLUSH_OWN', ...me, cardIds: [matches[0]!.id] }, thought: 'flushing my match' };
       }
       if (ctx.rng.next() < this.flushOtherAggression) {
-        for (const p of v.players) {
-          if (p.id === obs.selfId) continue;
-          const hit = (v.handCardIds[p.id] ?? []).find(
-            (id) => !id.startsWith('__slot__') && v.knownCards[id]?.rank === v.discardTopRank,
-          );
-          if (hit) {
-            return {
-              action: { type: 'FLUSH_OTHER', ...me, targetPlayerId: p.id, cardId: hit },
-              thought: `I remember ${p.name} has a ${v.discardTopRank}`,
-            };
-          }
+        const targets = v.players
+          .filter((p) => p.id !== obs.selfId && p.cardCount > 0)
+          .map((p) => ({
+            player: p,
+            hit: ownCardIds(v, p.id).find((id) => v.knownCards[id]?.rank === v.discardTopRank),
+          }))
+          .filter((x): x is { player: (typeof v.players)[number]; hit: string } => !!x.hit)
+          .sort((a, b) => estimatedHandValue(v, b.player.id) - estimatedHandValue(v, a.player.id));
+        const target = targets[0];
+        if (target) {
+          return {
+            action: { type: 'FLUSH_OTHER', ...me, targetPlayerId: target.player.id, cardId: target.hit },
+            thought: `I remember ${target.player.name} has a ${v.discardTopRank}`,
+          };
         }
       }
     }
@@ -83,8 +144,8 @@ export class CaboHeuristicBot implements GameAgent {
     switch (v.phase) {
       case 'INITIAL_PEEK':
         return {
-          action: { type: 'PEEK_STARTING', ...me, cardIndexes: [0, 1] },
-          thought: 'peeking my first two cards',
+          action: { type: 'PEEK_STARTING', ...me, cardIndexes: [1, 3] },
+          thought: 'peeking the bottom two cards I will keep track of',
         };
 
       case 'TURN_DRAW':
@@ -94,18 +155,12 @@ export class CaboHeuristicBot implements GameAgent {
         const drawn = v.drawnCard;
         if (!drawn) throw new AgentError('DRAW_DECISION without drawn card');
         const dv = cardValue(drawn);
-        const known = knownOwn();
-        if (known.length > 0) {
-          const worst = known.reduce((a, b) => (cardValue(b.c) > cardValue(a.c) ? b : a));
-          if (dv < cardValue(worst.c)) {
-            const idx = (v.handCardIds[obs.selfId] ?? []).indexOf(worst.id);
-            return {
-              action: { type: 'KEEP_DRAWN', ...me, handIndex: idx },
-              thought: `${dv} beats my ${cardValue(worst.c)} — swapping in`,
-            };
-          }
-        } else if (dv <= 5) {
-          return { action: { type: 'KEEP_DRAWN', ...me, handIndex: 0 }, thought: 'no info; keeping a low card' };
+        const worst = worstCard(v, obs.selfId);
+        if (worst && dv < worst.value) {
+          return {
+            action: { type: 'KEEP_DRAWN', ...me, handIndex: worst.index },
+            thought: `${dv} beats my estimated ${worst.value.toFixed(1)} — swapping into slot ${worst.index + 1}`,
+          };
         }
         return { action: { type: 'DISCARD_DRAWN', ...me }, thought: `discarding ${dv}` };
       }
@@ -114,50 +169,36 @@ export class CaboHeuristicBot implements GameAgent {
         const p = v.pendingPower!;
         if (p.power === 'PEEK_OWN') {
           const unknown = ownIds.find((id) => !v.knownCards[id]);
+          const fallback = worstCard(v, obs.selfId)?.id ?? ownIds[0]!;
           return {
-            action: { type: 'POWER_APPLY', ...me, payload: { power: 'PEEK_OWN', cardId: unknown ?? ownIds[0]! } },
-            thought: 'peeking an unknown card of mine',
+            action: { type: 'POWER_APPLY', ...me, payload: { power: 'PEEK_OWN', cardId: unknown ?? fallback } },
+            thought: unknown ? 'peeking an unknown card of mine' : 'checking my most dangerous card again',
           };
         }
         if (p.power === 'PEEK_OTHER') {
-          for (const o of v.players) {
-            if (o.id === obs.selfId || o.cardCount === 0) continue;
-            const unknown = (v.handCardIds[o.id] ?? []).find(
-              (id) => !id.startsWith('__slot__') && !v.knownCards[id],
-            );
-            if (unknown) {
+          const target = strongestOpponent(v, obs.selfId);
+          if (target) {
+            const targetCard = bestTargetCard(v, target.id);
+            if (targetCard) {
               return {
-                action: { type: 'POWER_APPLY', ...me, payload: { power: 'PEEK_OTHER', targetPlayerId: o.id, cardId: unknown } },
-                thought: `spying on ${o.name}`,
+                action: { type: 'POWER_APPLY', ...me, payload: { power: 'PEEK_OTHER', targetPlayerId: target.id, cardId: targetCard } },
+                thought: `spying on the most dangerous-looking hand: ${target.name}`,
               };
             }
           }
         }
         if (p.power === 'BLIND_SWAP') {
-          const known = knownOwn();
-          let giveId = ownIds[0]!;
-          let giveVal = -99;
-          for (const k of known) {
-            if (cardValue(k.c) > giveVal) {
-              giveVal = cardValue(k.c);
-              giveId = k.id;
-            }
-          }
-          if (giveVal < 7) {
-            // Not worth losing information — peek-equivalent choice: swap our
-            // single most-likely-bad unknown (slot order heuristic).
-            giveId = ownIds.find((id) => !v.knownCards[id]) ?? giveId;
-          }
-          const targets = v.players.filter((o) => o.id !== obs.selfId && o.cardCount > 0);
-          const t = ctx.rng.pick(targets.length > 0 ? targets : v.players.filter((o) => o.id !== obs.selfId));
-          const theirs = (v.handCardIds[t.id] ?? []).filter((id) => !id.startsWith('__slot__'));
+          const give = worstCard(v, obs.selfId);
+          const t = strongestOpponent(v, obs.selfId);
+          const theirs = t ? bestTargetCard(v, t.id) : undefined;
+          if (!give || !t || !theirs) throw new AgentError('BLIND_SWAP without two live hands');
           return {
             action: {
               type: 'POWER_APPLY',
               ...me,
-              payload: { power: 'BLIND_SWAP', ownCardId: giveId, targetPlayerId: t.id, targetCardId: ctx.rng.pick(theirs) },
+              payload: { power: 'BLIND_SWAP', ownCardId: give.id, targetPlayerId: t.id, targetCardId: theirs },
             },
-            thought: `blind-swapping my ${giveVal >= 0 ? giveVal : 'K'} into ${t.name}'s hand`,
+            thought: `blind-swapping my estimated ${give.value.toFixed(1)} into ${t.name}'s hand`,
           };
         }
         // Other pending powers have no smarter line here: the engine demands
@@ -168,12 +209,8 @@ export class CaboHeuristicBot implements GameAgent {
         };
       }
       case 'TRANSFER_PENDING': {
-        // Give away my worst known card, else an unknown one.
-        const known = knownOwn();
-        if (known.length > 0) {
-          const worst = known.reduce((x, y) => (cardValue(y.c) > cardValue(x.c) ? y : x));
-          return { action: { type: 'TRANSFER_CARD', ...me, cardId: worst.id }, thought: 'transferring my worst' };
-        }
+        const worst = worstCard(v, obs.selfId);
+        if (worst) return { action: { type: 'TRANSFER_CARD', ...me, cardId: worst.id }, thought: 'transferring my worst card' };
         return {
           action: { type: 'TRANSFER_CARD', ...me, cardId: ctx.rng.pick(ownIds) },
           thought: 'transferring blind',
@@ -181,11 +218,13 @@ export class CaboHeuristicBot implements GameAgent {
       }
 
       case 'TURN_END': {
-        const known = knownOwn();
-        const unknownCount = ownIds.length - known.length;
-        const est = known.reduce((sum, k) => sum + cardValue(k.c), 0) + unknownCount * UNKNOWN_EXPECTATION;
+        const est = estimatedHandValue(v, obs.selfId);
+        const opponents = v.players
+          .filter((p) => p.id !== obs.selfId && p.cardCount > 0)
+          .map((p) => estimatedHandValue(v, p.id));
+        const bestOpponent = opponents.length > 0 ? Math.min(...opponents) : Number.POSITIVE_INFINITY;
         const canCall = !v.cabo && enumerateLegalActions(v, obs.selfId).some((a) => a.type === 'CALL_CABO');
-        if (canCall && est <= this.caboThreshold) {
+        if (canCall && (est <= this.caboThreshold || est + 2 <= bestOpponent)) {
           return { action: { type: 'CALL_CABO', ...me }, thought: `my hand is ~${est.toFixed(0)} — CABO!` };
         }
         return { action: { type: 'END_TURN', ...me }, thought: 'ending turn' };

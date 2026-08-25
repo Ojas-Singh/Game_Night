@@ -183,7 +183,10 @@ export class AgentLoops {
     } else {
       agent =
         room.gameId === 'cabo'
-          ? new CaboHeuristicBot({ idSuffix: `:${room.id.slice(0, 4)}` })
+          ? new CaboHeuristicBot({
+              idSuffix: `:${room.id.slice(0, 4)}`,
+              persona: room.players.get(playerId)?.persona,
+            })
           : new PairOneHeuristicBot(`:${room.id.slice(0, 4)}`);
     }
     // Bound memory: drop stale entries when the map gets long.

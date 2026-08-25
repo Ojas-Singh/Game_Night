@@ -53,3 +53,14 @@ export function saveAvatar(a: Avatar): void {
     /* private mode — ignore */
   }
 }
+
+/** Pick a complete look for the lobby's “Surprise me” action. */
+export function randomAvatar(): Avatar {
+  const pick = (length: number) => Math.floor(Math.random() * length);
+  return {
+    color: pick(AVATAR_COLORS.length),
+    eyes: pick(EYE_STYLES.length),
+    mouth: pick(MOUTH_STYLES.length),
+    hat: pick(HAT_STYLES.length),
+  };
+}
