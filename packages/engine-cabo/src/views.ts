@@ -69,6 +69,8 @@ export function buildPlayerView(state: CaboState, viewerId: string, opts?: { rev
   const discardTop = state.discard[state.discard.length - 1] ?? null;
   const events: GameEvent[] = state.events;
   const isCurrent = state.players[state.currentTurn]?.id === viewerId;
+  const pendingTransfers = state.pendingTransfers ?? (state.pendingTransfer ? [state.pendingTransfer] : []);
+  const owedTransfer = pendingTransfers.find((transfer) => transfer.fromPlayerId === viewerId);
 
   return {
     revision: state.revision,
@@ -90,8 +92,8 @@ export function buildPlayerView(state: CaboState, viewerId: string, opts?: { rev
         ? { power: state.pendingPower.power, sourceCardId: state.pendingPower.sourceCardId }
         : null,
     pendingTransfer:
-      state.pendingTransfer && state.pendingTransfer.fromPlayerId === viewerId
-        ? { toPlayerId: state.pendingTransfer.toPlayerId }
+      owedTransfer
+        ? { toPlayerId: owedTransfer.toPlayerId }
         : null,
     drawnCard: state.drawnCard && isCurrent ? state.drawnCard : null,
     needsInitialPeek: state.initialPeeksRemaining.includes(viewerId),

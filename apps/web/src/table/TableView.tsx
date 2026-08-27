@@ -280,6 +280,7 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
 
   const phase = view.phase;
   const pendingPower = view.pendingPower?.power ?? null;
+  const flushPhaseOpen = phase !== 'INITIAL_PEEK' && phase !== 'ROUND_REVEAL' && phase !== 'ROUND_COMPLETE';
 
   const mode:
     | 'draw-decision'
@@ -311,8 +312,7 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
   const canFlushNow =
     (mode === 'idle' || mode === 'draw-decision' || mode === 'turn-end') &&
     view.discardTopRank !== null &&
-    phase !== 'TRANSFER_PENDING' &&
-    phase !== 'ROUND_COMPLETE';
+    flushPhaseOpen;
 
   const onMyCardClick = (cardId: string) => {
     if (isEmptySlot(cardId)) return;
@@ -348,10 +348,6 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
   };
 
   const onOpponentCardClick = (playerId: string, cardId: string) => {
-    // TRANSFER_PENDING is a table-wide lock. Do this guard at the event
-    // boundary as well as in the selectable calculation so a stale card
-    // rendered just before a socket update cannot submit another flush.
-    if (phase === 'TRANSFER_PENDING') return;
     if (mode === 'power-peek-other') {
       act({ type: 'POWER_APPLY', payload: { power: 'PEEK_OTHER', targetPlayerId: playerId, cardId } });
     } else if (mode === 'power-blind-swap' && selectedOwn) {
@@ -360,9 +356,9 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
         payload: { power: 'BLIND_SWAP', ownCardId: selectedOwn, targetPlayerId: playerId, targetCardId: cardId },
       });
     } else if (
-      phase !== 'TRANSFER_PENDING' &&
-      (mode === 'idle' || mode === 'turn-end') &&
-      view.discardTopRank !== null
+      (mode === 'idle' || mode === 'draw-decision' || mode === 'turn-end' || mode === 'transfer') &&
+      view.discardTopRank !== null &&
+      flushPhaseOpen
     ) {
       // Blind guess allowed on ANY card — the server checks the match. If
       // you're wrong you simply draw a penalty; nobody ever learns the card
@@ -379,14 +375,17 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
 
   // Which opponent cards are highlighted/selectable.
   const opponentCardsSelectable = (playerId: string): boolean => {
-    if (mode === 'power-peek-other') return targetPlayer === playerId;
+    // A 9/10 peek can target any opponent card directly. The avatar remains
+    // a helpful focus control, but it is not a hidden prerequisite for seeing
+    // the card values.
+    if (mode === 'power-peek-other') return targetPlayer === null || targetPlayer === playerId;
     if (mode === 'power-blind-swap') return !!selectedOwn && (targetPlayer === playerId || targetPlayer === null);
     if (mode === 'power-swap-others') return true;
     // Blind flushes: every card is clickable (you remember it or you don't).
     if (
-      phase !== 'TRANSFER_PENDING' &&
-      (mode === 'idle' || mode === 'turn-end') &&
-      view.discardTopRank !== null
+      (mode === 'idle' || mode === 'draw-decision' || mode === 'turn-end' || mode === 'transfer') &&
+      view.discardTopRank !== null &&
+      flushPhaseOpen
     ) return true;
     return false;
   };

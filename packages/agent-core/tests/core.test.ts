@@ -42,7 +42,7 @@ describe('legal action enumeration', () => {
     expect(v.players.find((p) => p.id === notTurn)?.isCurrentTurn).toBe(false);
   });
 
-  it('does not offer flushes to anyone while another player owes a transfer', () => {
+  it('keeps flush interrupts available while another player owes a transfer', () => {
     const e = new CaboEngine();
     e.createGame([
       { id: 'p0', name: 'A', seat: 0 },
@@ -65,8 +65,17 @@ describe('legal action enumeration', () => {
     }).ok).toBe(true);
     expect(e.getState().phase).toBe('TRANSFER_PENDING');
 
+    // Simulate p1 remembering a matching card in p2's remaining hand.
+    const secondTargetCard = e.getState().hands.p2!.find((card) => !!card)!;
+    secondTargetCard.rank = target.rank;
+    e.getState().knowledge.p1!.push(secondTargetCard.id);
     const waiting = e.getPlayerState('p1');
-    expect(enumerateLegalActions(waiting, 'p1').some((a) => a.type.startsWith('FLUSH_'))).toBe(false);
+    expect(enumerateLegalActions(waiting, 'p1')).toContainEqual({
+      type: 'FLUSH_OTHER',
+      playerId: 'p1',
+      targetPlayerId: 'p2',
+      cardId: secondTargetCard.id,
+    });
   });
 });
 

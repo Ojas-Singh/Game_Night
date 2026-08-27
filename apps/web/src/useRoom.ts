@@ -450,7 +450,7 @@ export function useRoom(): RoomApi {
       setPeekFlash((cur) => {
         const nextMap: Record<string, { at: number; ms: number }> = {};
         for (const [id, f] of Object.entries(cur)) {
-          if (at - f.at < f.ms - 50) nextMap[id] = f;
+          if (Date.now() - f.at < f.ms - 50) nextMap[id] = f;
         }
         return nextMap;
       });
@@ -541,8 +541,10 @@ export function useRoom(): RoomApi {
         if (ev.type === 'POWER_RESOLVED' && (p?.power === 'PEEK_OWN' || p?.power === 'PEEK_OTHER') && typeof p?.cardId === 'string') {
           const actorId = typeof p?.playerId === 'string' ? p.playerId : ev.playerId;
           marks.push([p.cardId, String(actorId ?? '')]);
-          // My own peek re-flashes the card even when I already knew it.
-          if (String(p?.viewerId ?? '') === myIdRef.current) revision.push(p.cardId);
+          // My own peek re-flashes the card even when I already knew it. The
+          // viewerId field is present in current events; actorId keeps this
+          // reliable for restored logs written before that field existed.
+          if (String(p?.viewerId ?? actorId ?? '') === String(myIdRef.current ?? '')) revision.push(p.cardId);
         }
       }
       if (revision.length > 0) touchFlash(revision);

@@ -563,12 +563,12 @@ describe('flushing another player\u2019s card', () => {
     mustOk(e, { type: 'FLUSH_OTHER', playerId: P1, targetPlayerId: P3, cardId: 'd2' });
     const mid = e.getState();
     expect(mid.phase).toBe('TRANSFER_PENDING');
+    expect(mid.pendingTransfers).toHaveLength(1);
     expect(live(mid.hands.p3!).length).toBe(3);
     expect(mid.hands.p3!.some((x) => x === null)).toBe(true); // gap where d2 was
     expect(mid.discard[mid.discard.length - 1]!.id).toBe('d2');
     // p2 cannot act for the pending transfer; p1 must give one of their own cards.
     mustFail(e, { type: 'TRANSFER_CARD', playerId: P2, cardId: 'b2' });
-    mustFail(e, { type: 'FLUSH_OWN', playerId: P2, cardIds: ['b2'] });
     const p1Before = live(mid.hands.p1!).length;
     mustOk(e, { type: 'TRANSFER_CARD', playerId: P1, cardId: 'a1' });
     const after = e.getState();
@@ -625,6 +625,30 @@ describe('flushing another player\u2019s card', () => {
     const e = setupTop(3);
     mustFail(e, { type: 'FLUSH_OTHER', playerId: P1, targetPlayerId: P1, cardId: 'a1' });
     mustFail(e, { type: 'FLUSH_OTHER', playerId: P1, targetPlayerId: P3, cardId: 'b2' });
+  });
+
+  it('keeps flushes open while transfers are pending and queues each obligation', () => {
+    const e = setupTop(3);
+
+    // p1 flushes p3's matching card, so p1 owes p3 a replacement card.
+    mustOk(e, { type: 'FLUSH_OTHER', playerId: P1, targetPlayerId: P3, cardId: 'd2' });
+    // The discard top is still a 3. p2 can immediately flush p1's matching
+    // card instead of being blocked by p1's transfer prompt.
+    mustOk(e, { type: 'FLUSH_OTHER', playerId: P2, targetPlayerId: P1, cardId: 'a1' });
+    expect(e.getState().pendingTransfers).toHaveLength(2);
+    expect(e.getState().pendingTransfer).toMatchObject({ fromPlayerId: P1, toPlayerId: P3 });
+
+    // Each flusher resolves their own obligation; the second obligation is
+    // not overwritten and the original turn phase returns after both finish.
+    mustOk(e, { type: 'TRANSFER_CARD', playerId: P1, cardId: 'a2' });
+    expect(e.getState().phase).toBe('TRANSFER_PENDING');
+    expect(e.getState().pendingTransfer).toMatchObject({ fromPlayerId: P2, toPlayerId: P1 });
+    mustOk(e, { type: 'TRANSFER_CARD', playerId: P2, cardId: 'b1' });
+    expect(e.getState().pendingTransfers).toEqual([]);
+    expect(e.getState().pendingTransfer).toBeNull();
+    expect(e.getState().phase).toBe('TURN_DRAW');
+    expect(e.getState().hands.p3!.find((card) => card?.id === 'a2')).toBeDefined();
+    expect(e.getState().hands.p1!.find((card) => card?.id === 'b1')).toBeDefined();
   });
 });
 

@@ -46,9 +46,7 @@ function caboActions(
     topRank != null &&
     view.phase !== 'INITIAL_PEEK' &&
     view.phase !== 'ROUND_REVEAL' &&
-    view.phase !== 'ROUND_COMPLETE' &&
-    view.phase !== 'TRANSFER_PENDING' &&
-    !view.pendingTransfer
+    view.phase !== 'ROUND_COMPLETE'
   ) {
     const matches = ownIds.filter((id) => view.knownCards[id]?.rank === topRank);
     for (const id of matches) acts.push({ type: 'FLUSH_OWN', ...me(selfId), cardIds: [id] });

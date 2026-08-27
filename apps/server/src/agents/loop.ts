@@ -104,10 +104,14 @@ export class AgentLoops {
       currentTurn: number;
       initialPeeksRemaining?: string[];
       pendingTransfer?: { fromPlayerId: string } | null;
+      pendingTransfers?: Array<{ fromPlayerId: string }>;
     };
     if (s.phase === 'ROUND_COMPLETE' || s.phase === 'ROUND_REVEAL') return null;
     let who: string | null;
-    if (s.phase === 'TRANSFER_PENDING') who = s.pendingTransfer?.fromPlayerId ?? null;
+    if (s.phase === 'TRANSFER_PENDING') {
+      const pending = s.pendingTransfers ?? (s.pendingTransfer ? [s.pendingTransfer] : []);
+      who = pending.find((transfer) => room.players.get(transfer.fromPlayerId)?.kind === 'ai')?.fromPlayerId ?? null;
+    }
     else if (s.phase === 'INITIAL_PEEK') who = s.initialPeeksRemaining?.[0] ?? null;
     else who = s.players[s.currentTurn]?.id ?? null;
     if (!who) return null;

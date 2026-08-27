@@ -87,6 +87,11 @@ export class EngineWorld implements SearchWorld {
     if (s.gameId === 'cabo' && s.phase === 'INITIAL_PEEK') {
       return s.initialPeeksRemaining[0] ?? null;
     }
+    if (s.gameId === 'cabo' && s.phase === 'TRANSFER_PENDING') {
+      const cabo = s as CaboState;
+      const transfer = cabo.pendingTransfers?.[0] ?? cabo.pendingTransfer;
+      return transfer?.fromPlayerId ?? null;
+    }
     return s.players[s.currentTurn]?.id ?? null;
   }
 

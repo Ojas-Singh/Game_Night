@@ -71,7 +71,13 @@ export interface CaboState {
   /** Card currently held by the active player after DRAW. */
   drawnCard: Card | null;
   pendingPower: PendingPower | null;
+  /**
+   * The current transfer is kept as a compatibility/readability alias for
+   * older snapshots and consumers. The queue is authoritative so a second
+   * correct flush cannot overwrite the first player's obligation.
+   */
   pendingTransfer: PendingTransfer | null;
+  pendingTransfers: PendingTransfer[];
   cabo: CaboCall | null;
   /** Players that still owe their initial peek. */
   initialPeeksRemaining: string[];

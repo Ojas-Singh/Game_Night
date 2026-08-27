@@ -21,6 +21,7 @@ import type {
   CaboGameOptions,
   CaboState,
   PendingPower,
+  PendingTransfer,
 } from './types.js';
 import { buildPlayerView } from './views.js';
 
@@ -84,6 +85,10 @@ export class CaboEngine {
     // Keep snapshots written before starting-peek metadata was introduced
     // loadable; this field only drives the client reveal.
     state.initialPeekCardIds ??= {};
+    // Transfer queues were added without changing the snapshot version. Old
+    // snapshots have at most the single legacy pendingTransfer entry.
+    state.pendingTransfers ??= state.pendingTransfer ? [state.pendingTransfer] : [];
+    state.pendingTransfer = state.pendingTransfers[0] ?? null;
     this.state = state;
     this.rules = { ...DEFAULT_CABO_RULES, ...rules };
     this.rng = createRng();
@@ -121,6 +126,7 @@ export class CaboEngine {
       drawnCard: null,
       pendingPower: null,
       pendingTransfer: null,
+      pendingTransfers: [],
       cabo: null,
       initialPeeksRemaining: seats.map((p) => p.id),
       initialPeekCardIds: {},
@@ -267,7 +273,6 @@ export class CaboEngine {
         return;
       }
       case 'FLUSH_OWN': {
-        if (s.pendingTransfer) INVALID('a card transfer must be completed first');
         if (s.phase === 'INITIAL_PEEK' || s.phase === 'ROUND_REVEAL' || s.phase === 'ROUND_COMPLETE') {
           INVALID('flushing not allowed now');
         }
@@ -285,7 +290,6 @@ export class CaboEngine {
         if (s.phase === 'INITIAL_PEEK' || s.phase === 'ROUND_REVEAL' || s.phase === 'ROUND_COMPLETE') {
           INVALID('flushing not allowed now');
         }
-        if (s.pendingTransfer) INVALID('a card transfer must be completed first');
         if (a.playerId === a.targetPlayerId) INVALID('target must be another player');
         if (!ids.includes(a.targetPlayerId)) INVALID('target not in game');
         const targetHand = s.hands[a.targetPlayerId]!;
@@ -294,8 +298,8 @@ export class CaboEngine {
       }
       case 'TRANSFER_CARD': {
         if (s.phase !== 'TRANSFER_PENDING') INVALID('no pending transfer');
-        const t = s.pendingTransfer!;
-        if (a.playerId !== t.fromPlayerId) INVALID('you are not the flusher');
+        const t = this.pendingTransferQueue().find((pending) => pending.fromPlayerId === a.playerId);
+        if (!t) INVALID('you have no pending transfer');
         if (findCard(s.hands[a.playerId]!, a.cardId) < 0) INVALID('card not in your hand');
         return;
       }
@@ -444,11 +448,14 @@ export class CaboEngine {
             cardId: card.id,
             rank: card.rank,
           });
-          s.pendingTransfer = {
+          const transferQueue = this.pendingTransferQueue();
+          const phaseBefore = transferQueue[0]?.phaseBefore ?? s.phase;
+          transferQueue.push({
             fromPlayerId: a.playerId,
             toPlayerId: a.targetPlayerId,
-            phaseBefore: s.phase,
-          };
+            phaseBefore,
+          });
+          s.pendingTransfer = transferQueue[0] ?? null;
           s.phase = 'TRANSFER_PENDING';
           this.emit('TRANSFER_REQUIRED', { fromPlayerId: a.playerId, toPlayerId: a.targetPlayerId });
           this.checkPlayerOut(a.targetPlayerId);
@@ -466,14 +473,18 @@ export class CaboEngine {
         return;
       }
       case 'TRANSFER_CARD': {
-        const t = s.pendingTransfer!;
+        const transferQueue = this.pendingTransferQueue();
+        const transferIndex = transferQueue.findIndex((pending) => pending.fromPlayerId === a.playerId);
+        const t = transferQueue[transferIndex];
+        if (!t) INVALID('you have no pending transfer');
         const hand = s.hands[t.fromPlayerId]!;
         const idx = findCard(hand, a.cardId);
         const card = hand[idx]!;
         hand[idx] = null;
         placeCard(s.hands[t.toPlayerId]!, card);
-        s.pendingTransfer = null;
-        s.phase = t.phaseBefore;
+        transferQueue.splice(transferIndex, 1);
+        s.pendingTransfer = transferQueue[0] ?? null;
+        if (transferQueue.length === 0) s.phase = t.phaseBefore;
         this.emit('CARD_TRANSFERRED', {
           fromPlayerId: t.fromPlayerId,
           toPlayerId: t.toPlayerId,
@@ -726,6 +737,7 @@ export class CaboEngine {
     s.phase = 'ROUND_REVEAL';
     s.drawnCard = null;
     s.pendingPower = null;
+    s.pendingTransfers = [];
     s.pendingTransfer = null;
     // Full reveal: everyone learns every remaining card on the table.
     for (const p of s.players) {
@@ -769,6 +781,18 @@ export class CaboEngine {
     for (const pid of Object.keys(s.knowledge)) {
       s.knowledge[pid] = s.knowledge[pid]!.filter((id) => id !== cardId);
     }
+  }
+
+  /**
+   * Return the authoritative transfer queue while keeping old snapshots and
+   * the legacy single-entry alias readable. This normalization is deliberately
+   * synchronous so action validation never races a state mutation.
+   */
+  private pendingTransferQueue(): PendingTransfer[] {
+    const s = this.getState();
+    s.pendingTransfers ??= s.pendingTransfer ? [s.pendingTransfer] : [];
+    s.pendingTransfer = s.pendingTransfers[0] ?? null;
+    return s.pendingTransfers;
   }
 
   /** Reveal a card's identity to every player (used for visible misflushes). */

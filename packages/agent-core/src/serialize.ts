@@ -51,7 +51,7 @@ export function serializeCaboView(v: CaboPlayerView, selfId: string): string {
   }
   if (v.pendingPower) lines.push(`power_pending=${v.pendingPower.power} (from your discarded card)`);
   if (v.pendingTransfer) lines.push(`transfer_pending: give one of YOUR cards to ${names.get(selfId) === undefined ? v.pendingTransfer.toPlayerId : 'the player whose card you flushed'}`);
-  else if (v.phase === 'TRANSFER_PENDING') lines.push('transfer_in_progress: another player must finish a card transfer before flushes resume');
+  else if (v.phase === 'TRANSFER_PENDING') lines.push('transfer_in_progress: another player owes a card, but flushes remain open');
   if (v.cabo) {
     const caller = v.players.find((p) => p.id === v.cabo!.callerId);
     lines.push(`CABO called by ${caller?.name ?? v.cabo.callerId} — final turns underway`);

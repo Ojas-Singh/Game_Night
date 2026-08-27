@@ -111,7 +111,7 @@ export class CaboHeuristicBot implements GameAgent {
     const knownOwn = () => ownIds.filter((id) => v.knownCards[id]).map((id) => ({ id, c: v.knownCards[id]! }));
 
     // --- Free interrupts: flushes -----------------------------------------
-    if (v.discardTopRank != null && !v.pendingTransfer && v.phase !== 'INITIAL_PEEK') {
+    if (v.discardTopRank != null && v.phase !== 'INITIAL_PEEK') {
       const matches = knownOwn().filter((k) => k.c.rank === v.discardTopRank);
       if (matches.length >= 2) {
         return {
