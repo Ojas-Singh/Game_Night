@@ -237,15 +237,24 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
   // in the SAME commit, otherwise a destination that just appeared (a draw
   // slot, a re-dealt hand) is missed and the flight collapses invisibly.
   useLayoutEffect(() => {
+    // Compute and mark the batch outside the React state updater. Strict Mode
+    // may invoke an updater more than once; mutating seenFlightIds inside it
+    // made the second invocation think the batch was already consumed and
+    // silently dropped flights.
+    const fresh = room.flights.filter((f) => !seenFlightIds.current.has(f.id));
+    if (fresh.length === 0) return;
+    fresh.forEach((f) => seenFlightIds.current.add(f.id));
+    // Re-measure synchronously with the adopted batch.
+    measureAnchors();
+    captureCardPositions();
     setFlights((cur) => {
       const existing = new Set(cur.map((f) => f.id));
-      const fresh = room.flights.filter((f) => !existing.has(f.id) && !seenFlightIds.current.has(f.id));
-      if (fresh.length === 0) return cur;
-      fresh.forEach((f) => seenFlightIds.current.add(f.id));
-      // Re-measure synchronously with the adopted batch.
-      measureAnchors();
-      captureCardPositions();
-      return [...cur, ...fresh].slice(-10);
+      const additions = fresh.filter((f) => !existing.has(f.id));
+      if (additions.length === 0) return cur;
+      // Keep enough of a burst for a five-player table: a keep, flush and
+      // transfer can each contribute multiple flights before the first one
+      // finishes.
+      return [...cur, ...additions].slice(-32);
     });
   }, [room.flights, measureAnchors, captureCardPositions]);
   const dropFlight = useMemo(
@@ -302,6 +311,7 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
   const canFlushNow =
     (mode === 'idle' || mode === 'draw-decision' || mode === 'turn-end') &&
     view.discardTopRank !== null &&
+    phase !== 'TRANSFER_PENDING' &&
     phase !== 'ROUND_COMPLETE';
 
   const onMyCardClick = (cardId: string) => {
@@ -338,6 +348,10 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
   };
 
   const onOpponentCardClick = (playerId: string, cardId: string) => {
+    // TRANSFER_PENDING is a table-wide lock. Do this guard at the event
+    // boundary as well as in the selectable calculation so a stale card
+    // rendered just before a socket update cannot submit another flush.
+    if (phase === 'TRANSFER_PENDING') return;
     if (mode === 'power-peek-other') {
       act({ type: 'POWER_APPLY', payload: { power: 'PEEK_OTHER', targetPlayerId: playerId, cardId } });
     } else if (mode === 'power-blind-swap' && selectedOwn) {
@@ -345,7 +359,11 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
         type: 'POWER_APPLY',
         payload: { power: 'BLIND_SWAP', ownCardId: selectedOwn, targetPlayerId: playerId, targetCardId: cardId },
       });
-    } else if ((mode === 'idle' || mode === 'turn-end') && view.discardTopRank !== null) {
+    } else if (
+      phase !== 'TRANSFER_PENDING' &&
+      (mode === 'idle' || mode === 'turn-end') &&
+      view.discardTopRank !== null
+    ) {
       // Blind guess allowed on ANY card — the server checks the match. If
       // you're wrong you simply draw a penalty; nobody ever learns the card
       // (the UI never tells you its rank either — it's a memory game).
@@ -365,7 +383,11 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
     if (mode === 'power-blind-swap') return !!selectedOwn && (targetPlayer === playerId || targetPlayer === null);
     if (mode === 'power-swap-others') return true;
     // Blind flushes: every card is clickable (you remember it or you don't).
-    if ((mode === 'idle' || mode === 'turn-end') && view.discardTopRank !== null) return true;
+    if (
+      phase !== 'TRANSFER_PENDING' &&
+      (mode === 'idle' || mode === 'turn-end') &&
+      view.discardTopRank !== null
+    ) return true;
     return false;
   };
 
@@ -392,7 +414,7 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
         peekedBy={peekedBy(cardId)}
         swapped={wasSwapped(cardId)}
         selectable={selectable}
-        onClick={() => onOpponentCardClick(playerId, cardId)}
+        onClick={selectable ? () => onOpponentCardClick(playerId, cardId) : undefined}
       />
     );
   };

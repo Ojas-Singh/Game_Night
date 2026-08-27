@@ -47,6 +47,7 @@ function caboActions(
     view.phase !== 'INITIAL_PEEK' &&
     view.phase !== 'ROUND_REVEAL' &&
     view.phase !== 'ROUND_COMPLETE' &&
+    view.phase !== 'TRANSFER_PENDING' &&
     !view.pendingTransfer
   ) {
     const matches = ownIds.filter((id) => view.knownCards[id]?.rank === topRank);

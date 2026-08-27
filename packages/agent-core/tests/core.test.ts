@@ -41,6 +41,33 @@ describe('legal action enumeration', () => {
     const v = pairOneView(s, notTurn);
     expect(v.players.find((p) => p.id === notTurn)?.isCurrentTurn).toBe(false);
   });
+
+  it('does not offer flushes to anyone while another player owes a transfer', () => {
+    const e = new CaboEngine();
+    e.createGame([
+      { id: 'p0', name: 'A', seat: 0 },
+      { id: 'p1', name: 'B', seat: 1 },
+      { id: 'p2', name: 'C', seat: 2 },
+    ], { seed: 3 });
+    for (const p of e.getState().players) {
+      e.handleAction({ type: 'PEEK_STARTING', playerId: p.id, cardIndexes: [0, 1] });
+    }
+    const s = e.getState();
+    const target = s.hands.p2!.find((card) => !!card)!;
+    const topIndex = s.deck.findIndex((card) => card.rank === target.rank);
+    const top = s.deck.splice(topIndex, 1)[0]!;
+    s.discard.push(top);
+    expect(e.handleAction({
+      type: 'FLUSH_OTHER',
+      playerId: 'p0',
+      targetPlayerId: 'p2',
+      cardId: target.id,
+    }).ok).toBe(true);
+    expect(e.getState().phase).toBe('TRANSFER_PENDING');
+
+    const waiting = e.getPlayerState('p1');
+    expect(enumerateLegalActions(waiting, 'p1').some((a) => a.type.startsWith('FLUSH_'))).toBe(false);
+  });
 });
 
 describe('view serialization', () => {

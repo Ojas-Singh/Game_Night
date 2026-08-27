@@ -9,6 +9,7 @@ import { AgentLoops } from '../src/agents/loop.js';
 import { config } from '../src/config.js';
 import { serializeRoom } from '../src/persistence.js';
 import { enumerateLegalActions, createAgentRng } from '@game-night/agent-core';
+import { CaboEngine } from '@game-night/engine-cabo';
 
 // Speed up think delays for tests.
 const FAST = { minThinkMs: 2, maxThinkMs: 6 };
@@ -114,6 +115,42 @@ describe('AgentLoops', () => {
     expect(s.phase).not.toBe('INITIAL_PEEK');
     loops.dispose(); // stop this suite's timers before next test re-creates
   }, 25_000);
+
+  it('wakes an AI flusher to complete a pending card transfer', async () => {
+    const room = new Room();
+    room.addPlayer('Watcher');
+    const ai = room.addAiPlayer(room.hostId!, 'balanced');
+    room.startGame(room.hostId!);
+    const engine = room.engine;
+    expect(engine).toBeInstanceOf(CaboEngine);
+    const cabo = engine as CaboEngine;
+    const state = cabo.getState();
+    const target = state.players.find((p) => p.id !== ai.id)!;
+    const targetCard = state.hands[target.id]!.find((card) => !!card)!;
+    const topIndex = state.deck.findIndex((card) => card.rank === targetCard.rank);
+    const top = state.deck.splice(topIndex, 1)[0]!;
+    state.discard.push(top);
+
+    expect(cabo.handleAction({
+      type: 'FLUSH_OTHER',
+      playerId: ai.id,
+      targetPlayerId: target.id,
+      cardId: targetCard.id,
+    }).ok).toBe(true);
+    expect(cabo.getState().phase).toBe('TRANSFER_PENDING');
+
+    const transferLoops = new AgentLoops({} as never, { afterChange: () => undefined }, FAST);
+    try {
+      transferLoops.notify(room);
+      const deadline = Date.now() + 1_000;
+      while (cabo.getState().pendingTransfer && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(cabo.getState().pendingTransfer).toBeNull();
+    } finally {
+      transferLoops.dispose();
+    }
+  }, 5_000);
 
   it('uses LLM agents only when configured', () => {
     // With no AGENT_API_URL the heuristic path is used; env untouched here,

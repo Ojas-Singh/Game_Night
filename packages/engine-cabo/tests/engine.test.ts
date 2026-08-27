@@ -568,6 +568,7 @@ describe('flushing another player\u2019s card', () => {
     expect(mid.discard[mid.discard.length - 1]!.id).toBe('d2');
     // p2 cannot act for the pending transfer; p1 must give one of their own cards.
     mustFail(e, { type: 'TRANSFER_CARD', playerId: P2, cardId: 'b2' });
+    mustFail(e, { type: 'FLUSH_OWN', playerId: P2, cardIds: ['b2'] });
     const p1Before = live(mid.hands.p1!).length;
     mustOk(e, { type: 'TRANSFER_CARD', playerId: P1, cardId: 'a1' });
     const after = e.getState();

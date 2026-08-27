@@ -78,11 +78,15 @@ export function collectFlights(
     if (seen.has(ev.seq)) continue;
     const p = ev.payload as Record<string, unknown> | undefined;
     const rank = typeof p?.rank === 'number' ? p.rank : 0;
+    // Cabo currently keeps the actor in the payload for backwards-compatible
+    // event consumers, while some restored/older logs also use event.playerId.
+    // Flight origins must work with either representation.
+    const actorId = typeof p?.playerId === 'string' ? p.playerId : ev.playerId;
     if (ev.type === 'CARD_FLUSHED') {
       out.push({
         id: `${ev.type}-${ev.seq}`,
         seq: ev.seq,
-        fromPlayerId: String(p?.sourcePlayerId ?? ev.playerId ?? ''),
+        fromPlayerId: String(p?.sourcePlayerId ?? actorId ?? ''),
         fromCardId: typeof p?.cardId === 'string' ? p.cardId : undefined,
         toDiscard: true,
         rank,
@@ -92,7 +96,7 @@ export function collectFlights(
       //  1. the existing card flies from its old slot to the discard pile;
       //  2. the drawn card flies into that exact slot. Both trails make the
       //     replacement readable even when several players act quickly.
-      const actor = String(ev.playerId ?? '');
+      const actor = String(actorId ?? '');
       const replacedId =
         typeof p?.replacedCardId === 'string' ? p.replacedCardId :
           typeof p?.cardId === 'string' ? p.cardId : undefined;
@@ -129,7 +133,7 @@ export function collectFlights(
       out.push({
         id: `${ev.type}-${ev.seq}`,
         seq: ev.seq,
-        fromPlayerId: ev.playerId ?? '',
+        fromPlayerId: actorId ?? '',
         fromCardId: typeof p?.cardId === 'string' ? p.cardId : undefined,
         toDiscard: true,
         rank,
@@ -137,7 +141,7 @@ export function collectFlights(
     } else if (ev.type === 'CARD_DRAWN') {
       // The drawn card flies from the deck to the DRAWING player — their seat
       // for opponents, the local draw slot for me (no rank: it's secret).
-      const drawer = String(ev.playerId ?? '');
+      const drawer = String(actorId ?? '');
       // Identify the exact NEW card in their hand (diff vs previous view) so
       // the flight lands on that precise slot instead of the hand centre.
       let landedCardId: string | undefined;
@@ -167,25 +171,52 @@ export function collectFlights(
         rank,
       });
     } else if (ev.type === 'PENALTY_DRAWN') {
-      const drawer = String(ev.playerId ?? '');
-      let landedCardId: string | undefined;
-      if (prev) {
-        const before = new Set(prev.handCardIds?.[drawer] ?? []);
-        landedCardId = (next.handCardIds?.[drawer] ?? []).find(
-          (id) => !before.has(id) && !consumedNewCards.has(id),
-        );
+      const drawer = String(actorId ?? '');
+      const count = typeof p?.count === 'number' && p.count > 0 ? Math.floor(p.count) : 1;
+      const before = new Set(prev.handCardIds?.[drawer] ?? []);
+      const newCardIds = (next.handCardIds?.[drawer] ?? []).filter(
+        (id) =>
+          !id.startsWith('__slot__') &&
+          !id.startsWith('__empty__') &&
+          !before.has(id) &&
+          !consumedNewCards.has(id),
+      );
+      // Draw-two penalties used to render only one ghost. Preserve one flight
+      // per card and fall back to the hand anchor if an older view lacks an
+      // exact id.
+      for (let i = 0; i < count; i++) {
+        const landedCardId = newCardIds[i];
         if (landedCardId) {
           consumedNewCards.add(landedCardId);
           if (drawer !== myPlayerId) noteDrawn?.(landedCardId);
         }
+        out.push({
+          id: `${ev.type}-${ev.seq}-${i}`,
+          seq: ev.seq,
+          fromPlayerId: 'deck',
+          toDiscard: false,
+          toPlayerId: drawer,
+          toCardId: landedCardId,
+          rank: 0,
+        });
       }
+    } else if (ev.type === 'CARD_TRANSFERRED') {
+      // A correct flush-other is a readable two-step movement: the target's
+      // matching card goes to discard, then the flusher's chosen card fills
+      // the exact hole it left. The transferred value is hidden, so this
+      // flight always renders face-down.
+      const fromPlayerId = String(p?.fromPlayerId ?? actorId ?? '');
+      const toPlayerId = String(p?.toPlayerId ?? '');
+      const cardId = typeof p?.cardId === 'string' ? p.cardId : undefined;
+      const targetIds = next.handCardIds?.[toPlayerId] ?? [];
       out.push({
         id: `${ev.type}-${ev.seq}`,
         seq: ev.seq,
-        fromPlayerId: 'deck',
+        fromPlayerId,
+        fromCardId: cardId,
         toDiscard: false,
-        toPlayerId: drawer,
-        toCardId: landedCardId,
+        toPlayerId,
+        toCardId: cardId && targetIds.includes(cardId) ? cardId : undefined,
         rank: 0,
       });
     } else if (ev.type === 'POWER_RESOLVED') {
@@ -197,9 +228,9 @@ export function collectFlights(
           id: `${ev.type}-${ev.seq}`,
           seq: ev.seq,
           kind: 'peek',
-          fromPlayerId: String(ev.playerId ?? ''),
+          fromPlayerId: String(actorId ?? ''),
           toDiscard: false,
-          toPlayerId: String(p?.targetPlayerId ?? ev.playerId ?? ''),
+          toPlayerId: String(p?.targetPlayerId ?? actorId ?? ''),
           toCardId: typeof p?.cardId === 'string' ? p.cardId : undefined,
           rank: 0,
         });
@@ -494,7 +525,10 @@ export function useRoom(): RoomApi {
         }, 620);
       });
       if (fresh.length > 0) {
-        setFlights((cur) => [...cur, ...fresh].slice(-8));
+        // A five-player table can produce more than eight movement events in
+        // one short burst (especially a keep + discard + transfer chain). Keep
+        // a real queue so earlier seats do not silently lose their flight.
+        setFlights((cur) => [...cur, ...fresh].slice(-32));
       }
       // Eye badges: which cards were just peeked (by whom).
       const seen = new Set(prev.events.map((e) => e.seq));
@@ -505,7 +539,8 @@ export function useRoom(): RoomApi {
         if (seen.has(ev.seq)) continue;
         const p = ev.payload as Record<string, unknown> | undefined;
         if (ev.type === 'POWER_RESOLVED' && (p?.power === 'PEEK_OWN' || p?.power === 'PEEK_OTHER') && typeof p?.cardId === 'string') {
-          marks.push([p.cardId, String(ev.playerId ?? '')]);
+          const actorId = typeof p?.playerId === 'string' ? p.playerId : ev.playerId;
+          marks.push([p.cardId, String(actorId ?? '')]);
           // My own peek re-flashes the card even when I already knew it.
           if (String(p?.viewerId ?? '') === myIdRef.current) revision.push(p.cardId);
         }

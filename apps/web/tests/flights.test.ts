@@ -41,14 +41,88 @@ describe('collectFlights', () => {
 
   it('maps a discard / replaced card to a flight to the discard', () => {
     const next = view([
-      { seq: 3, type: 'CARD_DISCARDED', playerId: 'D', payload: { cardId: 'x', rank: 7 } },
-      { seq: 4, type: 'CARD_REPLACED', playerId: 'E', payload: { cardId: 'y', rank: 5 } },
+      { seq: 3, type: 'CARD_DISCARDED', payload: { playerId: 'D', cardId: 'x', rank: 7 } },
+      { seq: 4, type: 'CARD_REPLACED', payload: { playerId: 'E', cardId: 'y', rank: 5 } },
     ]);
     const flights = collectFlights(view([]), next);
     expect(flights.map((f) => [f.fromPlayerId, f.toDiscard, f.rank])).toEqual([
       ['D', true, 7],
       ['E', true, 5],
     ]);
+  });
+
+  it('animates a flush-other transfer from the flusher slot into the exact hole', () => {
+    const prev = {
+      ...view([]),
+      handCardIds: {
+        flusher: ['give', 'f2', 'f3', 'f4'],
+        target: ['target', 't2', 't3', 't4'],
+      },
+    } as unknown as CaboPlayerView;
+    const next = {
+      ...view([
+        {
+          seq: 30,
+          type: 'CARD_FLUSHED',
+          payload: { playerId: 'flusher', sourcePlayerId: 'target', cardId: 'target', rank: 6 },
+        },
+        { seq: 31, type: 'TRANSFER_REQUIRED', payload: { fromPlayerId: 'flusher', toPlayerId: 'target' } },
+        {
+          seq: 32,
+          type: 'CARD_TRANSFERRED',
+          payload: { fromPlayerId: 'flusher', toPlayerId: 'target', cardId: 'give' },
+        },
+      ]),
+      handCardIds: {
+        flusher: ['__slot__0', 'f2', 'f3', 'f4'],
+        target: ['give', 't2', 't3', 't4'],
+      },
+    } as unknown as CaboPlayerView;
+
+    const flights = collectFlights(prev, next);
+    expect(flights).toHaveLength(2);
+    expect(flights[0]).toMatchObject({
+      id: 'CARD_FLUSHED-30',
+      fromPlayerId: 'target',
+      fromCardId: 'target',
+      toDiscard: true,
+      rank: 6,
+    });
+    expect(flights[1]).toMatchObject({
+      id: 'CARD_TRANSFERRED-32',
+      fromPlayerId: 'flusher',
+      fromCardId: 'give',
+      toPlayerId: 'target',
+      toCardId: 'give',
+      toDiscard: false,
+      rank: 0,
+    });
+  });
+
+  it('keeps all five payload-attributed discard flights in one update', () => {
+    const next = view(
+      ['A', 'B', 'C', 'D', 'E'].map((playerId, i) => ({
+        seq: 40 + i,
+        type: 'CARD_DISCARDED',
+        payload: { playerId, cardId: `card-${playerId}`, rank: i + 1 },
+      })),
+    );
+    const flights = collectFlights(view([]), next);
+    expect(flights.map((flight) => flight.fromPlayerId)).toEqual(['A', 'B', 'C', 'D', 'E']);
+  });
+
+  it('animates every card in a draw-two penalty', () => {
+    const prev = {
+      ...view([]),
+      handCardIds: { P: ['p0', '__slot__1', '__slot__2', 'p3'] },
+    } as unknown as CaboPlayerView;
+    const next = {
+      ...view([{ seq: 50, type: 'PENALTY_DRAWN', payload: { playerId: 'P', count: 2 } }]),
+      handCardIds: { P: ['p0', 'pen1', 'pen2', 'p3'] },
+    } as unknown as CaboPlayerView;
+    const flights = collectFlights(prev, next);
+    expect(flights).toHaveLength(2);
+    expect(flights.map((flight) => flight.toCardId)).toEqual(['pen1', 'pen2']);
   });
 
   it('maps KEEP_DRAWN replacement to two exact, readable flights', () => {

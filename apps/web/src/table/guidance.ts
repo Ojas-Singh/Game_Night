@@ -36,7 +36,7 @@ export function useGuidance(view: CaboPlayerView, myId: string) {
   } else if (view.phase === 'TRANSFER_PENDING') {
     text = view.pendingTransfer
       ? 'You flushed their card! Give them one of your cards'
-      : 'A card is being exchanged…';
+      : 'Another player is completing a card transfer — flushes are paused';
     urgent = !!view.pendingTransfer;
   } else if (view.pendingPower) {
     text = POWER_DESCRIPTIONS[view.pendingPower.power as keyof typeof POWER_DESCRIPTIONS];

@@ -267,6 +267,7 @@ export class CaboEngine {
         return;
       }
       case 'FLUSH_OWN': {
+        if (s.pendingTransfer) INVALID('a card transfer must be completed first');
         if (s.phase === 'INITIAL_PEEK' || s.phase === 'ROUND_REVEAL' || s.phase === 'ROUND_COMPLETE') {
           INVALID('flushing not allowed now');
         }
@@ -778,11 +779,17 @@ export class CaboEngine {
 
   private emit(type: string, payload?: Record<string, unknown>, playerId?: string): void {
     const s = this.getState();
+    // Older action handlers passed the actor in the public payload while the
+    // event contract also has a top-level playerId. Normalize both shapes so
+    // clients and replay consumers never lose the actor for an animation or
+    // sound cue.
+    const eventPlayerId =
+      playerId ?? (typeof payload?.playerId === 'string' ? payload.playerId : undefined);
     s.eventSeq += 1;
     s.events.push({
       seq: s.eventSeq,
       type,
-      playerId,
+      playerId: eventPlayerId,
       timestamp: new Date().toISOString(),
       payload,
     });
