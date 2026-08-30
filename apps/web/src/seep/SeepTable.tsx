@@ -1,10 +1,10 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import type { RoomApi, CardFlight } from '../useRoom.js';
+import type { RoomApi, CardFlight, ClientGameAction } from '../useRoom.js';
 import type { FlightPos } from '../table/CardFlights.js';
 import type { SeepPlayerView } from '@seep/views.js';
 import type { SeepTeam } from '@seep/rules.js';
-import { intentsForCard, biddableValues } from './seepCandidates.js';
+import { allIntents, biddableValues, type SeepCandidateIntents } from './seepCandidates.js';
 import Card from '../table/Card.js';
 import SeepCenter from './SeepCenter.js';
 import SeatPlanner, { orderPlayersForViewer } from '../table/SeatPlanner.js';
@@ -132,11 +132,166 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
     setFlights((cur) => cur.filter((f) => f.id !== id));
   }, []);
 
-  // ---- Intents for the selected card ------------------------------------
-  const intents = useMemo(
-    () => (selectedCardId && isMyTurn ? intentsForCard(view, selectedCardId, me.id) : null),
-    [view, selectedCardId, isMyTurn, me.id],
+  // ---- Intents: every hand card's legal options (turn-gated) -------------
+  const handIntents = useMemo(
+    () => (isMyTurn && view.phase === 'TURN_PLAY' ? allIntents(view, me.id) : {}),
+    [view, isMyTurn, me.id],
   );
+  // Must-capture is TABLE-wide: if any of my cards can take something, no
+  // card may lay/build/break. Adds to own ghars survive a house capture,
+  // but never a loose one.
+  const tableLooseCapture = useMemo(
+    () => Object.values(handIntents).some((it) => it.captures.length > 0),
+    [handIntents],
+  );
+  const tableAnyCapture = useMemo(
+    () => tableLooseCapture || Object.values(handIntents).some((it) => it.capturableHouseIds.length > 0),
+    [handIntents, tableLooseCapture],
+  );
+
+  const intents = selectedCardId ? handIntents[selectedCardId] ?? null : null;
+
+  /** Distinct legal plays this card offers, with table-wide rules applied. */
+  const optionCount = (it: SeepCandidateIntents): number =>
+    it.captures.length +
+    it.capturableHouseIds.length +
+    (tableAnyCapture ? 0 : it.builds.length + it.breakableHouses.length + (it.canLay ? 1 : 0)) +
+    (tableLooseCapture ? 0 : it.addableHouses.length);
+
+  /** The obvious play for this card (unique candidate at each priority). */
+  const defaultPlay = (cardId: string, it: SeepCandidateIntents): ClientGameAction | null => {
+    if (it.captures.length === 1) {
+      return { type: 'PLAY_CARD', cardId, intent: { kind: 'CAPTURE', tableCardIds: it.captures[0]!, houseIds: [] } };
+    }
+    if (it.captures.length > 1) return null; // ambiguous — pick a glowing card
+    if (it.capturableHouseIds.length === 1) {
+      return { type: 'PLAY_CARD', cardId, intent: { kind: 'CAPTURE', tableCardIds: [], houseIds: [it.capturableHouseIds[0]!] } };
+    }
+    if (!tableLooseCapture && it.addableHouses.length === 1) {
+      const a = it.addableHouses[0]!;
+      return { type: 'PLAY_CARD', cardId, intent: { kind: 'ADD_TO_HOUSE', houseId: a.houseId, tableCardIds: a.tableCardIds } };
+    }
+    if (!tableAnyCapture && it.breakableHouses.length === 1) {
+      return { type: 'PLAY_CARD', cardId, intent: { kind: 'BREAK_HOUSE', houseId: it.breakableHouses[0]!.houseId } };
+    }
+    if (!tableAnyCapture && it.builds.length === 1) {
+      const b = it.builds[0]!;
+      return { type: 'PLAY_CARD', cardId, intent: { kind: 'BUILD', tableCardIds: b.tableCardIds, total: b.total } };
+    }
+    if (!tableAnyCapture && it.canLay) {
+      return { type: 'PLAY_CARD', cardId, intent: { kind: 'LAY_DOWN' } };
+    }
+    return null;
+  };
+
+  const act = (action: ClientGameAction) => {
+    void room.sendAction(action).then((res) => {
+      if (!res.ok && res.error) setError(res.error);
+    });
+    setSelectedCardId(null);
+    setPickedTableIds([]);
+  };
+
+  const onMyCardClick = (cardId: string) => {
+    if (!isMyTurn || view.phase !== 'TURN_PLAY') return;
+    const it = handIntents[cardId];
+    if (!it) return;
+    // Re-tap the selected card: play its most obvious option.
+    if (selectedCardId === cardId) {
+      const a = defaultPlay(cardId, it);
+      if (a) act(a);
+      return;
+    }
+    // A card with exactly one legal play executes on the first click —
+    // throwing a useless card is just one click.
+    if (optionCount(it) === 1) {
+      const a = defaultPlay(cardId, it);
+      if (a) {
+        act(a);
+        return;
+      }
+    }
+    setSelectedCardId(cardId);
+    setPickedTableIds([]);
+  };
+
+  const onTableCardClick = (cardId: string) => {
+    if (!isMyTurn || !intents || !selectedCardId) return;
+    // Ignore cards the selected card can't use (they don't glow).
+    if (!glowTake.has(cardId) && !glowBuild.has(cardId) && !pickedTableIds.includes(cardId)) return;
+    // Mid-pick (manual disambiguation): clicks toggle the pick set.
+    if (pickedTableIds.length > 0) {
+      setPickedTableIds((cur) =>
+        cur.includes(cardId) ? cur.filter((x) => x !== cardId) : [...cur, cardId],
+      );
+      return;
+    }
+    // Exactly one capture set uses this card → grab the whole thing.
+    const capSets = intents.captures.filter((set) => set.includes(cardId));
+    if (capSets.length === 1) {
+      act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'CAPTURE', tableCardIds: capSets[0]!, houseIds: [] } });
+      return;
+    }
+    // Exactly one build uses this card → make that ghar.
+    const buildSets = tableAnyCapture ? [] : intents.builds.filter((b) => b.tableCardIds.includes(cardId));
+    if (buildSets.length === 1 && capSets.length === 0) {
+      const b = buildSets[0]!;
+      act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'BUILD', tableCardIds: b.tableCardIds, total: b.total } });
+      return;
+    }
+    // Ambiguous: manual pick; the bar confirms once the pick matches.
+    setPickedTableIds([cardId]);
+  };
+
+  const onHouseClick = (houseId: string) => {
+    if (!isMyTurn || !intents || !selectedCardId) return;
+    const house = view.houses.find((h) => h.id === houseId);
+    // My side's ghar → strengthen it; their ghar → take or break it.
+    if (house?.ownerTeam === view.myTeam) {
+      const addable = intents.addableHouses.find((a) => a.houseId === houseId);
+      if (addable) {
+        act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'ADD_TO_HOUSE', houseId, tableCardIds: addable.tableCardIds } });
+        return;
+      }
+    }
+    if (intents.capturableHouseIds.includes(houseId)) {
+      const loose =
+        intents.captures.find(
+          (s) => s.length === pickedTableIds.length && s.every((id) => pickedTableIds.includes(id)),
+        ) ?? [];
+      act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'CAPTURE', tableCardIds: loose, houseIds: [houseId] } });
+      return;
+    }
+    const breakable = intents.breakableHouses.find((b) => b.houseId === houseId);
+    if (breakable) {
+      act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'BREAK_HOUSE', houseId } });
+    }
+  };
+
+  // ---- Glow targets for the selected card --------------------------------
+  const glowTake = useMemo(() => {
+    const out = new Set<string>();
+    if (intents && intents.captures.length > 0) {
+      for (const set of intents.captures) for (const id of set) out.add(id);
+    }
+    return out;
+  }, [intents]);
+  const glowBuild = useMemo(() => {
+    const out = new Set<string>();
+    if (intents && !tableAnyCapture && intents.captures.length === 0 && intents.capturableHouseIds.length === 0) {
+      for (const b of intents.builds) for (const id of b.tableCardIds) out.add(id);
+    }
+    return out;
+  }, [intents, tableAnyCapture]);
+  const houseAction = useMemo(() => {
+    const out: Record<string, 'take' | 'add' | 'break'> = {};
+    if (intents) {
+      for (const a of intents.addableHouses) out[a.houseId] = 'add';
+      for (const id of intents.capturableHouseIds) if (!out[id]) out[id] = 'take';
+      for (const b of intents.breakableHouses) if (!out[b.houseId]) out[b.houseId] = 'break';
+    }
+    return out;
+  }, [intents]);
 
   // Auto-highlight a single candidate set; otherwise let the user pick.
   const singleCapture = intents && intents.captures.length === 1 ? intents.captures[0]! : null;
@@ -153,7 +308,7 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
         b.tableCardIds.every((id) => pickedTableIds.includes(id)),
     );
     if (exact) return exact;
-    return intents.builds.length === 1 ? intents.builds[0]! : null;
+    return intents.builds.length === 1 && pickedTableIds.length === 0 ? intents.builds[0]! : null;
   })();
   const highlightedTableIds = new Set<string>([
     ...(activeCaptureSet ?? []),
@@ -161,58 +316,8 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
     ...pickedTableIds,
   ]);
   const highlightedHouseIds = new Set<string>([
-    ...(intents?.capturableHouseIds ?? []),
-    ...(intents?.addableHouses.map((a) => a.houseId) ?? []),
-    ...(intents?.breakableHouses.map((b) => b.houseId) ?? []),
+    ...Object.keys(houseAction),
   ]);
-
-  const act = (action: Parameters<RoomApi['sendAction']>[0]) => {
-    void room.sendAction(action).then((res) => {
-      if (!res.ok && res.error) setError(res.error);
-    });
-    setSelectedCardId(null);
-    setPickedTableIds([]);
-  };
-
-  const onMyCardClick = (cardId: string) => {
-    if (!isMyTurn) return;
-    if (selectedCardId === cardId) {
-      // Re-tap the selected card: play its obvious default (single capture).
-      const it = intentsForCard(view, cardId, me.id);
-      if (it.captures.length === 1) {
-        act({ type: 'PLAY_CARD', cardId, intent: { kind: 'CAPTURE', tableCardIds: it.captures[0]!, houseIds: [] } });
-      }
-      return;
-    }
-    setSelectedCardId(cardId);
-    setPickedTableIds([]);
-  };
-
-  const onTableCardClick = (cardId: string) => {
-    if (!isMyTurn || !selectedCardId) return;
-    setPickedTableIds((cur) =>
-      cur.includes(cardId) ? cur.filter((x) => x !== cardId) : [...cur, cardId],
-    );
-  };
-
-  const onHouseClick = (houseId: string) => {
-    if (!isMyTurn || !selectedCardId) return;
-    const it = intentsForCard(view, selectedCardId, me.id);
-    if (it.capturableHouseIds.includes(houseId)) {
-      const set = activeCaptureSet ?? [];
-      act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'CAPTURE', tableCardIds: set, houseIds: [houseId] } });
-      return;
-    }
-    const addable = it.addableHouses.find((a) => a.houseId === houseId);
-    if (addable) {
-      act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'ADD_TO_HOUSE', houseId, tableCardIds: addable.tableCardIds } });
-      return;
-    }
-    const breakable = it.breakableHouses.find((b) => b.houseId === houseId);
-    if (breakable) {
-      act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'BREAK_HOUSE', houseId } });
-    }
-  };
 
   const statusText = (() => {
     if (view.phase === 'ANNOUNCE') {
@@ -221,15 +326,23 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
     }
     if (roundOver) return 'Deal complete — leftovers went to the team that captured last.';
     if (isMyTurn) {
-      if (!selectedCardId) return 'Your turn — tap a card to see what it can do.';
-      if (activeCaptureSet) return 'Tap Capture to take the highlighted cards.';
-      if (intents && intents.captures.length > 1) return 'Tap the exact table cards you want, then Capture.';
-      if (intents && intents.capturableHouseIds.length > 0) return 'Tap a highlighted ghar to capture it.';
-      if (activeBuild) return `Build a ghar of ${activeBuild.total}?`;
+      if (!selectedCardId) {
+        if (tableAnyCapture) {
+          return 'Your turn — you must capture. Click a card that takes something.';
+        }
+        return 'Your turn — click a card to play it. Cards with one option fly on a single click.';
+      }
+      if (tableAnyCapture && intents && intents.captures.length === 0 && intents.capturableHouseIds.length === 0) {
+        return 'That card can’t capture — you must play one that does.';
+      }
+      if (activeCaptureSet) return 'Click the glowing cards to grab them.';
+      if (intents && intents.captures.length > 1) return 'Click the exact table cards you want, then Capture.';
+      if (intents && intents.capturableHouseIds.length > 0) return 'Click a glowing ghar to take it.';
+      if (activeBuild) return `Click the glowing card${activeBuild.tableCardIds.length > 1 ? 's' : ''} to build ghar ${activeBuild.total}.`;
       if (intents && intents.builds.length > 1) return 'Pick the cards to build with, then choose Build.';
-      if (intents && intents.addableHouses.length > 0) return 'Tap your ghar to add this card to it.';
-      if (intents && intents.breakableHouses.length > 0) return 'Tap their kachcha ghar to break it upward.';
-      if (intents && intents.canLay) return 'Nothing to capture — lay it down.';
+      if (intents && intents.addableHouses.length > 0) return 'Click your ghar to add this card to it.';
+      if (intents && intents.breakableHouses.length > 0) return 'Click their kachcha ghar to break it upward.';
+      if (intents && intents.canLay && !tableAnyCapture) return 'Click the card again to throw it.';
       return 'Your turn.';
     }
     const turn = view.players.find((p) => p.isCurrentTurn);
@@ -262,7 +375,7 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
   const teamLabel = (team: SeepTeam | null) => (team === null ? '' : team === 0 ? 'Team A' : 'Team B');
 
   return (
-    <div className="table-room">
+    <div className="table-room seep-room">
       <div className={`status-banner ${error ? 'urgent' : ''}`}>{error ?? statusText}</div>
       {room.testMode && <div className="test-banner">TEST MODE — all cards revealed</div>}
       {sweepAnnounce && (
@@ -407,7 +520,10 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
         <SeepCenter
           view={view}
           myTeam={myTeam}
-          pickedTableIds={[...highlightedTableIds]}
+          pickedTableIds={pickedTableIds}
+          glowTakeIds={[...glowTake]}
+          glowBuildIds={[...glowBuild]}
+          houseActions={houseAction}
           highlightHouseIds={[...highlightedHouseIds]}
           selectedCardId={selectedCardId}
           onTableCardClick={isMyTurn && selectedCardId ? onTableCardClick : undefined}
@@ -441,7 +557,7 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
         )}
 
         {/* my hand — always face-up in Seep */}
-        <div className={`seat seat-me ${isMyTurn ? 'active' : ''}`}>
+        <div className={`seat seat-me ${isMyTurn ? 'active my-turn' : ''}`}>
           <FloatingEmote emote={room.emotes[me.id]} />
           <div className="hand-shell hand-shell-me" data-hand-for={me.id}>
             <div className="seep-my-hand">
@@ -468,7 +584,7 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
             <button
               key={value}
               className="seep-act build"
-              onClick={() => act({ type: 'ANNOUNCE', value } as Parameters<RoomApi['sendAction']>[0])}
+              onClick={() => act({ type: 'ANNOUNCE', value })}
             >
               {value}
             </button>
@@ -513,11 +629,12 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
                       })
                     }
                   >
-                    🏠 Take ghar {house?.total}{house?.pakka ? ' 🔒' : ''}
+                    🖐 Take ghar {house?.total}{house?.pakka ? ' 🔒' : ''}
                   </button>
                 );
               })}
-              {activeBuild && (
+              {!tableAnyCapture &&
+                activeBuild && (
                 <button
                   className="seep-act build"
                   onClick={() =>
@@ -531,7 +648,8 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
                   🏗 Build ghar {activeBuild.total}
                 </button>
               )}
-              {intents?.addableHouses.map(({ houseId, tableCardIds }) => {
+              {!tableLooseCapture &&
+                intents?.addableHouses.map(({ houseId, tableCardIds }) => {
                 const house = view.houses.find((h) => h.id === houseId);
                 return (
                   <button
@@ -545,7 +663,8 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
                   </button>
                 );
               })}
-              {intents?.breakableHouses.map(({ houseId, newTotal }) => (
+              {!tableAnyCapture &&
+                intents?.breakableHouses.map(({ houseId, newTotal }) => (
                 <button
                   key={`break-${houseId}`}
                   className="seep-act break"
@@ -554,7 +673,7 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
                   💥 Break to ghar {newTotal}
                 </button>
               ))}
-              {intents?.canLay && (
+              {intents?.canLay && !tableAnyCapture && (
                 <button
                   className="seep-act lay"
                   onClick={() => act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'LAY_DOWN' } })}

@@ -56,6 +56,14 @@
   font-size: 0.78rem;
   text-transform: uppercase;
 }
+.seep-rail-scope {
+  opacity: 0.55;
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: none;
+  margin-left: 5px;
+  letter-spacing: 0;
+}
 .seep-rail-points {
   font-size: 1.15rem;
   font-weight: 800;
@@ -264,6 +272,89 @@
   justify-content: center;
   max-width: min(94vw, 780px);
 }
+/* Seep layout: hand raised above the avatar pill; the action bar floats
+   ABOVE the hand so buttons never cover my seat or cards. The rules (info)
+   button moves to the top-right, clear of the bottom stacks entirely. */
+.seep-room .seat-me {
+  bottom: 62px;
+}
+.seep-room .seep-action-bar {
+  bottom: 200px;
+  max-width: min(92vw, 640px);
+}
+.seep-room .info-toggle {
+  top: 18px;
+  right: 18px;
+  bottom: auto;
+}
+@media (max-height: 780px) {
+  .seep-room .seep-action-bar { bottom: 188px; }
+}
+@media (max-width: 720px) {
+  .seep-room .seat-me { bottom: 54px; }
+  .seep-room .seep-action-bar { bottom: 182px; }
+}
+
+/* My-turn affordance: the hand breathes so I know I can play. */
+.seep-room .seat-me.my-turn .seep-my-hand {
+  animation: seep-hand-breathe 2.4s ease-in-out infinite;
+}
+@keyframes seep-hand-breathe {
+  0%, 100% { filter: drop-shadow(0 0 0 rgba(255, 226, 150, 0)); }
+  50% { filter: drop-shadow(0 4px 14px rgba(255, 226, 150, 0.35)); }
+}
+
+/* Clickable targets on the table: golden = take, blue = build. */
+.seep-spread-slot.glow-take .pcard {
+  cursor: pointer;
+  box-shadow: 0 0 0 3px rgba(255, 226, 150, 0.85), 0 4px 14px rgba(255, 200, 90, 0.45);
+  animation: seep-target-pulse 1.15s ease-in-out infinite;
+}
+.seep-spread-slot.glow-build .pcard {
+  cursor: pointer;
+  box-shadow: 0 0 0 3px rgba(127, 178, 242, 0.85), 0 4px 14px rgba(90, 150, 240, 0.4);
+  animation: seep-target-pulse 1.15s ease-in-out infinite;
+}
+@keyframes seep-target-pulse {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+/* House action badges: 🖐 take · ➕ add · 💥 break */
+.seep-house.act-take {
+  cursor: pointer;
+  border-color: rgba(255, 226, 150, 0.85);
+  box-shadow: 0 0 0 3px rgba(255, 226, 150, 0.5);
+}
+.seep-house.act-add {
+  cursor: pointer;
+  border-color: rgba(140, 230, 170, 0.85);
+  box-shadow: 0 0 0 3px rgba(120, 220, 160, 0.45);
+}
+.seep-house.act-break {
+  cursor: pointer;
+  border-color: rgba(255, 150, 130, 0.85);
+  box-shadow: 0 0 0 3px rgba(240, 130, 110, 0.45);
+}
+.seep-house-badge {
+  position: absolute;
+  top: -9px;
+  right: -7px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  border-radius: 50%;
+  background: rgba(8, 20, 15, 0.92);
+  border: 1px solid rgba(255, 240, 200, 0.35);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  z-index: 2;
+}
+.seep-house-badge.add { border-color: rgba(140, 230, 170, 0.8); }
+.seep-house-badge.break { border-color: rgba(255, 150, 130, 0.8); }
+
 .seep-action-with {
   font-size: 0.9rem;
   color: rgba(255, 244, 214, 0.9);
