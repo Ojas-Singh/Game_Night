@@ -195,62 +195,75 @@ function SeepRules() {
       <section className="info-section">
         <h4>Aim</h4>
         <p>
-          Play in <strong>partnerships of two</strong> — you and the player across the table
-          score together. Capture cards worth points (all <strong>spades</strong> and aces),
-          and outscore the other team.
+          Play in <strong>partnerships of two</strong> (you and the player across the table
+          score together). Play one card per turn — use its number (A=1, J=11, Q=12, K=13) to
+          capture cards worth points: <strong>every spade at face value</strong> (K♠ 13!), the
+          other <strong>aces 1</strong> each, and the <strong>10♦ 2</strong>.
         </p>
         <p>
-          Spades = face value (faces 10) &middot; <strong>other aces = 5</strong> &middot; 100
-          points in the deck.
+          The team that captures <strong>more cards</strong> gets +4 — 100 points in the deck.
         </p>
       </section>
 
       <section className="info-section">
-        <h4>Your turn</h4>
+        <h4>The opening</h4>
         <p>
-          Play <strong>one card</strong>. If its value matches a table card — or a{' '}
-          <strong>set of table cards added together</strong> — you capture them all.
+          The opener receives 4 cards; 4 more go <strong>face-down</strong> to the table. The
+          opener <strong>announces a number 9–13 they hold</strong> — the table turns up — and
+          their first play must involve that number: capture cards totalling it, build a ghar of
+          it, or throw the announced card. Then everyone is dealt up to 12 cards.
         </p>
+      </section>
+
+      <section className="info-section">
+        <h4>Capturing</h4>
         <p>
-          If you <em>can</em> capture, you <strong>must</strong>. Nothing to take? The card
-          joins the table.
+          Play a card and take table cards that <strong>group into its value</strong> — several
+          groups at once is fine: with an 8, take <em>A+7</em>, <em>3+5</em> <em>and</em> a
+          loose 8. If your card <em>can</em> capture, it <strong>must</strong>.
         </p>
       </section>
 
       <section className="info-section special">
-        <h4>Houses (builds)</h4>
+        <h4>Ghar (houses)</h4>
         <div className="special-panel">
           <p>
-            🏗 <strong>Build:</strong> your card + table cards sum to a total you{' '}
-            <em>also</em> hold — they become a face-up <strong>house</strong> your team owns.
+            🏗 <strong>Build:</strong> your card + table cards form one set totalling{' '}
+            <strong>9–13</strong>, and you hold another card of that total — a{' '}
+            <em>kachcha</em> ghar, owned by you.
           </p>
           <p>
-            ⬆ <strong>Raise:</strong> add another card of the same total to grow your house.
+            🔒 <strong>Pakka:</strong> a second complete set of the same total (yours or your
+            partner&rsquo;s) locks the ghar — it can never be broken again.
           </p>
           <p>
-            🏠 <strong>Steal:</strong> anyone who plays the house&rsquo;s total captures the
-            whole thing.
+            💥 <strong>Break:</strong> play a card on a <em>kachcha</em> ghar you don&rsquo;t
+            own to raise its total (max 13) — you must hold the new total, and the ghar becomes
+            yours.
           </p>
+          <p>
+            🏠 <strong>Capture:</strong> a card matching the total takes the whole ghar.
+          </p>
+          <p>As long as you own a ghar, you must keep a matching card in hand.</p>
         </div>
       </section>
 
       <section className="info-section">
         <h4>Seep!</h4>
         <p>
-          Sweep <strong>every card off the table</strong> in one play for a{' '}
-          <strong>+50 bonus</strong>. When the table is empty, the next player must lay down.
+          Clear <strong>every card off the table</strong> in one play: <strong>+50</strong> —
+          but only <strong>+25</strong> on the opening play, and <strong>nothing</strong> on
+          the deal&rsquo;s final card.
         </p>
       </section>
 
       <section className="info-section">
         <h4>Endgame</h4>
         <p>
-          Three batches of four cards each. Leftover table cards go to the team that captured
-          last; unfinished houses stay with their owners. Highest total wins the deal.
+          Everyone plays all 12 cards. Leftover table cards go to the team that captured{' '}
+          <strong>last</strong>. Highest total wins the deal.
         </p>
-        <p className="tip">
-          💡 Tip: count the spades! A captured 9♠ is worth more than half a hand of low diamonds.
-        </p>
+        <p className="tip">💡 Tip: count the spades — a captured K♠ (13) is the richest card in the game.</p>
       </section>
     </div>
   );

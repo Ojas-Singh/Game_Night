@@ -88,7 +88,7 @@ export default function SeepCenter({
           <span className="pile-count">{view.deckCount}</span>
         </div>
 
-        {/* loose table spread */}
+        {/* loose table spread (face-down until the opener announces) */}
         <div className="seep-spread" aria-label="Cards on the table">
           <AnimatePresence>
             {view.tableLoose.map((card, i) => (
@@ -111,7 +111,15 @@ export default function SeepCenter({
               </motion.div>
             ))}
           </AnimatePresence>
-          {view.tableLoose.length === 0 && (
+          {view.tableLoose.length === 0 && view.tableFaceDownCount > 0 && (
+            <>
+              {Array.from({ length: view.tableFaceDownCount }, (_, i) => (
+                <Card key={`back-${i}`} cardId={`back-${i}`} card={null} faceDown small />
+              ))}
+              <span className="seep-spread-empty">waiting for the announce…</span>
+            </>
+          )}
+          {view.tableLoose.length === 0 && view.tableFaceDownCount === 0 && (
             <div className="seep-spread-empty">table cleared — next player lays down</div>
           )}
         </div>
@@ -132,9 +140,16 @@ export default function SeepCenter({
                   transition={{ type: 'spring', stiffness: 300, damping: 24 }}
                   onClick={onHouseClick ? () => onHouseClick(house.id) : undefined}
                   disabled={!onHouseClick}
-                  title={`House of ${house.total} — team ${house.ownerTeam}, ${house.cards.length} cards`}
+                  title={`Ghar ${house.total} — ${house.pakka ? 'pakka (locked)' : 'kachcha (breakable)'}, team ${house.ownerTeam}, ${house.cards.length} cards`}
                 >
-                  <span className="seep-house-total">{house.total}</span>
+                  <span className="seep-house-total">
+                    {house.total}
+                    {house.pakka && (
+                      <span className="seep-house-pakka" title="Pakka ghar — cannot be broken">
+                        🔒
+                      </span>
+                    )}
+                  </span>
                   <span className="seep-house-stack" aria-hidden>
                     {house.cards.slice(0, 3).map((c, i) => (
                       <span key={c.id} className="seep-house-card" style={{ top: -i * 3 }}>

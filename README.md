@@ -2,7 +2,8 @@
 
 An online multiplayer card-game platform — friends around one table, no accounts required.
 Games: our house-rules **Cabo**, **Pair One** (a memory game), and **Seep**
-(the Punjab 2v2 fishing game — capture, build houses, sweep the table).
+(the Punjab 2v2 fishing game — announce a bid, capture in groups, build
+kachcha/pakka ghars, sweep the table; spades at face value, 100 points in the deck).
 
 ## Quick start (local dev)
 

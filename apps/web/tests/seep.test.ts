@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { standardDeck, type Card, type Suit } from '@shared/cards.js';
 import { collectSeepFlights } from '../src/seep/flights.js';
-import { allIntents, intentsForCard } from '../src/seep/seepCandidates.js';
+import { allIntents, intentsForCard, biddableValues } from '../src/seep/seepCandidates.js';
 import type { SeepPlayerView } from '@seep/views.js';
 import type { SeepTeam } from '@seep/rules.js';
 
@@ -34,6 +34,8 @@ function view(opts: {
   events?: SeepPlayerView['events'];
   batchesRemaining?: number;
   currentTurn?: string;
+  bid?: number | null;
+  playsMade?: number;
 }): SeepPlayerView {
   const hand = opts.hand ?? [];
   const table = opts.table ?? [];
@@ -60,13 +62,19 @@ function view(opts: {
     myTeam: 0,
     teams: { 0: ['n', 's'], 1: ['e', 'w'] },
     tableLoose: table,
+    tableFaceDownCount: 0,
     houses: opts.houses ?? [],
     captures: { n: [], e: [], s: [], w: [] },
     handCounts: { n: hand.length, e: 4, s: 4, w: 4 },
     sweeps: { 0: 0, 1: 0 },
+    sweepPoints: { 0: 0, 1: 0 },
     teamPoints: { 0: 0, 1: 0 },
-    batchesRemaining: opts.batchesRemaining ?? 2,
+    bid: opts.bid ?? null,
+    openerId: 'n',
+    playsMade: opts.playsMade ?? 1,
+    batchesRemaining: opts.batchesRemaining ?? 0,
     lastCaptureTeam: null,
+    majorityTeam: null,
     roundResult: null,
   } as SeepPlayerView;
 }
@@ -104,12 +112,12 @@ describe('collectSeepFlights', () => {
     expect(flights.find((f) => f.id.endsWith('-played'))).toBeDefined();
   });
 
-  it('lands build/raise cards on the house stack element', () => {
+  it('lands build/add cards on the house stack element', () => {
     const prev = view({});
     const next = view({
       events: [
         ev(3, 'PLAY_BUILD', { playerId: 'n', cardId: 'n1', houseId: 'h-1', total: 11 }),
-        ev(4, 'PLAY_RAISE', { playerId: 's', cardId: 's1', houseId: 'h-1', total: 11 }),
+        ev(4, 'PLAY_ADD', { playerId: 's', cardId: 's1', houseId: 'h-1', total: 11 }),
       ],
     });
     const flights = collectSeepFlights(prev, next);
@@ -158,6 +166,49 @@ describe('intentsForCard', () => {
     expect(intents2.captures).toEqual([['t1']]);
   });
 
+  it('captures several groups at once: with an 8 take A+7, 3+5 and a loose 8', () => {
+    const v = view({
+      hand: [c('m1', 'hearts', 8)],
+      table: [
+        c('t1', 'spades', 1), c('t2', 'diamonds', 7),
+        c('t3', 'clubs', 3), c('t4', 'spades', 5),
+        c('t5', 'hearts', 8),
+      ],
+    });
+    const intents = intentsForCard(v, 'm1', 'n');
+    // Every subset grouping into 8 is offered — including the whole-table sweep.
+    expect([...intents.captures[0]!].sort()).toEqual(['t5']);
+    const wholeTable = intents.captures.find((set) => set.length === 5);
+    expect([...wholeTable!].sort()).toEqual(['t1', 't2', 't3', 't4', 't5']);
+    expect(intents.canLay).toBe(false);
+  });
+
+  it('gates every intent on the opening play to the announced number', () => {
+    const v = view({
+      hand: [c('m1', 'hearts', 9), c('m2', 'clubs', 3)],
+      table: [c('t1', 'spades', 3), c('t2', 'diamonds', 6)],
+      bid: 9,
+      playsMade: 0,
+    });
+    // The 9 relates to the bid: it captures 3+6 (must-capture, so no lay).
+    const nine = intentsForCard(v, 'm1', 'n');
+    expect(nine.captures).toEqual([['t1', 't2']]);
+    expect(nine.canLay).toBe(false);
+    // The 3 matches a table card, but on the opening play only the bid counts.
+    const three = intentsForCard(v, 'm2', 'n');
+    expect(three.captures).toEqual([]);
+    expect(three.canLay).toBe(false);
+    // A build of the bid total (3+6=9, backed by m1) is legal with the 3.
+    expect(three.builds.map((b) => b.total)).toEqual([9]);
+  });
+
+  it('lists only held 9–13 values as biddable', () => {
+    const v = view({
+      hand: [c('m1', 'hearts', 9), c('m2', 'clubs', 2), c('m3', 'spades', 13), c('m4', 'diamonds', 8)],
+    });
+    expect(biddableValues(v, 'n')).toEqual([13, 9]);
+  });
+
   it('marks canLay true and skips builds when nothing is capturable', () => {
     const v = view({
       hand: [c('m1', 'hearts', 2)],
@@ -180,30 +231,55 @@ describe('intentsForCard', () => {
     expect(intents.canLay).toBe(true); // 6 captures nothing
   });
 
-  it('marks capturable and raiseable houses', () => {
+  it('marks capturable houses and own-team adds (pakka/steal awareness)', () => {
     const v = view({
-      // Two twelves: one to play, one to keep as the raise backing.
+      // Two twelves: one to play, one to keep as the owner's backing.
       hand: [c('m1', 'hearts', 12), c('m2', 'spades', 12)],
       table: [],
       houses: [
-        { id: 'h-1', total: 12, ownerTeam: 0, cards: [c('a', 'spades', 12)] },
-        { id: 'h-2', total: 12, ownerTeam: 1, cards: [c('b', 'clubs', 12)] },
+        { id: 'h-1', total: 12, ownerId: 'n', ownerTeam: 0, sets: 1, pakka: false, cards: [c('a', 'spades', 12)] },
+        { id: 'h-2', total: 12, ownerId: 'e', ownerTeam: 1, sets: 1, pakka: false, cards: [c('b', 'clubs', 12)] },
       ] as SeepPlayerView['houses'],
     });
     const intents = intentsForCard(v, 'm1', 'n');
-    // Both houses are capturable; only own team's (h-1) is raiseable.
+    // Both houses are capturable; only my own team's (h-1) is extendable —
+    // and 12+12 > 13 so nothing is breakable.
     expect(intents.capturableHouseIds).toEqual(['h-1', 'h-2']);
-    expect(intents.raiseHouseIds).toEqual(['h-1']);
+    expect(intents.addableHouses).toEqual([{ houseId: 'h-1', tableCardIds: [] }]);
+    expect(intents.breakableHouses).toEqual([]);
   });
 
-  it('requires a backing card for raises and never proposes them without one', () => {
+  it('a partner-owned ghar may take my last matching card; my own may not', () => {
+    const houses = (ownerId: string, ownerTeam: 0 | 1) =>
+      [{ id: 'h-1', total: 12, ownerId, ownerTeam, sets: 1, pakka: false, cards: [c('a', 'spades', 12)] }] as SeepPlayerView['houses'];
+    const mine = intentsForCard(view({ hand: [c('m1', 'hearts', 12)], houses: houses('n', 0) }), 'm1', 'n');
+    expect(mine.addableHouses).toEqual([]); // retention: I own it, no 12 behind
+    const partners = intentsForCard(view({ hand: [c('m1', 'hearts', 12)], houses: houses('s', 0) }), 'm1', 'n');
+    expect(partners.addableHouses).toEqual([{ houseId: 'h-1', tableCardIds: [] }]);
+  });
+
+  it('proposes breaking an opponent kachcha ghar when the new total is held', () => {
+    const v = view({
+      hand: [c('m1', 'hearts', 2), c('m2', 'spades', 11)],
+      table: [],
+      houses: [
+        { id: 'h-1', total: 9, ownerId: 'e', ownerTeam: 1, sets: 1, pakka: false, cards: [c('b1', 'clubs', 9)] },
+        { id: 'h-2', total: 9, ownerId: 'w', ownerTeam: 1, sets: 2, pakka: true, cards: [c('b2', 'clubs', 9), c('b3', 'hearts', 9)] },
+      ] as SeepPlayerView['houses'],
+    });
+    const intents = intentsForCard(v, 'm1', 'n'); // 2 → break 9 to 11, J in hand
+    expect(intents.breakableHouses).toEqual([{ houseId: 'h-1', newTotal: 11 }]);
+    expect(intents.breakableHouses.map((b) => b.houseId)).not.toContain('h-2'); // pakka locked
+  });
+
+  it('requires a backing card for own-ghar adds and never proposes them without one', () => {
     const v = view({
       hand: [c('m1', 'hearts', 12)],
       table: [],
-      houses: [{ id: 'h-1', total: 12, ownerTeam: 0, cards: [c('a', 'spades', 12)] }] as SeepPlayerView['houses'],
+      houses: [{ id: 'h-1', total: 12, ownerId: 'n', ownerTeam: 0, sets: 1, pakka: false, cards: [c('a', 'spades', 12)] }] as SeepPlayerView['houses'],
     });
     const intents = intentsForCard(v, 'm1', 'n');
-    expect(intents.raiseHouseIds).toEqual([]);
+    expect(intents.addableHouses).toEqual([]);
   });
 
   it('ignores cards that are not in my hand', () => {

@@ -67,7 +67,8 @@ function playSoundsFor(prev: AnyGameView, next: AnyGameView): void {
         playSound('match');
         break;
       case 'PLAY_BUILD':
-      case 'PLAY_RAISE':
+      case 'PLAY_ADD':
+      case 'PLAY_BREAK':
         playSound('flip');
         break;
       case 'SEEP_SWEEP':
@@ -290,8 +291,10 @@ type ClientCaboAction = {
 /** A Pair One action without playerId. */
 type ClientPairOneAction = Omit<PairOneAction, 'playerId'>;
 
-/** A Seep action without playerId. */
-type ClientSeepAction = Omit<SeepAction, 'playerId'>;
+/** A Seep action without playerId, preserving discriminated-union narrowing. */
+type ClientSeepAction = {
+  [K in SeepAction['type']]: Omit<Extract<SeepAction, { type: K }>, 'playerId'>;
+}[SeepAction['type']];
 
 /** Any game action the client may send (playerId is stamped by the server). */
 export type ClientGameAction = ClientCaboAction | ClientPairOneAction | ClientSeepAction;

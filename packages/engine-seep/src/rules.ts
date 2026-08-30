@@ -1,91 +1,79 @@
 /**
- * Seep (Sweep) — house-rules tuning knobs.
+ * Seep (Sweep) — Punjabi 4-player partnership fishing game.
  *
- * Seep is played with many regional variations. Everything households argue
- * about lives here as data: deal shape, sweep bonus and the scoring table.
- * The shipped defaults are the platform's house rules.
+ * Rules tuning knobs live here as data. The shipped defaults are the common
+ * 100-point version: every spade scores its face value (A♠ 1 … K♠ 13), the
+ * other aces score 1, the 10♦ scores 2, and the team with more captured
+ * cards gets a +4 majority bonus — 100 points in the deck. The well-known
+ * family variant (10♦ = 6, no majority bonus) is a one-line override.
  */
 
-import { standardDeck, type Card, type Rank, type Suit } from '@game-night/shared';
+import { standardDeck, type Card } from '@game-night/shared';
 
 /** Capture value of a card: face value, aces low (A=1 … K=13). */
 export function captureValue(card: Card): number {
   return card.rank;
 }
 
-/** Scoring table: which captured cards carry points, and how many. */
-export interface SeepPointRules {
-  /**
-   * When true (default) every spade scores its pip value with faces
-   * (J/Q/K) worth 10 each — the suit everyone fights over.
-   */
-  spadesPip: boolean;
-  /** Points for each ace that is not covered above (default 5). */
-  otherAcesPoints: number;
-  /** Explicit per-card overrides; first match wins. */
-  overrides: Array<{ suit?: Suit; rank?: Rank; points: number }>;
-}
-
 export interface SeepRules {
-  /** Cards dealt to each player per deal batch (default 4). */
-  cardsPerBatch: number;
-  /** Total deal batches per player per game (default 3 → 12 cards each). */
-  maxBatches: number;
-  /** Cards dealt face-up to the table at the start (default 4). */
+  /** Cards the opening player receives before announcing (default 4). */
+  openingHandCards: number;
+  /** Cards dealt face-DOWN to the table before the announce (default 4). */
   tableStartCards: number;
-  /** Bonus for a seep — one play that clears the whole table (default 50). */
+  /** Cards per dealing round when the rest of the deck is dealt (default 4). */
+  cardsPerBatch: number;
+  /** Lowest possible ghar (house) total (default 9). */
+  minHouseTotal: number;
+  /** Highest possible ghar total (default 13 — a ghar 13 can never be broken). */
+  maxHouseTotal: number;
+  /** Bonus for clearing the whole table in one play (default 50). */
   sweepBonus: number;
-  pointRules: SeepPointRules;
+  /** Bonus for a sweep on the deal's very first play (default 25). */
+  firstPlaySweepBonus: number;
+  /** Points for the 10♦ (default 2; the family variant plays 6). */
+  tenDiamondsPoints: number;
+  /** Bonus for the team with more captured cards (default 4; 0 in the variant). */
+  majorityCardsBonus: number;
 }
-
-export const DEFAULT_SEEP_POINT_RULES: SeepPointRules = {
-  spadesPip: true,
-  otherAcesPoints: 5,
-  overrides: [],
-};
 
 export const DEFAULT_SEEP_RULES: SeepRules = {
-  cardsPerBatch: 4,
-  maxBatches: 3,
+  openingHandCards: 4,
   tableStartCards: 4,
+  cardsPerBatch: 4,
+  minHouseTotal: 9,
+  maxHouseTotal: 13,
   sweepBonus: 50,
-  pointRules: { ...DEFAULT_SEEP_POINT_RULES, overrides: [] },
+  firstPlaySweepBonus: 25,
+  tenDiamondsPoints: 2,
+  majorityCardsBonus: 4,
 };
 
-/** Deep-merge user rules over the defaults (pointRules is nested). */
+/** The recognised variant: 10♦ = 6 and no most-cards bonus (still 100 total). */
+export const VARIANT_TEN_DIAMOND_SIX: Partial<SeepRules> = {
+  tenDiamondsPoints: 6,
+  majorityCardsBonus: 0,
+};
+
+/** Deep-merge user rules over the defaults. */
 export function mergeSeepRules(partial?: Partial<SeepRules>): SeepRules {
-  if (!partial) return { ...DEFAULT_SEEP_RULES, pointRules: clonePoints(DEFAULT_SEEP_RULES.pointRules) };
-  return {
-    ...DEFAULT_SEEP_RULES,
-    ...partial,
-    pointRules: {
-      ...DEFAULT_SEEP_POINT_RULES,
-      ...(partial.pointRules ?? {}),
-      overrides: (partial.pointRules?.overrides ?? DEFAULT_SEEP_POINT_RULES.overrides).map((o) => ({ ...o })),
-    },
-  };
+  return { ...DEFAULT_SEEP_RULES, ...(partial ?? {}) };
 }
 
-function clonePoints(p: SeepPointRules): SeepPointRules {
-  return { ...p, overrides: p.overrides.map((o) => ({ ...o })) };
-}
-
-/** Points a captured card is worth under the configured table. */
+/**
+ * Points a captured card is worth:
+ *  - every spade: its face value (A♠ 1 … 10♠ 10, J♠ 11, Q♠ 12, K♠ 13);
+ *  - the other three aces: 1 each;
+ *  - the 10♦: rules.tenDiamondsPoints (2, or 6 in the variant);
+ *  - everything else: 0.
+ */
 export function cardPoints(card: Card, rules: SeepRules): number {
-  for (const o of rules.pointRules.overrides) {
-    if (o.suit !== undefined && o.suit !== card.suit) continue;
-    if (o.rank !== undefined && o.rank !== card.rank) continue;
-    if (o.suit === undefined && o.rank === undefined) continue;
-    return o.points;
-  }
-  if (card.suit === 'spades' && rules.pointRules.spadesPip) {
-    return card.rank >= 11 ? 10 : card.rank; // faces flatten to 10
-  }
-  if (card.rank === 1) return rules.pointRules.otherAcesPoints;
+  if (card.suit === 'spades') return card.rank;
+  if (card.rank === 1) return 1;
+  if (card.suit === 'diamonds' && card.rank === 10) return rules.tenDiamondsPoints;
   return 0;
 }
 
-/** Team 0 = even seats, team 1 = odd seats. */
+/** Team 0 = even seats, team 1 = odd seats (partners sit opposite). */
 export type SeepTeam = 0 | 1;
 
 export function teamOfSeat(seat: number): SeepTeam {
@@ -109,7 +97,43 @@ export function reachableSubsetSum(cards: Card[], target: number): boolean {
   return (reach & (1 << target)) !== 0;
 }
 
-/** Total points sitting in the deck (default table: 100). */
+/**
+ * True when `cards` can be split into groups that EACH sum to exactly
+ * `target`. This is the multi-group capture rule: playing an 8 may take
+ * A+7, 3+5 and a loose 8 together — every group matches the played card.
+ * Backtracking over the (small) selection; trivially fast at table sizes.
+ */
+export function partitionableInto(cards: Card[], target: number): boolean {
+  if (cards.length === 0 || target < 1) return false;
+  const vals = cards.map((c) => c.rank);
+  const total = vals.reduce((a, b) => a + b, 0);
+  if (total % target !== 0) return false;
+  const used = new Array<boolean>(vals.length).fill(false);
+  const search = (): boolean => {
+    let first = -1;
+    for (let i = 0; i < vals.length; i++) {
+      if (!used[i]) {
+        first = i;
+        break;
+      }
+    }
+    if (first === -1) return true; // everything placed
+    const fill = (from: number, need: number): boolean => {
+      if (need === 0) return search();
+      for (let j = from; j < vals.length; j++) {
+        if (used[j] || vals[j]! > need) continue;
+        used[j] = true;
+        if (fill(j + 1, need - vals[j]!)) return true;
+        used[j] = false;
+      }
+      return false;
+    };
+    return fill(0, target);
+  };
+  return search();
+}
+
+/** Total card points in the deck under these rules (excludes the majority bonus). */
 export function totalDeckPoints(rules: SeepRules): number {
   return standardDeck().reduce((sum, c) => sum + cardPoints(c, rules), 0);
 }

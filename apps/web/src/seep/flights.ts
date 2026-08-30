@@ -77,10 +77,12 @@ export function collectSeepFlights(
         });
         break;
       }
-      case 'PLAY_RAISE': {
+      case 'PLAY_ADD':
+      case 'PLAY_BREAK': {
+        // Add/break: the played card lands on the (possibly renamed) house.
         const cardId = typeof p.cardId === 'string' ? p.cardId : undefined;
         out.push({
-          id: `PLAY_RAISE-${ev.seq}`,
+          id: `${ev.type}-${ev.seq}`,
           seq: ev.seq,
           fromPlayerId: String(actorId ?? ''),
           fromCardId: cardId,

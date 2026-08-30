@@ -154,6 +154,12 @@
   min-width: 1.4ch;
   text-align: center;
 }
+.seep-house-pakka {
+  font-size: 0.68rem;
+  margin-left: 3px;
+  vertical-align: middle;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.5));
+}
 .seep-house-stack {
   position: relative;
   width: 30px;
@@ -233,6 +239,11 @@
   max-width: min(92vw, 760px);
 }
 
+.seep-announce-bar {
+  border-color: rgba(255, 220, 130, 0.45);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45), 0 0 18px rgba(255, 210, 110, 0.25);
+}
+
 /* ---- Action bar ---- */
 .seep-action-bar {
   position: absolute;
@@ -280,6 +291,7 @@
 .seep-act:hover { transform: translateY(-1px); }
 .seep-act.capture { background: linear-gradient(165deg, #b8f2c9, #62c98a); }
 .seep-act.build { background: linear-gradient(165deg, #bcd8ff, #7fb2f2); }
+.seep-act.break { background: linear-gradient(165deg, #ffc9b8, #e88a6a); }
 .seep-act.lay { background: linear-gradient(165deg, #f4d8b0, #d9a869); }
 .seep-act.cancel {
   background: rgba(255, 255, 255, 0.08);
@@ -361,6 +373,12 @@
   font-size: 0.78rem;
   opacity: 0.7;
   min-height: 1em;
+}
+.seep-result-note {
+  margin: 10px 0 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  opacity: 0.55;
 }
 
 /* Small screens: shrink the centre furniture */

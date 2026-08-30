@@ -4,7 +4,7 @@ import type { RoomApi, CardFlight } from '../useRoom.js';
 import type { FlightPos } from '../table/CardFlights.js';
 import type { SeepPlayerView } from '@seep/views.js';
 import type { SeepTeam } from '@seep/rules.js';
-import { intentsForCard } from './seepCandidates.js';
+import { intentsForCard, biddableValues } from './seepCandidates.js';
 import Card from '../table/Card.js';
 import SeepCenter from './SeepCenter.js';
 import SeatPlanner, { orderPlayersForViewer } from '../table/SeatPlanner.js';
@@ -37,15 +37,17 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
 
   // ---- Sweep announcement (event-watching) ------------------------------
   const lastEventSeq = useRef(0);
-  const [sweepAnnounce, setSweepAnnounce] = useState<{ by: string; at: number } | null>(null);
+  const [sweepAnnounce, setSweepAnnounce] = useState<{ by: string; bonus: number; at: number } | null>(null);
   useLayoutEffect(() => {
     for (const ev of view.events) {
       if (ev.seq <= lastEventSeq.current) continue;
       lastEventSeq.current = ev.seq;
       if (ev.type === 'SEEP_SWEEP') {
-        const pid = (ev.payload as Record<string, unknown> | undefined)?.playerId;
+        const payload = (ev.payload ?? {}) as Record<string, unknown>;
+        const pid = payload.playerId;
         const name = view.players.find((p) => p.id === String(pid))?.name ?? 'Someone';
-        setSweepAnnounce({ by: name, at: Date.now() });
+        const bonus = typeof payload.bonus === 'number' ? payload.bonus : 50;
+        setSweepAnnounce({ by: name, bonus, at: Date.now() });
         window.setTimeout(() => setSweepAnnounce((cur) => (cur && Date.now() - cur.at >= 2600 ? null : cur)), 2600);
       }
     }
@@ -160,7 +162,8 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
   ]);
   const highlightedHouseIds = new Set<string>([
     ...(intents?.capturableHouseIds ?? []),
-    ...(intents?.raiseHouseIds ?? []),
+    ...(intents?.addableHouses.map((a) => a.houseId) ?? []),
+    ...(intents?.breakableHouses.map((b) => b.houseId) ?? []),
   ]);
 
   const act = (action: Parameters<RoomApi['sendAction']>[0]) => {
@@ -177,7 +180,7 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
       // Re-tap the selected card: play its obvious default (single capture).
       const it = intentsForCard(view, cardId, me.id);
       if (it.captures.length === 1) {
-        act({ type: 'PLAY_CARD', cardId, intent: { kind: 'CAPTURE', tableCardIds: it.captures[0]! } });
+        act({ type: 'PLAY_CARD', cardId, intent: { kind: 'CAPTURE', tableCardIds: it.captures[0]!, houseIds: [] } });
       }
       return;
     }
@@ -196,22 +199,36 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
     if (!isMyTurn || !selectedCardId) return;
     const it = intentsForCard(view, selectedCardId, me.id);
     if (it.capturableHouseIds.includes(houseId)) {
-      act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'CAPTURE_HOUSE', houseId } });
-    } else if (it.raiseHouseIds.includes(houseId)) {
-      act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'RAISE_HOUSE', houseId } });
+      const set = activeCaptureSet ?? [];
+      act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'CAPTURE', tableCardIds: set, houseIds: [houseId] } });
+      return;
+    }
+    const addable = it.addableHouses.find((a) => a.houseId === houseId);
+    if (addable) {
+      act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'ADD_TO_HOUSE', houseId, tableCardIds: addable.tableCardIds } });
+      return;
+    }
+    const breakable = it.breakableHouses.find((b) => b.houseId === houseId);
+    if (breakable) {
+      act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'BREAK_HOUSE', houseId } });
     }
   };
 
   const statusText = (() => {
-    if (roundOver) return 'Deal complete — cards on the table go to the last capturer.';
+    if (view.phase === 'ANNOUNCE') {
+      if (isMyTurn) return 'Announce a number 9–13 that you hold — the table then turns up.';
+      return `${view.players.find((p) => p.isCurrentTurn)?.name ?? 'The opener'} is announcing…`;
+    }
+    if (roundOver) return 'Deal complete — leftovers went to the team that captured last.';
     if (isMyTurn) {
       if (!selectedCardId) return 'Your turn — tap a card to see what it can do.';
       if (activeCaptureSet) return 'Tap Capture to take the highlighted cards.';
       if (intents && intents.captures.length > 1) return 'Tap the exact table cards you want, then Capture.';
-      if (intents && intents.capturableHouseIds.length > 0) return 'Tap a highlighted house to capture it.';
-      if (activeBuild) return `Build a house of ${activeBuild.total}?`;
+      if (intents && intents.capturableHouseIds.length > 0) return 'Tap a highlighted ghar to capture it.';
+      if (activeBuild) return `Build a ghar of ${activeBuild.total}?`;
       if (intents && intents.builds.length > 1) return 'Pick the cards to build with, then choose Build.';
-      if (intents && intents.raiseHouseIds.length > 0) return 'Tap your house to raise it.';
+      if (intents && intents.addableHouses.length > 0) return 'Tap your ghar to add this card to it.';
+      if (intents && intents.breakableHouses.length > 0) return 'Tap their kachcha ghar to break it upward.';
       if (intents && intents.canLay) return 'Nothing to capture — lay it down.';
       return 'Your turn.';
     }
@@ -252,7 +269,9 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
         <div className="seep-announce" key={sweepAnnounce.at}>
           <span className="seep-announce-icon">✨</span>
           <span className="seep-announce-text">SEEP!</span>
-          <span className="seep-announce-by">{sweepAnnounce.by} swept the table — +50!</span>
+          <span className="seep-announce-by">
+            {sweepAnnounce.by} swept the table{sweepAnnounce.bonus > 0 ? ` — +${sweepAnnounce.bonus}!` : ' (final card — no bonus)'}
+          </span>
         </div>
       )}
       {(() => {
@@ -441,8 +460,24 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
         </div>
       </div>
 
+      {/* announce bar: the opener names their number */}
+      {view.phase === 'ANNOUNCE' && isMyTurn && (
+        <div className="seep-action-bar seep-announce-bar">
+          <span className="seep-act-hint">Announce a number you hold:</span>
+          {biddableValues(view, me.id).map((value) => (
+            <button
+              key={value}
+              className="seep-act build"
+              onClick={() => act({ type: 'ANNOUNCE', value } as Parameters<RoomApi['sendAction']>[0])}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* action bar */}
-      {isMyTurn && !roundOver && (
+      {isMyTurn && !roundOver && view.phase === 'TURN_PLAY' && (
         <div className="seep-action-bar">
           {selectedCardId ? (
             <>
@@ -455,14 +490,14 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
                 <button
                   className="seep-act capture"
                   onClick={() =>
-                    act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'CAPTURE', tableCardIds: activeCaptureSet } })
+                    act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'CAPTURE', tableCardIds: activeCaptureSet, houseIds: [] } })
                   }
                 >
-                  🫳 Capture {activeCaptureSet.length + 1} card{activeCaptureSet.length ? 's' : ''}
+                  🫳 Capture {activeCaptureSet.length + 1} card{activeCaptureSet.length + 1 === 1 ? '' : 's'}
                 </button>
               )}
               {intents && intents.captures.length > 1 && !activeCaptureSet && (
-                <span className="seep-act-hint">tap {intents.captures[0]!.length === 1 ? 'the matching table card' : 'table cards'}…</span>
+                <span className="seep-act-hint">tap the table cards to group…</span>
               )}
               {intents?.capturableHouseIds.map((houseId) => {
                 const house = view.houses.find((h) => h.id === houseId);
@@ -470,9 +505,15 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
                   <button
                     key={houseId}
                     className="seep-act capture"
-                    onClick={() => act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'CAPTURE_HOUSE', houseId } })}
+                    onClick={() =>
+                      act({
+                        type: 'PLAY_CARD',
+                        cardId: selectedCardId,
+                        intent: { kind: 'CAPTURE', tableCardIds: activeCaptureSet ?? [], houseIds: [houseId] },
+                      })
+                    }
                   >
-                    🏠 Capture house of {house?.total}
+                    🏠 Take ghar {house?.total}{house?.pakka ? ' 🔒' : ''}
                   </button>
                 );
               })}
@@ -487,16 +528,30 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
                     })
                   }
                 >
-                  🏗 Build house of {activeBuild.total}
+                  🏗 Build ghar {activeBuild.total}
                 </button>
               )}
-              {intents?.raiseHouseIds.map((houseId) => (
+              {intents?.addableHouses.map(({ houseId, tableCardIds }) => {
+                const house = view.houses.find((h) => h.id === houseId);
+                return (
+                  <button
+                    key={`add-${houseId}`}
+                    className="seep-act build"
+                    onClick={() =>
+                      act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'ADD_TO_HOUSE', houseId, tableCardIds } })
+                    }
+                  >
+                    ⬆ Add to ghar {house?.total}{house?.sets === 1 ? ' (make pakka)' : ''}
+                  </button>
+                );
+              })}
+              {intents?.breakableHouses.map(({ houseId, newTotal }) => (
                 <button
-                  key={houseId}
-                  className="seep-act build"
-                  onClick={() => act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'RAISE_HOUSE', houseId } })}
+                  key={`break-${houseId}`}
+                  className="seep-act break"
+                  onClick={() => act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'BREAK_HOUSE', houseId } })}
                 >
-                  ⬆ Raise house
+                  💥 Break to ghar {newTotal}
                 </button>
               ))}
               {intents?.canLay && (
@@ -553,10 +608,14 @@ function SeepRoundSummary({ view, room }: { view: SeepPlayerView; room: RoomApi 
             <div key={team} className={`seep-result-rail team${team} ${result.winnerTeam === team ? 'winner' : ''}`}>
               <span className="seep-result-names">{teamNames(team)}</span>
               <span className="seep-result-points">{result.teamScores[team]}</span>
-              <span className="seep-result-sweeps">{view.sweeps[team] > 0 ? `✨ ${view.sweeps[team]} sweep${view.sweeps[team] > 1 ? 's' : ''}` : ''}</span>
+              <span className="seep-result-sweeps">
+                {result.majorityTeam === team && <span title="More captured cards (+4)">🃏 </span>}
+                {view.sweeps[team] > 0 ? `✨ ${view.sweeps[team]} sweep${view.sweeps[team] > 1 ? 's' : ''}` : ''}
+              </span>
             </div>
           ))}
         </div>
+        <p className="seep-result-note">spades face value · aces 1 · 10♦ 2 · most cards +4 · sweeps +50</p>
         {Object.keys(room.lobby?.scoreboard ?? {}).length > 0 && (
           <div className="match-scores">
             <span className="match-title">Match totals</span>
