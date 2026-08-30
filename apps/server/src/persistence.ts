@@ -13,6 +13,7 @@ import type { Room, RoomPlayer } from './room.js';
 import type { ChatMessage } from './protocol.js';
 import type { CaboState } from '@game-night/engine-cabo';
 import type { PairOneState } from '@game-night/engine-pairone';
+import type { SeepState } from '@game-night/engine-seep';
 
 const SNAPSHOT_VERSION = 1;
 const KEY_PREFIX = 'game-night:room:';
@@ -30,6 +31,7 @@ export interface RuleZeroPersistedState {
 export type AnyEngineState =
   | CaboState
   | PairOneState
+  | SeepState
   | RuleZeroPersistedState;
 
 export interface RoomSnapshot {

@@ -8,9 +8,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import type { PairOnePlayerView } from '@pairone/views.js';
 import type { PairOneAction } from '@pairone/types.js';
+import type { SeepAction } from '@seep/types.js';
 import type { AnyGameView, CaboPlayerView } from './server-protocol.js';
 import type { ChatMessage, JoinResult, RoomLobbyState } from './server-protocol.js';
 import type { CaboAction } from '@cabo/types.js';
+import { collectSeepFlights } from './seep/flights.js';
 import { playSound } from './sound.js';
 import { loadAvatar, saveAvatar } from './avatar.js';
 import type { Avatar } from './server-protocol.js';
@@ -56,6 +58,26 @@ function playSoundsFor(prev: AnyGameView, next: AnyGameView): void {
         break;
       case 'PAIR_MISSED':
         playSound('miss');
+        break;
+      // ---- Seep ----
+      case 'PLAY_LAY':
+        playSound('discard');
+        break;
+      case 'PLAY_CAPTURE':
+        playSound('match');
+        break;
+      case 'PLAY_BUILD':
+      case 'PLAY_RAISE':
+        playSound('flip');
+        break;
+      case 'SEEP_SWEEP':
+        playSound('cabo');
+        break;
+      case 'BATCH_DEALT':
+        playSound('deal');
+        break;
+      case 'ROUND_COMPLETE':
+        playSound('reveal');
         break;
     }
   }
@@ -268,8 +290,11 @@ type ClientCaboAction = {
 /** A Pair One action without playerId. */
 type ClientPairOneAction = Omit<PairOneAction, 'playerId'>;
 
+/** A Seep action without playerId. */
+type ClientSeepAction = Omit<SeepAction, 'playerId'>;
+
 /** Any game action the client may send (playerId is stamped by the server). */
-export type ClientGameAction = ClientCaboAction | ClientPairOneAction;
+export type ClientGameAction = ClientCaboAction | ClientPairOneAction | ClientSeepAction;
 
 /** A card visually flying across the table so everyone sees where it went. */
 export interface CardFlight {
@@ -512,9 +537,9 @@ export function useRoom(): RoomApi {
       // updates, which silently killed the starting-peek flash).
       if (prev) playSoundsFor(prev, v);
       flashKnowledge(prev, v);
-      if (!prev || prev.gameId !== 'cabo' || v.gameId !== 'cabo') return;
-      // cabo-only flight/eye machinery below
-      const fresh = collectFlights(prev, v, myIdRef.current, (cardId) => {
+      // Per-game event side effects. Cabo keeps its full machinery (flights,
+      // eye badges, swaps); Seep derives flights only; other games: none.
+      const noteDrawn = (cardId: string): void => {
         // Golden landing shimmer when the flight touches down (~flight time).
         setTimeout(() => {
           setDrawFlash((m) => ({ ...m, [cardId]: Date.now() }));
@@ -523,84 +548,92 @@ export function useRoom(): RoomApi {
             const cp = { ...m }; delete cp[cardId]; return cp;
           }), 1500);
         }, 620);
-      });
-      if (fresh.length > 0) {
-        // A five-player table can produce more than eight movement events in
-        // one short burst (especially a keep + discard + transfer chain). Keep
-        // a real queue so earlier seats do not silently lose their flight.
-        setFlights((cur) => [...cur, ...fresh].slice(-32));
-      }
-      // Eye badges: which cards were just peeked (by whom).
-      const seen = new Set(prev.events.map((e) => e.seq));
-      const now = Date.now();
-      const marks: Array<[string, string]> = [];
-      const revision: string[] = [];
-      for (const ev of v.events) {
-        if (seen.has(ev.seq)) continue;
-        const p = ev.payload as Record<string, unknown> | undefined;
-        if (ev.type === 'POWER_RESOLVED' && (p?.power === 'PEEK_OWN' || p?.power === 'PEEK_OTHER') && typeof p?.cardId === 'string') {
-          const actorId = typeof p?.playerId === 'string' ? p.playerId : ev.playerId;
-          marks.push([p.cardId, String(actorId ?? '')]);
-          // My own peek re-flashes the card even when I already knew it. The
-          // viewerId field is present in current events; actorId keeps this
-          // reliable for restored logs written before that field existed.
-          if (String(p?.viewerId ?? actorId ?? '') === String(myIdRef.current ?? '')) revision.push(p.cardId);
+      };
+      if (v.gameId === 'cabo' && prev !== null && prev.gameId === 'cabo') {
+        const fresh = collectFlights(prev, v, myIdRef.current, noteDrawn);
+        if (fresh.length > 0) {
+          // A five-player table can produce more than eight movement events in
+          // one short burst (especially a keep + discard + transfer chain). Keep
+          // a real queue so earlier seats do not silently lose their flight.
+          setFlights((cur) => [...cur, ...fresh].slice(-32));
         }
-      }
-      if (revision.length > 0) touchFlash(revision);
-      // Swaps: glow the two cards that just exchanged places + pair them.
-      const swappedIds: string[] = [];
-      const newPairs: Array<{ id: string; cardA: string; cardB: string; at: number }> = [];
-      for (const ev of v.events) {
-        if (seen.has(ev.seq)) continue;
-        const p = ev.payload as Record<string, unknown> | undefined;
-        if (ev.type === 'POWER_RESOLVED' && p?.power === 'BLIND_SWAP') {
-          if (typeof p.ownCardId === 'string') swappedIds.push(p.ownCardId);
-          if (typeof p.targetCardId === 'string') swappedIds.push(p.targetCardId);
-          if (typeof p.ownCardId === 'string' && typeof p.targetCardId === 'string') {
-            newPairs.push({ id: `swap-${ev.seq}`, cardA: p.ownCardId, cardB: p.targetCardId, at: Date.now() });
+        // Eye badges: which cards were just peeked (by whom).
+        const seen = new Set(prev.events.map((e) => e.seq));
+        const now = Date.now();
+        const marks: Array<[string, string]> = [];
+        const revision: string[] = [];
+        for (const ev of v.events) {
+          if (seen.has(ev.seq)) continue;
+          const p = ev.payload as Record<string, unknown> | undefined;
+          if (ev.type === 'POWER_RESOLVED' && (p?.power === 'PEEK_OWN' || p?.power === 'PEEK_OTHER') && typeof p?.cardId === 'string') {
+            const actorId = typeof p?.playerId === 'string' ? p.playerId : ev.playerId;
+            marks.push([p.cardId, String(actorId ?? '')]);
+            // My own peek re-flashes the card even when I already knew it. The
+            // viewerId field is present in current events; actorId keeps this
+            // reliable for restored logs written before that field existed.
+            if (String(p?.viewerId ?? actorId ?? '') === String(myIdRef.current ?? '')) revision.push(p.cardId);
           }
         }
-      }
-      if (newPairs.length > 0) {
-        playSound('swap');
-        setSwapPairs((cur) => [...cur, ...newPairs].slice(-4));
-        setTimeout(() => {
-          setSwapPairs((cur) => cur.filter((x) => !newPairs.some((n) => n.id === x.id)));
-        }, 3200);
-      }
-      if (swappedIds.length > 0) {
-        const at = Date.now();
-        setSwapMarks((cur) => {
-          const next = { ...cur };
-          for (const id of swappedIds) next[id] = at;
-          return next;
-        });
-        setTimeout(() => {
+        if (revision.length > 0) touchFlash(revision);
+        // Swaps: glow the two cards that just exchanged places + pair them.
+        const swappedIds: string[] = [];
+        const newPairs: Array<{ id: string; cardA: string; cardB: string; at: number }> = [];
+        for (const ev of v.events) {
+          if (seen.has(ev.seq)) continue;
+          const p = ev.payload as Record<string, unknown> | undefined;
+          if (ev.type === 'POWER_RESOLVED' && p?.power === 'BLIND_SWAP') {
+            if (typeof p.ownCardId === 'string') swappedIds.push(p.ownCardId);
+            if (typeof p.targetCardId === 'string') swappedIds.push(p.targetCardId);
+            if (typeof p.ownCardId === 'string' && typeof p.targetCardId === 'string') {
+              newPairs.push({ id: `swap-${ev.seq}`, cardA: p.ownCardId, cardB: p.targetCardId, at: Date.now() });
+            }
+          }
+        }
+        if (newPairs.length > 0) {
+          playSound('swap');
+          setSwapPairs((cur) => [...cur, ...newPairs].slice(-4));
+          setTimeout(() => {
+            setSwapPairs((cur) => cur.filter((x) => !newPairs.some((n) => n.id === x.id)));
+          }, 3200);
+        }
+        if (swappedIds.length > 0) {
+          const at = Date.now();
           setSwapMarks((cur) => {
-            const kept: typeof cur = {};
-            for (const [id, t] of Object.entries(cur)) {
-              if (at - t < 2000 - 50) kept[id] = t;
-            }
-            return kept;
+            const next = { ...cur };
+            for (const id of swappedIds) next[id] = at;
+            return next;
           });
-        }, 2000);
-      }
-      if (marks.length > 0) {
-        setPeekMarks((cur) => {
-          const nextMarks = { ...cur };
-          for (const [cardId, by] of marks) nextMarks[cardId] = { byPlayerId: by, at: now };
-          return nextMarks;
-        });
-        setTimeout(() => {
+          setTimeout(() => {
+            setSwapMarks((cur) => {
+              const kept: typeof cur = {};
+              for (const [id, t] of Object.entries(cur)) {
+                if (at - t < 2000 - 50) kept[id] = t;
+              }
+              return kept;
+            });
+          }, 2000);
+        }
+        if (marks.length > 0) {
           setPeekMarks((cur) => {
-            const kept: typeof cur = {};
-            for (const [id, m] of Object.entries(cur)) {
-              if (now - m.at < PEEK_MARK_MS - 50) kept[id] = m;
-            }
-            return kept;
+            const nextMarks = { ...cur };
+            for (const [cardId, by] of marks) nextMarks[cardId] = { byPlayerId: by, at: now };
+            return nextMarks;
           });
-        }, PEEK_MARK_MS);
+          setTimeout(() => {
+            setPeekMarks((cur) => {
+              const kept: typeof cur = {};
+              for (const [id, m] of Object.entries(cur)) {
+                if (now - m.at < PEEK_MARK_MS - 50) kept[id] = m;
+              }
+              return kept;
+            });
+          }, PEEK_MARK_MS);
+        }
+      } else if (v.gameId === 'seep' && prev !== null && prev.gameId === 'seep') {
+        const fresh = collectSeepFlights(prev, v, myIdRef.current);
+        if (fresh.length > 0) {
+          setFlights((cur) => [...cur, ...fresh].slice(-32));
+        }
       }
     };
     // Self-healing view sync: if an update was ever missed (flaky transport,

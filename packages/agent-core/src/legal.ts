@@ -9,6 +9,8 @@
 
 import type { CaboPlayerView, CaboAction } from '@game-night/engine-cabo';
 import type { PairOnePlayerView, PairOneAction } from '@game-night/engine-pairone';
+import type { SeepPlayerView, SeepAction } from '@game-night/engine-seep';
+import { captureValue } from '@game-night/engine-seep';
 import type { AnyGameView, AnyGameAction } from './types.js';
 
 const isRealCard = (id: string): boolean =>
@@ -147,6 +149,67 @@ function pairOneActions(view: PairOnePlayerView, selfId: string): AnyGameAction[
   return acts;
 }
 
+/** Subset sizes above this are never worth enumerating (table stays small). */
+const SEEP_MAX_SET = 4;
+
+function seepActions(view: SeepPlayerView, selfId: string): AnyGameAction[] {
+  if (view.phase !== 'TURN_PLAY') return [];
+  const me = { playerId: selfId };
+  const acts: AnyGameAction[] = [];
+  const handIds = (view.handCardIds[selfId] ?? []).filter((id) => view.knownCards[id]);
+  const loose = view.tableLoose;
+  const n = Math.min(loose.length, SEEP_MAX_SET);
+
+  // Hand values (own hand is always known to its owner).
+  const handValues = handIds.map((id) => captureValue(view.knownCards[id]!));
+
+  for (let i = 0; i < handIds.length; i++) {
+    const cardId = handIds[i]!;
+    const v = handValues[i]!;
+    const rest = handValues.filter((_, j) => j !== i);
+
+    // Lay down (over-approximation: the engine enforces must-capture).
+    acts.push({ type: 'PLAY_CARD', ...me, cardId, intent: { kind: 'LAY_DOWN' } });
+
+    // Capture single card / subsets summing to v.
+    for (let k = 1; k <= n; k++) {
+      for (const combo of indexCombinations(loose.length, k)) {
+        const ids = combo.map((idx) => loose[idx]!.id);
+        const sum = combo.reduce((acc, idx) => acc + captureValue(loose[idx]!), 0);
+        if (sum !== v) continue;
+        acts.push({ type: 'PLAY_CARD', ...me, cardId, intent: { kind: 'CAPTURE', tableCardIds: ids } });
+      }
+    }
+    // Capture a house of the same total.
+    for (const house of view.houses) {
+      if (house.total === v) {
+        acts.push({ type: 'PLAY_CARD', ...me, cardId, intent: { kind: 'CAPTURE_HOUSE', houseId: house.id } });
+      }
+      // Raise own-team houses (must keep a backing card behind).
+      if (house.total === v && house.ownerTeam === view.myTeam && rest.includes(v)) {
+        acts.push({ type: 'PLAY_CARD', ...me, cardId, intent: { kind: 'RAISE_HOUSE', houseId: house.id } });
+      }
+    }
+    // Builds: card + subset totals another held value.
+    if (view.myTeam !== null) {
+      for (let k = 1; k <= n; k++) {
+        for (const combo of indexCombinations(loose.length, k)) {
+          const total = v + combo.reduce((acc, idx) => acc + captureValue(loose[idx]!), 0);
+          if (total < 2 || total > 13) continue;
+          if (!rest.includes(total)) continue;
+          acts.push({
+            type: 'PLAY_CARD',
+            ...me,
+            cardId,
+            intent: { kind: 'BUILD', tableCardIds: combo.map((idx) => loose[idx]!.id), total },
+          });
+        }
+      }
+    }
+  }
+  return acts;
+}
+
 export interface EnumerateOpts {
   /** House-rule hint for the initial peek count (default 2). */
   initialPeekCards?: number;
@@ -159,6 +222,7 @@ export function enumerateLegalActions(
   opts: EnumerateOpts = {},
 ): AnyGameAction[] {
   if (view.gameId === 'cabo') return caboActions(view, selfId, opts);
+  if (view.gameId === 'seep') return seepActions(view, selfId);
   return pairOneActions(view, selfId);
 }
 

@@ -1,0 +1,154 @@
+import { AnimatePresence, motion } from 'framer-motion';
+import type { Card as CardModel } from '@shared/cards.js';
+import { RANK_LABELS } from '@shared/cards.js';
+import type { SeepPlayerView } from '@seep/views.js';
+import type { SeepTeam } from '@seep/rules.js';
+import Card from '../table/Card.js';
+
+const SUIT_GLYPH: Record<string, string> = {
+  spades: '♠',
+  hearts: '♥',
+  diamonds: '♦',
+  clubs: '♣',
+};
+
+function CardFace({ card }: { card: CardModel }) {
+  const red = card.suit === 'hearts' || card.suit === 'diamonds';
+  return (
+    <span className={`seep-mini-face ${red ? 'red' : ''}`}>
+      {RANK_LABELS[card.rank]}
+      {SUIT_GLYPH[card.suit] ?? ''}
+    </span>
+  );
+}
+
+export interface SeepCenterProps {
+  view: SeepPlayerView;
+  myTeam: SeepTeam | null;
+  /** Table cards highlighted as the currently picked capture/build set. */
+  pickedTableIds: string[];
+  /** House ids highlighted because the selected card interacts with them. */
+  highlightHouseIds: string[];
+  /** My hand card currently selected (drives highlights). */
+  selectedCardId: string | null;
+  onTableCardClick?: (cardId: string) => void;
+  onHouseClick?: (houseId: string) => void;
+}
+
+/**
+ * The Seep centre: team score rails, the stock pile, the loose table spread
+ * and the face-up house stacks. Everything here is public information.
+ */
+export default function SeepCenter({
+  view,
+  myTeam,
+  pickedTableIds,
+  highlightHouseIds,
+  selectedCardId,
+  onTableCardClick,
+  onHouseClick,
+}: SeepCenterProps) {
+  const picked = new Set(pickedTableIds);
+  const highlighted = new Set(highlightHouseIds);
+  const rails: Array<{ team: SeepTeam; label: string }> = [
+    { team: 0, label: 'Team A' },
+    { team: 1, label: 'Team B' },
+  ];
+
+  return (
+    <div className="seep-center">
+      {/* team score rails */}
+      <div className="seep-rails">
+        {rails.map(({ team, label }) => {
+          const mine = myTeam === team;
+          return (
+            <div key={team} className={`seep-rail team${team} ${mine ? 'mine' : ''}`}>
+              <span className="seep-rail-name">
+                {label}
+                {mine ? ' (you)' : ''}
+              </span>
+              <span className="seep-rail-points">{view.teamPoints[team]}</span>
+              {view.sweeps[team] > 0 && (
+                <span className="seep-rail-sweeps" title="Sweeps (+50 each)">
+                  {'✨'.repeat(Math.min(view.sweeps[team], 3))}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="seep-middle">
+        {/* stock pile (informational) */}
+        <div className="pile deck-pile seep-deck">
+          <div className="deck-stack s1" />
+          <div className="deck-stack s2" />
+          <div className="deck-stack s3" />
+          <span className="pile-label">STOCK</span>
+          <span className="pile-count">{view.deckCount}</span>
+        </div>
+
+        {/* loose table spread */}
+        <div className="seep-spread" aria-label="Cards on the table">
+          <AnimatePresence>
+            {view.tableLoose.map((card, i) => (
+              <motion.div
+                key={card.id}
+                initial={{ scale: 0.4, opacity: 0, rotate: 0 }}
+                animate={{ scale: 1, opacity: 1, rotate: (i % 3) - 1 }}
+                exit={{ scale: 0.5, opacity: 0 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+                className="seep-spread-slot"
+              >
+                <Card
+                  cardId={card.id}
+                  card={card}
+                  small
+                  selectable={!!onTableCardClick}
+                  highlight={picked.has(card.id)}
+                  onClick={onTableCardClick ? () => onTableCardClick(card.id) : undefined}
+                />
+              </motion.div>
+            ))}
+          </AnimatePresence>
+          {view.tableLoose.length === 0 && (
+            <div className="seep-spread-empty">table cleared — next player lays down</div>
+          )}
+        </div>
+
+        {/* house stacks */}
+        <div className="seep-houses">
+          <AnimatePresence>
+            {view.houses.map((house) => {
+              const top = house.cards[house.cards.length - 1];
+              return (
+                <motion.button
+                  key={house.id}
+                  className={`seep-house team${house.ownerTeam} ${highlighted.has(house.id) ? 'hot' : ''}`}
+                  data-card-id={house.id}
+                  initial={{ scale: 0.5, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.5, opacity: 0 }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 24 }}
+                  onClick={onHouseClick ? () => onHouseClick(house.id) : undefined}
+                  disabled={!onHouseClick}
+                  title={`House of ${house.total} — team ${house.ownerTeam}, ${house.cards.length} cards`}
+                >
+                  <span className="seep-house-total">{house.total}</span>
+                  <span className="seep-house-stack" aria-hidden>
+                    {house.cards.slice(0, 3).map((c, i) => (
+                      <span key={c.id} className="seep-house-card" style={{ top: -i * 3 }}>
+                        {top ? <CardFace card={c} /> : null}
+                      </span>
+                    ))}
+                  </span>
+                  <span className="seep-house-count">{house.cards.length}</span>
+                </motion.button>
+              );
+            })}
+          </AnimatePresence>
+        </div>
+      </div>
+    </div>
+  );
+}

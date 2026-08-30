@@ -286,6 +286,16 @@ export default function LobbyView({ room }: { room: RoomApi }) {
                 onSelect={() => isHost && room.selectGame('pairone')}
                 onInfo={() => setRulesGame('pairone')}
               />
+              <GameTile
+                id="seep"
+                label="Seep"
+                tagline="2v2 fishing — capture, build, sweep!"
+                art={<span className="game-tile-art">♠</span>}
+                selected={lobby.gameId === 'seep'}
+                selectable={isHost}
+                onSelect={() => isHost && room.selectGame('seep')}
+                onInfo={() => setRulesGame('seep')}
+              />
             </div>
             {isHost ? (
               <div className="host-controls">
@@ -366,11 +376,12 @@ export default function LobbyView({ room }: { room: RoomApi }) {
 }
 
 /** Platform games, for tile metadata. */
-type GameId = 'cabo' | 'pairone';
+type GameId = 'cabo' | 'pairone' | 'seep';
 
 const GAME_META: Record<GameId, { label: string }> = {
   cabo: { label: 'Cabo' },
   pairone: { label: 'Pair One' },
+  seep: { label: 'Seep' },
 };
 
 /**

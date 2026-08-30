@@ -1,0 +1,373 @@
+/* ==========================================================================
+   Seep — 2v2 fishing table. Sits on top of table.css: the room, felt, seats
+   and card primitives are shared with Cabo; only the centre (rails, spread,
+   houses), the action bar and the sweep announcement are new.
+   ========================================================================== */
+
+/* ---- Centre layout ---- */
+.seep-center {
+  position: absolute;
+  inset: 16% 10% 20% 10%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2.2%;
+  pointer-events: none;
+}
+.seep-center > * {
+  pointer-events: auto;
+}
+
+/* ---- Team score rails ---- */
+.seep-rails {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+  justify-content: center;
+}
+.seep-rail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(255, 248, 230, 0.92);
+  background: rgba(10, 26, 20, 0.55);
+  border: 1.5px solid rgba(255, 244, 214, 0.14);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(2px);
+}
+.seep-rail.team0 {
+  border-color: rgba(120, 190, 255, 0.45);
+}
+.seep-rail.team1 {
+  border-color: rgba(255, 150, 130, 0.45);
+}
+.seep-rail.mine {
+  background: rgba(24, 46, 36, 0.8);
+  box-shadow: 0 0 0 2px rgba(255, 226, 150, 0.35), 0 2px 10px rgba(0, 0, 0, 0.25);
+}
+.seep-rail-name {
+  opacity: 0.85;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+.seep-rail-points {
+  font-size: 1.15rem;
+  font-weight: 800;
+  min-width: 1.6ch;
+  text-align: center;
+  color: #ffe9ad;
+}
+.seep-rail-sweeps {
+  font-size: 0.8rem;
+}
+
+/* ---- Middle row: stock + spread + houses ---- */
+.seep-middle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4.5%;
+  width: 100%;
+}
+.seep-deck {
+  flex: 0 0 auto;
+  position: relative;
+  width: 64px;
+  height: 64px;
+}
+.seep-deck .deck-stack {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #274a63, #16293a);
+  border: 1px solid rgba(255, 244, 214, 0.18);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+}
+.seep-deck .deck-stack.s2 { transform: translate(-3px, -3px); }
+.seep-deck .deck-stack.s3 { transform: translate(-6px, -6px); }
+
+/* Loose table spread */
+.seep-spread {
+  flex: 0 1 auto;
+  min-height: 58px;
+  max-width: 46%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.16);
+  border: 1.5px dashed rgba(255, 240, 200, 0.14);
+}
+.seep-spread-slot {
+  display: inline-flex;
+}
+.seep-spread-empty {
+  font-size: 0.78rem;
+  font-style: italic;
+  color: rgba(255, 240, 200, 0.55);
+  padding: 10px;
+}
+
+/* House stacks */
+.seep-houses {
+  display: flex;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.seep-house {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  cursor: default;
+  background: rgba(10, 26, 20, 0.6);
+  border: 2px solid rgba(255, 244, 214, 0.2);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+  color: inherit;
+}
+.seep-house.team0 { border-color: rgba(120, 190, 255, 0.55); }
+.seep-house.team1 { border-color: rgba(255, 150, 130, 0.55); }
+.seep-house.hot {
+  cursor: pointer;
+  box-shadow: 0 0 0 3px rgba(255, 226, 150, 0.55), 0 3px 10px rgba(0, 0, 0, 0.3);
+  animation: seep-house-pulse 1.1s ease-in-out infinite;
+}
+@keyframes seep-house-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+.seep-house-total {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #ffe9ad;
+  min-width: 1.4ch;
+  text-align: center;
+}
+.seep-house-stack {
+  position: relative;
+  width: 30px;
+  height: 40px;
+  display: inline-block;
+}
+.seep-house-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: linear-gradient(165deg, #fdf6e3, #e8dcbc);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+.seep-house-card .red { color: #b3372f; }
+.seep-house-count {
+  font-size: 0.72rem;
+  opacity: 0.7;
+}
+
+/* ---- Opponent seats ---- */
+.seep-opponent-cards {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.95;
+}
+.seep-more {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: rgba(255, 244, 214, 0.75);
+  margin-left: 2px;
+}
+.seep-team-chip {
+  position: absolute;
+  top: -8px;
+  right: -10px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+}
+.seep-team-chip.team0 { background: rgba(120, 190, 255, 0.25); color: #a7d4ff; }
+.seep-team-chip.team1 { background: rgba(255, 150, 130, 0.25); color: #ffb3a3; }
+
+/* ---- Pills ---- */
+.seat-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.seep-pill-team {
+  font-size: 0.62rem;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+}
+.seep-pill-team.team0 { background: rgba(120, 190, 255, 0.18); color: #a7d4ff; }
+.seep-pill-team.team1 { background: rgba(255, 150, 130, 0.18); color: #ffb3a3; }
+
+/* ---- My hand ---- */
+.hand-shell-me {
+  transform: none !important;
+}
+.seep-my-hand {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: min(92vw, 760px);
+}
+
+/* ---- Action bar ---- */
+.seep-action-bar {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-radius: 16px;
+  background: rgba(8, 20, 15, 0.82);
+  border: 1.5px solid rgba(255, 240, 200, 0.16);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: min(94vw, 780px);
+}
+.seep-action-with {
+  font-size: 0.9rem;
+  color: rgba(255, 244, 214, 0.9);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.seep-act-hint {
+  font-size: 0.86rem;
+  color: rgba(255, 244, 214, 0.65);
+  font-style: italic;
+}
+.seep-act {
+  border: none;
+  border-radius: 12px;
+  padding: 9px 16px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: #0c1f17;
+  background: linear-gradient(165deg, #ffe9ad, #f4c95d);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.seep-act:hover { transform: translateY(-1px); }
+.seep-act.capture { background: linear-gradient(165deg, #b8f2c9, #62c98a); }
+.seep-act.build { background: linear-gradient(165deg, #bcd8ff, #7fb2f2); }
+.seep-act.lay { background: linear-gradient(165deg, #f4d8b0, #d9a869); }
+.seep-act.cancel {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 244, 214, 0.8);
+  padding: 9px 12px;
+}
+
+/* ---- Sweep announcement ---- */
+.seep-announce {
+  position: absolute;
+  top: 13%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 14px 26px;
+  border-radius: 20px;
+  background: linear-gradient(160deg, rgba(24, 46, 36, 0.95), rgba(8, 20, 15, 0.95));
+  border: 2px solid rgba(255, 226, 150, 0.65);
+  box-shadow: 0 0 40px rgba(255, 220, 130, 0.25), 0 10px 30px rgba(0, 0, 0, 0.5);
+  animation: seep-announce-in 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
+  pointer-events: none;
+}
+@keyframes seep-announce-in {
+  from { transform: translateX(-50%) scale(0.5); opacity: 0; }
+  to { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+.seep-announce-icon { font-size: 1.6rem; }
+.seep-announce-text {
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: #ffe9ad;
+  text-shadow: 0 2px 12px rgba(255, 220, 130, 0.45);
+}
+.seep-announce-by {
+  font-size: 0.95rem;
+  color: rgba(255, 248, 230, 0.85);
+}
+
+/* ---- Round summary ---- */
+.seep-result-teams {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin: 14px 0;
+  flex-wrap: wrap;
+}
+.seep-result-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 22px;
+  border-radius: 14px;
+  min-width: 180px;
+  background: rgba(10, 26, 20, 0.06);
+  border: 2px solid rgba(0, 0, 0, 0.08);
+}
+.seep-result-rail.team0 { border-color: rgba(70, 140, 210, 0.45); }
+.seep-result-rail.team1 { border-color: rgba(220, 110, 90, 0.45); }
+.seep-result-rail.winner {
+  box-shadow: 0 0 0 3px rgba(255, 214, 110, 0.5);
+  background: rgba(255, 226, 150, 0.12);
+}
+.seep-result-names {
+  font-size: 0.85rem;
+  font-weight: 700;
+  opacity: 0.8;
+}
+.seep-result-points {
+  font-size: 2.1rem;
+  font-weight: 900;
+  color: #1d4433;
+}
+.seep-result-sweeps {
+  font-size: 0.78rem;
+  opacity: 0.7;
+  min-height: 1em;
+}
+
+/* Small screens: shrink the centre furniture */
+@media (max-width: 720px) {
+  .seep-deck { width: 46px; height: 46px; }
+  .seep-house-total { font-size: 1.05rem; }
+  .seep-rail { padding: 3px 10px; font-size: 0.8rem; }
+  .seep-rail-points { font-size: 0.95rem; }
+  .seep-announce-text { font-size: 1.4rem; }
+}

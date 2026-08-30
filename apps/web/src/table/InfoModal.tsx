@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion';
 
-export type InfoGame = 'cabo' | 'pairone';
+export type InfoGame = 'cabo' | 'pairone' | 'seep';
 
 interface InfoModalProps {
   open: boolean;
@@ -34,14 +34,18 @@ export default function InfoModal({ open, onClose, game = 'cabo' }: InfoModalPro
           >
             <div className="info-head">
               <span className="info-title">
-                {game === 'pairone' ? 'How to play Pair One' : 'How to play Cabo'}
+                {game === 'pairone'
+                  ? 'How to play Pair One'
+                  : game === 'seep'
+                    ? 'How to play Seep'
+                    : 'How to play Cabo'}
               </span>
               <button className="info-close" onClick={onClose} aria-label="Close rules">
                 ✕
               </button>
             </div>
 
-            {game === 'pairone' ? <PairOneRules /> : <CaboRules />}
+            {game === 'pairone' ? <PairOneRules /> : game === 'seep' ? <SeepRules /> : <CaboRules />}
           </motion.div>
         </motion.div>
       )}
@@ -179,6 +183,73 @@ function PairOneRules() {
         <p>
           The round ends when the <strong>last pair</strong> is collected. Most pairs wins — ties
           are shared.
+        </p>
+      </section>
+    </div>
+  );
+}
+
+function SeepRules() {
+  return (
+    <div className="info-body">
+      <section className="info-section">
+        <h4>Aim</h4>
+        <p>
+          Play in <strong>partnerships of two</strong> — you and the player across the table
+          score together. Capture cards worth points (all <strong>spades</strong> and aces),
+          and outscore the other team.
+        </p>
+        <p>
+          Spades = face value (faces 10) &middot; <strong>other aces = 5</strong> &middot; 100
+          points in the deck.
+        </p>
+      </section>
+
+      <section className="info-section">
+        <h4>Your turn</h4>
+        <p>
+          Play <strong>one card</strong>. If its value matches a table card — or a{' '}
+          <strong>set of table cards added together</strong> — you capture them all.
+        </p>
+        <p>
+          If you <em>can</em> capture, you <strong>must</strong>. Nothing to take? The card
+          joins the table.
+        </p>
+      </section>
+
+      <section className="info-section special">
+        <h4>Houses (builds)</h4>
+        <div className="special-panel">
+          <p>
+            🏗 <strong>Build:</strong> your card + table cards sum to a total you{' '}
+            <em>also</em> hold — they become a face-up <strong>house</strong> your team owns.
+          </p>
+          <p>
+            ⬆ <strong>Raise:</strong> add another card of the same total to grow your house.
+          </p>
+          <p>
+            🏠 <strong>Steal:</strong> anyone who plays the house&rsquo;s total captures the
+            whole thing.
+          </p>
+        </div>
+      </section>
+
+      <section className="info-section">
+        <h4>Seep!</h4>
+        <p>
+          Sweep <strong>every card off the table</strong> in one play for a{' '}
+          <strong>+50 bonus</strong>. When the table is empty, the next player must lay down.
+        </p>
+      </section>
+
+      <section className="info-section">
+        <h4>Endgame</h4>
+        <p>
+          Three batches of four cards each. Leftover table cards go to the team that captured
+          last; unfinished houses stay with their owners. Highest total wins the deal.
+        </p>
+        <p className="tip">
+          💡 Tip: count the spades! A captured 9♠ is worth more than half a hand of low diamonds.
         </p>
       </section>
     </div>

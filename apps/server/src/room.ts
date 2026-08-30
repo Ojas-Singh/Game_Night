@@ -11,14 +11,15 @@ import { CaboEngine, type CaboPlayerView, type CaboState } from '@game-night/eng
 import { RuleZeroEngine, type RuleZeroPlayerView } from './rulezeroEngine.js';
 import { takeRulezeroSpec } from './gameLab.js';
 import { PairOneEngine, type PairOnePlayerView } from '@game-night/engine-pairone';
+import { SeepEngine, type SeepPlayerView, type SeepState } from '@game-night/engine-seep';
 import type { ChatMessage, LobbyPlayer, RoomLobbyState } from './protocol.js';
 import { isValidAvatar, randomAvatar, type Avatar } from './protocol.js';
 import { log } from './log.js';
 
 /** Any engine on the platform. Rooms talk to this union via the shared surface
  *  (createGame/getState/getPlayerState/handleAction/calculateScore/...). */
-export type AnyGameEngine = CaboEngine | PairOneEngine | RuleZeroEngine;
-export type AnyGameView = CaboPlayerView | PairOnePlayerView | RuleZeroPlayerView;
+export type AnyGameEngine = CaboEngine | PairOneEngine | SeepEngine | RuleZeroEngine;
+export type AnyGameView = CaboPlayerView | PairOnePlayerView | SeepPlayerView | RuleZeroPlayerView;
 
 /** Available games on the platform. Adding one here lights it up everywhere. */
 const GAME_REGISTRY = {
@@ -35,6 +36,13 @@ const GAME_REGISTRY = {
     minPlayers: 2,
     maxPlayers: 6,
     create: () => new PairOneEngine(),
+  },
+  seep: {
+    id: 'seep',
+    label: 'Seep',
+    minPlayers: 4,
+    maxPlayers: 4,
+    create: () => new SeepEngine(),
   },
   // GameSpec/OpenSpiel game served by the internal rulezero service (§16).
   // TS knows nothing about the rules — it forwards an opaque spec and
@@ -148,6 +156,10 @@ export class Room {
       if (snap.gameId === 'pairone') {
         const engine = new PairOneEngine();
         engine.restoreState(snap.engineState as import('@game-night/engine-pairone').PairOneState);
+        room.engine = engine;
+      } else if (snap.gameId === 'seep') {
+        const engine = new SeepEngine();
+        engine.restoreState(snap.engineState as SeepState);
         room.engine = engine;
       } else {
         const engine = new CaboEngine();
@@ -417,6 +429,10 @@ export class Room {
         } as unknown as GameAction);
       }
       engine = cabo;
+    } else if (reg.id === 'seep') {
+      const seep = new SeepEngine();
+      seep.createGame(seats, { seed: this.debug.seed });
+      engine = seep;
     } else {
       const pairOne = new PairOneEngine();
       pairOne.createGame(seats, { seed: this.debug.seed });
@@ -433,7 +449,9 @@ export class Room {
     const opener =
       this.gameId === 'pairone'
         ? 'Game started — Pair One! Flip two cards; match the numbers to collect the pair.'
-        : 'Game started — Cabo! You briefly saw your bottom two cards — remember them!';
+        : this.gameId === 'seep'
+          ? 'Game started — Seep! You & your partner (across the table) capture cards, build houses, and sweep the table for a bonus!'
+          : 'Game started — Cabo! You briefly saw your bottom two cards — remember them!';
     this.system(opener);
     log.info('game_start', { roomId: this.id, gameId: this.gameId, players: this.players.size });
   }

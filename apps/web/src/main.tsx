@@ -5,6 +5,7 @@ import App from './App.js';
 import './styles/global.css';
 import './styles/tablekit.css';
 import './styles/table.css';
+import './styles/seep.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -23,7 +23,7 @@ import {
   createAgentRng,
   type GameAgent,
 } from '@game-night/agent-core';
-import { CaboHeuristicBot, PairOneHeuristicBot } from '@game-night/agent-bots';
+import { CaboHeuristicBot, PairOneHeuristicBot, SeepHeuristicBot } from '@game-night/agent-bots';
 import { LlmAgent } from '@game-night/agent-llm';
 import type { Room } from '../room.js';
 import { RoomError } from '../room.js';
@@ -193,7 +193,9 @@ export class AgentLoops {
               idSuffix: `:${room.id.slice(0, 4)}`,
               persona: room.players.get(playerId)?.persona,
             })
-          : new PairOneHeuristicBot(`:${room.id.slice(0, 4)}`);
+          : room.gameId === 'seep'
+            ? new SeepHeuristicBot({ persona: room.players.get(playerId)?.persona })
+            : new PairOneHeuristicBot(`:${room.id.slice(0, 4)}`);
     }
     // Bound memory: drop stale entries when the map gets long.
     if (this.agents.size > 512) this.agents.clear();

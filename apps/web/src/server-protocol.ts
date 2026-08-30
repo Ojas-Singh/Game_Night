@@ -6,6 +6,7 @@
 import type { GameAction } from '@shared/game.js';
 import type { CaboPlayerView } from '@cabo/views.js';
 import type { PairOnePlayerView } from '@pairone/views.js';
+import type { SeepPlayerView } from '@seep/views.js';
 
 /** Any game's filtered per-player view. */
 /** Opaque view from the internal rulezero service (§16) — rendered
@@ -46,6 +47,7 @@ export interface RuleZeroPlayerView {
 export type AnyGameView =
   | CaboPlayerView
   | PairOnePlayerView
+  | SeepPlayerView
   | RuleZeroPlayerView;
 
 export interface JoinResult {
@@ -125,4 +127,4 @@ export type ServerToClientEvents = {
   'room:closed': (payload: { reason: string }) => void;
 };
 
-export type { GameAction, CaboPlayerView, PairOnePlayerView };
+export type { GameAction, CaboPlayerView, PairOnePlayerView, SeepPlayerView };

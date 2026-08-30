@@ -10,7 +10,8 @@
     "paths": {
       "@shared/*": ["../../packages/shared/src/*"],
       "@cabo/*": ["../../packages/engine-cabo/src/*"],
-      "@pairone/*": ["../../packages/engine-pairone/src/*"]
+      "@pairone/*": ["../../packages/engine-pairone/src/*"],
+      "@seep/*": ["../../packages/engine-seep/src/*"]
     }
   },
   "include": ["src", "vite.config.ts"]

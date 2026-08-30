@@ -1,5 +1,5 @@
 {
-  "name": "@game-night/agent-core",
+  "name": "@game-night/engine-seep",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -17,9 +17,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@game-night/engine-cabo": "workspace:*",
-    "@game-night/engine-pairone": "workspace:*",
-    "@game-night/engine-seep": "workspace:*",
     "@game-night/shared": "workspace:*"
   },
   "devDependencies": {

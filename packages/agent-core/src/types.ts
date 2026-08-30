@@ -10,14 +10,15 @@
 import type { Card } from '@game-night/shared';
 import type { CaboPlayerView, CaboAction } from '@game-night/engine-cabo';
 import type { PairOnePlayerView, PairOneAction } from '@game-night/engine-pairone';
+import type { SeepPlayerView, SeepAction } from '@game-night/engine-seep';
 
 /** Any per-player filtered view this platform currently ships. */
-export type AnyGameView = CaboPlayerView | PairOnePlayerView;
+export type AnyGameView = CaboPlayerView | PairOnePlayerView | SeepPlayerView;
 
-export type GameId = 'cabo' | 'pairone';
+export type GameId = 'cabo' | 'pairone' | 'seep';
 
 /** Concrete actions across games (the currency agents think in). */
-export type AnyGameAction = CaboAction | PairOneAction;
+export type AnyGameAction = CaboAction | PairOneAction | SeepAction;
 /** A card as agents see it once revealed. */
 export type KnownCard = Card;
 

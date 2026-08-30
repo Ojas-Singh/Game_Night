@@ -10,6 +10,7 @@
 import { RANK_LABELS } from '@game-night/shared';
 import type { CaboPlayerView } from '@game-night/engine-cabo';
 import type { PairOnePlayerView } from '@game-night/engine-pairone';
+import type { SeepPlayerView } from '@game-night/engine-seep';
 import type { AnyGameView, GameId } from './types.js';
 
 export const RULES_TEXT: Record<GameId, string> = {
@@ -23,6 +24,14 @@ When your hand value is (probably) lowest, CALL_CABO at the end of your action i
   pairone: `PAIR ONE — a public memory game. One full deck (52 cards) fills a fixed grid, all face down. Positions never move; collected pairs leave permanent gaps.
 On your turn flip any two grid cards (everyone sees them). If ranks match you COLLECT the pair and immediately flip again (same turn continues). If they don't match, both flip back and your turn ends.
 Round ends when the grid is empty; MOST pairs collected wins (ties shared). Perfect memory of every flip ever shown wins games.`,
+  seep: `SEEP — a 2v2 partnership fishing game (your partner sits across the table; teams = seat parity). 52-card deck, 4 cards dealt to each player plus 4 face-up on the table, replenished in batches when all hands empty.
+On your turn play ONE card with an intent:
+ - CAPTURE: your card's value equals a single table card, OR equals the sum of a set of table cards — take them all. If you CAN capture you MUST (laying down or building is then illegal).
+ - CAPTURE_HOUSE: take a whole face-up house ("build") by playing a card of its total.
+ - BUILD: your card + a set of table cards totals T (2..13) and you hold ANOTHER card of T — the set + your card become a face-up house of T owned by your team. Only your team may raise it (add a card of T while keeping another T behind); anyone may capture it.
+ - LAY_DOWN: place the card on the table (only legal when nothing can be captured).
+Sweeping the ENTIRE table with one play pays +50. Deal ends when the third batch is exhausted: leftover table cards go to the team that captured last, houses go to their owners.
+Scoring: spades are worth pip value (faces 10), other aces 5 — 100 points in the deck; highest team total wins the deal.`,
 };
 
 function cardLabel(view: AnyGameView, id: string): string {
@@ -98,5 +107,35 @@ export function serializePairOneView(v: PairOnePlayerView, selfId: string): stri
 
 /** Serialize any view for `selfId` into the text block agents consume. */
 export function serializeView(view: AnyGameView, selfId: string): string {
-  return view.gameId === 'cabo' ? serializeCaboView(view, selfId) : serializePairOneView(view, selfId);
+  if (view.gameId === 'cabo') return serializeCaboView(view, selfId);
+  if (view.gameId === 'seep') return serializeSeepView(view, selfId);
+  return serializePairOneView(view, selfId);
+}
+
+export function serializeSeepView(v: SeepPlayerView, selfId: string): string {
+  const lines: string[] = [];
+  lines.push(`phase=${v.phase} deck=${v.deckCount} batches_remaining=${v.batchesRemaining}`);
+  lines.push(`your_team=${v.myTeam} team_points=${v.teamPoints[0]}(team0) vs ${v.teamPoints[1]}(team1) sweeps=${v.sweeps[0]}/${v.sweeps[1]}`);
+  const names = new Map(v.players.map((p) => [p.id, p.name]));
+  lines.push(`table=[${v.tableLoose.map((c) => cardLabel(v, c.id)).join(' ') || 'empty'}]`);
+  for (const h of v.houses) {
+    lines.push(
+      `house=${h.total} owner=team${h.ownerTeam} cards=[${h.cards.map((c) => cardLabel(v, c.id)).join(' ')}]`,
+    );
+  }
+  for (const p of v.players) {
+    const team = v.teams[0].includes(p.id) ? 0 : 1;
+    if (p.id === selfId) {
+      const hand = (v.handCardIds[p.id] ?? []).map((id) => cardLabel(v, id)).join(' ');
+      lines.push(`> YOU (${p.id}, team${team}) hand=[${hand}]`);
+    } else {
+      lines.push(`  ${names.get(p.id) ?? p.id} (${p.id}, team${team}) holds ${p.cardCount} cards, captured=${(v.captures[p.id] ?? []).length}`);
+    }
+  }
+  const recent = v.events.slice(-6).map((e) => {
+    const pid = e.payload?.playerId;
+    return `${e.type.toLowerCase()}${pid ? `(${names.get(String(pid)) ?? String(pid)})` : ''}`;
+  });
+  if (recent.length > 0) lines.push('recent_events=' + recent.join(','));
+  return lines.join('\n');
 }

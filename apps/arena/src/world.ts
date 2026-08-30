@@ -28,6 +28,11 @@ export class EngineWorld implements SearchWorld {
   static create(gameId: GameId, players: Array<{ id: string; name: string; seat: number }>, seed: number): EngineWorld {
     // Mix the seed so worlds never start from a degenerate rng state.
     const rngSeed = (seed ^ 0x9e3779b9) >>> 0;
+    if (gameId === 'seep') {
+      // Arena support for Seep (team ELO over partnerships) is planned —
+      // fail loudly instead of silently simulating the wrong game.
+      throw new Error('arena does not support seep yet (live-room AI works via agent-bots)');
+    }
     if (gameId === 'cabo') {
       const e = new CaboEngine();
       e.createGame(players, { seed });

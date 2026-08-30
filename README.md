@@ -1,7 +1,8 @@
 # Game Night
 
 An online multiplayer card-game platform — friends around one table, no accounts required.
-Games: our house-rules **Cabo** and **Pair One** (a two-deck memory game).
+Games: our house-rules **Cabo**, **Pair One** (a memory game), and **Seep**
+(the Punjab 2v2 fishing game — capture, build houses, sweep the table).
 
 ## Quick start (local dev)
 
@@ -30,8 +31,9 @@ Coolify: point a new Docker Compose resource at this repo; set `SESSION_SECRET`;
 packages/shared         # card model, engine interface contract, seedable RNG
 packages/engine-cabo    # server-authoritative Cabo rules engine (pure, heavily tested)
 packages/engine-pairone # server-authoritative Pair One rules engine (pure, heavily tested)
+packages/engine-seep    # server-authoritative Seep rules engine (pure, heavily tested)
 apps/server             # rooms, presence, chat, tokens/reconnect, socket transport, debug API
-apps/web                # React client (round-table Cabo + memory-grid Pair One, framer-motion)
+apps/web                # React client (round-table Cabo, memory-grid Pair One, 2v2 Seep table, framer-motion)
 ```
 
 - Networking talks only to the engine interface — adding a game never touches transport code.
@@ -90,8 +92,11 @@ apps/web                # React client (round-table Cabo + memory-grid Pair One,
 ## Tests
 
 ```bash
-pnpm test   # 72 engine tests (Cabo + Pair One) + 30 server/transport (incl. full-game socket integration & persistence) + 20 web logic tests
+pnpm test   # 187 core tests — 104 engine (Cabo + Pair One + Seep) + 44 server/transport (incl. full-game socket integration & persistence) + 39 web logic — plus agent (16), arena (12) and trainer (9) suites
 ```
+
+House rules are data: Seep's scoring table, sweep bonus and deal shape live in
+`packages/engine-seep/src/rules.ts` (`SeepRules`) and are tunable without touching the engine.
 
 ## Deployment verification status
 

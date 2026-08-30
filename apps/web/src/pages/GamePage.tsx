@@ -5,6 +5,7 @@ import LobbyView from '../lobby/LobbyView.js';
 import TableView from '../table/TableView.js';
 import PairOneTable from '../pairone/PairOneTable.js';
 import RuleZeroTable from '../rulezero/RuleZeroTable.js';
+import SeepTable from '../seep/SeepTable.js';
 
 export default function GamePage({ room }: { room: RoomApi }) {
   const { roomId } = useParams<{ roomId: string }>();
@@ -62,6 +63,9 @@ export default function GamePage({ room }: { room: RoomApi }) {
   if (room.lobby.inGame && view) {
     if (view.gameId === 'pairone') {
       return <PairOneTable room={room} view={view} />;
+    }
+    if (view.gameId === 'seep') {
+      return <SeepTable room={room} view={view} />;
     }
     if (view.gameId === 'rulezero') {
       return (

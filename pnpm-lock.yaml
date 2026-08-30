@@ -66,6 +66,9 @@ importers:
       '@game-night/engine-pairone':
         specifier: workspace:*
         version: link:../../packages/engine-pairone
+      '@game-night/engine-seep':
+        specifier: workspace:*
+        version: link:../../packages/engine-seep
       '@game-night/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -146,6 +149,9 @@ importers:
       '@game-night/engine-pairone':
         specifier: workspace:*
         version: link:../../packages/engine-pairone
+      '@game-night/engine-seep':
+        specifier: workspace:*
+        version: link:../../packages/engine-seep
       '@game-night/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -195,6 +201,9 @@ importers:
       '@game-night/engine-pairone':
         specifier: workspace:*
         version: link:../engine-pairone
+      '@game-night/engine-seep':
+        specifier: workspace:*
+        version: link:../engine-seep
       '@game-night/shared':
         specifier: workspace:*
         version: link:../shared
@@ -214,6 +223,9 @@ importers:
       '@game-night/engine-pairone':
         specifier: workspace:*
         version: link:../engine-pairone
+      '@game-night/engine-seep':
+        specifier: workspace:*
+        version: link:../engine-seep
       '@game-night/shared':
         specifier: workspace:*
         version: link:../shared
@@ -264,6 +276,19 @@ importers:
         version: 2.1.9(@types/node@22.20.1)
 
   packages/engine-pairone:
+    dependencies:
+      '@game-night/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.1)
+
+  packages/engine-seep:
     dependencies:
       '@game-night/shared':
         specifier: workspace:*

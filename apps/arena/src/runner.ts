@@ -42,7 +42,7 @@ export interface EpisodeOutcome {
   aborted: boolean;
 }
 
-const STEP_CAPS: Record<GameId, number> = { cabo: 3000, pairone: 3000 };
+const STEP_CAPS: Record<GameId, number> = { cabo: 3000, pairone: 3000, seep: 3000 };
 
 export async function runEpisode(opts: EpisodeOptions): Promise<EpisodeOutcome> {
   const players = opts.agents.map((a, i) => ({ id: `p${i}`, name: a.label, seat: i }));
