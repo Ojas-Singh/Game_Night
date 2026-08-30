@@ -76,6 +76,18 @@
 }
 
 /* ---- Middle row: stock + spread + houses ---- */
+/* Seep cards run a touch smaller than the Cabo default: 12-card hands and
+   a busy centre both need the room. */
+.seep-room {
+  --card-w: 64px;
+}
+@media (max-width: 900px) {
+  .seep-room { --card-w: 54px; }
+}
+@media (max-width: 640px) {
+  .seep-room { --card-w: 46px; }
+}
+
 .seep-middle {
   display: flex;
   align-items: center;
@@ -523,20 +535,22 @@
   box-shadow: 1px 1px 0 rgba(255, 255, 255, 0.12), 3px 3px 0 rgba(0, 0, 0, 0.35);
 }
 
-/* Last-pickup inspection tray (public window until the next play). */
+/* Last-pickup inspection tray (public window until the next play).
+   In normal flow above the centre row — never overlaps the hand. */
 .seep-inspect {
-  position: absolute;
-  left: 50%;
-  bottom: 6px;
-  transform: translateX(-50%);
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 6px 10px;
+  margin: 2px auto 6px;
+  padding: 5px 10px;
+  width: fit-content;
   border-radius: 12px;
   background: rgba(12, 20, 34, 0.85);
   border: 1px dashed rgba(255, 226, 150, 0.4);
-  z-index: 12;
+}
+.seep-inspect .pcard {
+  --card-w: 42px;
 }
 .seep-inspect-label {
   font-size: 10px;

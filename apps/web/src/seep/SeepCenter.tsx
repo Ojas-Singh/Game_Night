@@ -91,7 +91,18 @@ export default function SeepCenter({
         })}
       </div>
 
+
+
       <div className="seep-middle">
+        {/* stock pile (informational) */}
+        <div className="pile deck-pile seep-deck">
+          <div className="deck-stack s1" />
+          <div className="deck-stack s2" />
+          <div className="deck-stack s3" />
+          <span className="pile-label">STOCK</span>
+          <span className="pile-count">{view.deckCount}</span>
+        </div>
+
         {/* stock pile (informational) */}
         <div className="pile deck-pile seep-deck">
           <div className="deck-stack s1" />
