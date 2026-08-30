@@ -34,6 +34,7 @@ function view(opts: {
   events?: SeepPlayerView['events'];
   batchesRemaining?: number;
   currentTurn?: string;
+  phase?: SeepPlayerView['phase'];
   bid?: number | null;
   playsMade?: number;
 }): SeepPlayerView {
@@ -47,7 +48,7 @@ function view(opts: {
   return {
     gameId: 'seep',
     revision: 1,
-    phase: 'TURN_PLAY',
+    phase: opts.phase ?? 'TURN_PLAY',
     players: basePlayers().map((p) => ({ ...p, isCurrentTurn: p.id === current, cardCount: p.id === 'n' ? hand.length : 4 })),
     knownCards: known,
     handCardIds: {
@@ -64,13 +65,14 @@ function view(opts: {
     tableLoose: table,
     tableFaceDownCount: 0,
     houses: opts.houses ?? [],
-    captures: { n: [], e: [], s: [], w: [] },
     handCounts: { n: hand.length, e: 4, s: 4, w: 4 },
+    captureCounts: { n: 0, e: 0, s: 0, w: 0 },
     sweeps: { 0: 0, 1: 0 },
-    sweepPoints: { 0: 0, 1: 0 },
+    inspectableCardIds: [],
     teamPoints: { 0: 0, 1: 0 },
     bid: opts.bid ?? null,
     openerId: 'n',
+    bidderId: 'n',
     playsMade: opts.playsMade ?? 1,
     batchesRemaining: opts.batchesRemaining ?? 0,
     lastCaptureTeam: null,
@@ -78,6 +80,16 @@ function view(opts: {
     roundResult: null,
   } as SeepPlayerView;
 }
+
+const house = (id: string, total: number, ownerTeam: 0 | 1, cards: Card[], pakka = false): SeepPlayerView['houses'][number] => ({
+  id,
+  total,
+  ownerByTeam: { [ownerTeam]: ownerTeam === 0 ? 'n' : 'e' } as SeepPlayerView['houses'][number]['ownerByTeam'],
+  owners: [ownerTeam === 0 ? 'n' : 'e'],
+  copies: cards.reduce((s, x) => s + x.rank, 0) / total,
+  pakka,
+  cards,
+});
 
 const ev = (seq: number, type: string, payload: Record<string, unknown>) => ({
   seq,
@@ -159,11 +171,11 @@ describe('intentsForCard', () => {
     });
     const intents = intentsForCard(v, 'm1', 'n');
     // 8 = 3+5 (t1+t2). The single 3 matches m2, not m1.
-    expect(intents.captures).toEqual([['t1', 't2']]);
+    expect(intents.captures).toEqual([{ tableCardIds: ['t1', 't2'], houseIds: [] }]);
     expect(intents.canLay).toBe(false);
 
     const intents2 = intentsForCard(v, 'm2', 'n');
-    expect(intents2.captures).toEqual([['t1']]);
+    expect(intents2.captures).toEqual([{ tableCardIds: ['t1'], houseIds: [] }]);
   });
 
   it('captures several groups at once: with an 8 take A+7, 3+5 and a loose 8', () => {
@@ -176,10 +188,9 @@ describe('intentsForCard', () => {
       ],
     });
     const intents = intentsForCard(v, 'm1', 'n');
-    // Every subset grouping into 8 is offered — including the whole-table sweep.
-    expect([...intents.captures[0]!].sort()).toEqual(['t5']);
-    const wholeTable = intents.captures.find((set) => set.length === 5);
-    expect([...wholeTable!].sort()).toEqual(['t1', 't2', 't3', 't4', 't5']);
+    // Compulsory capture-all: the three non-overlapping 8-groups form ONE
+    // maximal collection — exactly one choice, the whole-table sweep.
+    expect(intents.captures).toEqual([{ tableCardIds: ['t1', 't2', 't3', 't4', 't5'], houseIds: [] }]);
     expect(intents.canLay).toBe(false);
   });
 
@@ -192,7 +203,7 @@ describe('intentsForCard', () => {
     });
     // The 9 relates to the bid: it captures 3+6 (must-capture, so no lay).
     const nine = intentsForCard(v, 'm1', 'n');
-    expect(nine.captures).toEqual([['t1', 't2']]);
+    expect(nine.captures).toEqual([{ tableCardIds: ['t1', 't2'], houseIds: [] }]);
     expect(nine.canLay).toBe(false);
     // The 3 matches a table card, but on the opening play only the bid counts.
     const three = intentsForCard(v, 'm2', 'n');
@@ -204,6 +215,7 @@ describe('intentsForCard', () => {
 
   it('lists only held 9–13 values as biddable', () => {
     const v = view({
+      phase: 'ANNOUNCE',
       hand: [c('m1', 'hearts', 9), c('m2', 'clubs', 2), c('m3', 'spades', 13), c('m4', 'diamonds', 8)],
     });
     expect(biddableValues(v, 'n')).toEqual([13, 9]);
@@ -231,30 +243,35 @@ describe('intentsForCard', () => {
     expect(intents.canLay).toBe(true); // 6 captures nothing
   });
 
-  it('marks capturable houses and own-team adds (pakka/steal awareness)', () => {
+  it('takes every matching ghar at once; cements own and (backed) opponent ghars', () => {
     const v = view({
       // Two twelves: one to play, one to keep as the owner's backing.
       hand: [c('m1', 'hearts', 12), c('m2', 'spades', 12)],
       table: [],
-      houses: [
-        { id: 'h-1', total: 12, ownerId: 'n', ownerTeam: 0, sets: 1, pakka: false, cards: [c('a', 'spades', 12)] },
-        { id: 'h-2', total: 12, ownerId: 'e', ownerTeam: 1, sets: 1, pakka: false, cards: [c('b', 'clubs', 12)] },
-      ] as SeepPlayerView['houses'],
+      houses: [house('h-1', 12, 0, [c('a', 'spades', 12)]), house('h-2', 12, 1, [c('b', 'clubs', 12)])],
     });
     const intents = intentsForCard(v, 'm1', 'n');
-    // Both houses are capturable; only my own team's (h-1) is extendable —
-    // and 12+12 > 13 so nothing is breakable.
+    // Both 12-ghars stand on the table — a capture must take BOTH.
+    expect(intents.captures).toEqual([{ tableCardIds: [], houseIds: ['h-1', 'h-2'] }]);
     expect(intents.capturableHouseIds).toEqual(['h-1', 'h-2']);
-    expect(intents.addableHouses).toEqual([{ houseId: 'h-1', tableCardIds: [] }]);
+    // Cement: own ghar (m2 backs) and the opponent's (backing lets me co-own).
+    expect(intents.addableHouses).toEqual([
+      { houseId: 'h-1', tableCardIds: [] },
+      { houseId: 'h-2', tableCardIds: [] },
+    ]);
     expect(intents.breakableHouses).toEqual([]);
   });
 
-  it('a partner-owned ghar may take my last matching card; my own may not', () => {
-    const houses = (ownerId: string, ownerTeam: 0 | 1) =>
-      [{ id: 'h-1', total: 12, ownerId, ownerTeam, sets: 1, pakka: false, cards: [c('a', 'spades', 12)] }] as SeepPlayerView['houses'];
-    const mine = intentsForCard(view({ hand: [c('m1', 'hearts', 12)], houses: houses('n', 0) }), 'm1', 'n');
-    expect(mine.addableHouses).toEqual([]); // retention: I own it, no 12 behind
-    const partners = intentsForCard(view({ hand: [c('m1', 'hearts', 12)], houses: houses('s', 0) }), 'm1', 'n');
+  it('my last matching card may still cement a ghar — no deadlock', () => {
+    const mine = intentsForCard(
+      view({ hand: [c('m1', 'hearts', 12)], houses: [house('h-1', 12, 0, [c('a', 'spades', 12)])] }),
+      'm1', 'n',
+    );
+    expect(mine.addableHouses).toEqual([{ houseId: 'h-1', tableCardIds: [] }]);
+    const partners = intentsForCard(
+      view({ hand: [c('m1', 'hearts', 12)], houses: [{ ...house('h-1', 12, 0, [c('a', 'spades', 12)]), ownerByTeam: { 0: 's' }, owners: ['s'] }] }),
+      'm1', 'n',
+    );
     expect(partners.addableHouses).toEqual([{ houseId: 'h-1', tableCardIds: [] }]);
   });
 
@@ -263,23 +280,34 @@ describe('intentsForCard', () => {
       hand: [c('m1', 'hearts', 2), c('m2', 'spades', 11)],
       table: [],
       houses: [
-        { id: 'h-1', total: 9, ownerId: 'e', ownerTeam: 1, sets: 1, pakka: false, cards: [c('b1', 'clubs', 9)] },
-        { id: 'h-2', total: 9, ownerId: 'w', ownerTeam: 1, sets: 2, pakka: true, cards: [c('b2', 'clubs', 9), c('b3', 'hearts', 9)] },
-      ] as SeepPlayerView['houses'],
+        house('h-1', 9, 1, [c('b1', 'clubs', 9)]),
+        house('h-2', 10, 1, [c('b2', 'clubs', 10), c('b3', 'hearts', 9), c('b4', 'diamonds', 1)], true),
+      ],
     });
     const intents = intentsForCard(v, 'm1', 'n'); // 2 → break 9 to 11, J in hand
     expect(intents.breakableHouses).toEqual([{ houseId: 'h-1', newTotal: 11 }]);
     expect(intents.breakableHouses.map((b) => b.houseId)).not.toContain('h-2'); // pakka locked
   });
 
-  it('requires a backing card for own-ghar adds and never proposes them without one', () => {
-    const v = view({
-      hand: [c('m1', 'hearts', 12)],
-      table: [],
-      houses: [{ id: 'h-1', total: 12, ownerId: 'n', ownerTeam: 0, sets: 1, pakka: false, cards: [c('a', 'spades', 12)] }] as SeepPlayerView['houses'],
-    });
-    const intents = intentsForCard(v, 'm1', 'n');
-    expect(intents.addableHouses).toEqual([]);
+  it('own-ghar adds require a backing card unless it is my last one', () => {
+    // A spare 5 stays behind — playing the 12 leaves no 12 to keep: blocked.
+    const blocked = intentsForCard(
+      view({
+        hand: [c('m1', 'hearts', 12), c('m2', 'clubs', 5)],
+        houses: [house('h-1', 12, 0, [c('a', 'spades', 12)])],
+      }),
+      'm1', 'n',
+    );
+    expect(blocked.addableHouses).toEqual([]);
+    // Last-card relaxation: with nothing left behind the cement is allowed.
+    const last = intentsForCard(
+      view({
+        hand: [c('m1', 'hearts', 12)],
+        houses: [house('h-1', 12, 0, [c('a', 'spades', 12)])],
+      }),
+      'm1', 'n',
+    );
+    expect(last.addableHouses).toEqual([{ houseId: 'h-1', tableCardIds: [] }]);
   });
 
   it('ignores cards that are not in my hand', () => {
@@ -294,7 +322,7 @@ describe('intentsForCard', () => {
     });
     const all = allIntents(v, 'n');
     expect(Object.keys(all)).toEqual(['m1', 'm2']);
-    expect(all['m1']!.captures).toEqual([['t1']]);
+    expect(all['m1']!.captures).toEqual([{ tableCardIds: ['t1'], houseIds: [] }]);
     expect(all['m2']!.canLay).toBe(true);
   });
 

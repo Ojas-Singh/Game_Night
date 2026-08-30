@@ -125,8 +125,9 @@ export function serializeSeepView(v: SeepPlayerView, selfId: string): string {
   }
   lines.push(`table=[${v.tableLoose.map((c) => cardLabel(v, c.id)).join(' ') || (v.tableFaceDownCount > 0 ? `${v.tableFaceDownCount} face-down` : 'empty')}]`);
   for (const h of v.houses) {
+    const ownerList = h.owners.map((o) => `${names.get(o) ?? o}(team${v.teams[0].includes(o) ? 0 : 1})`).join('+');
     lines.push(
-      `house=${h.total}${h.pakka ? ' PAKKA' : ' kachcha'} owner=${names.get(h.ownerId) ?? h.ownerId}(team${h.ownerTeam}) cards=[${h.cards.map((c) => cardLabel(v, c.id)).join(' ')}]`,
+      `house=${h.total}${h.pakka ? ` PAKKA(x${h.copies})` : ' kachcha'} owner=${ownerList} cards=[${h.cards.map((c) => cardLabel(v, c.id)).join(' ')}]`,
     );
   }
   for (const p of v.players) {
@@ -135,7 +136,7 @@ export function serializeSeepView(v: SeepPlayerView, selfId: string): string {
       const hand = (v.handCardIds[p.id] ?? []).map((id) => cardLabel(v, id)).join(' ');
       lines.push(`> YOU (${p.id}, team${team}) hand=[${hand}]`);
     } else {
-      lines.push(`  ${names.get(p.id) ?? p.id} (${p.id}, team${team}) holds ${p.cardCount} cards, captured=${(v.captures[p.id] ?? []).length}`);
+      lines.push(`  ${names.get(p.id) ?? p.id} (${p.id}, team${team}) holds ${p.cardCount} cards, captured=${v.captureCounts[p.id] ?? 0}`);
     }
   }
   const recent = v.events.slice(-6).map((e) => {

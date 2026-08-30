@@ -1,18 +1,20 @@
 /**
  * Seep (Sweep) heuristic bot — Punjabi rules.
  *
- * Persona-tunable greedy policy over the public player view only:
+ * Persona-tunable greedy policy over the public player view only. Candidate
+ * moves come from the ENGINE's canonical enumerator (`enumerateSeepActions`)
+ * — the bot only scores them, so it can never invent an illegal play or
+ * drift from the rules the human client enforces:
  *  - announces the most valuable biddable card (spades first);
- *  - on the opening play, relates everything to the announced number;
- *  - captures whenever allowed (must-capture), valuing spades/aces/10♦;
- *  - steals opponent kachcha ghars when the new total is held;
- *  - pakka-fies own ghars for personas that like building;
+ *  - captures whenever possible, valuing spades/aces/10♦ and sweeps;
+ *  - steals/cements/breaks ghars and builds its own for personas that like
+ *    building;
  *  - otherwise lays the least valuable card (baiters gamble a little).
  */
 
 import type { GameAgent, AgentContext, AgentDecision, AgentObservation } from '@game-night/agent-core';
 import type { SeepAction, SeepPlayerView } from '@game-night/engine-seep';
-import { captureValue, cardPoints, DEFAULT_SEEP_RULES, type SeepRules } from '@game-night/engine-seep';
+import { captureValue, cardPoints, DEFAULT_SEEP_RULES, enumerateSeepActions, type SeepRules } from '@game-night/engine-seep';
 
 export interface SeepHeuristicOptions {
   persona?: string;
@@ -98,160 +100,82 @@ export class SeepHeuristicBot implements GameAgent {
     step: number,
     ctx: AgentContext,
   ): AgentDecision {
-    const handIds = (view.handCardIds[selfId] ?? []).filter((id) => view.knownCards[id]);
-    if (handIds.length === 0) return { action: null as unknown as SeepAction, thought: 'no cards' };
-    const opening = view.playsMade === 0;
-    const bid = view.bid;
     type Candidate = { action: SeepAction; score: number; why: string };
     const candidates: Candidate[] = [];
+    const handValue = (cardId: string): number => {
+      const card = view.knownCards[cardId];
+      return card ? cardPoints(card, rules) * 3 + (card.suit === 'spades' ? 4 : 0) : 0;
+    };
 
-    for (const cardId of handIds) {
-      const card = view.knownCards[cardId]!;
+    for (const action of enumerateSeepActions(view, selfId)) {
+      if (action.type === 'ANNOUNCE') continue;
+      const card = view.knownCards[action.cardId];
+      if (!card) continue;
       const v = captureValue(card);
-      // On the opening play every move must involve the announced number.
-      if (opening && bid !== null && v !== bid) continue;
-      const myTurn = view.players.find((p) => p.isCurrentTurn)?.id === selfId;
-      if (!myTurn) break;
+      const dumpPenalty = handValue(action.cardId) * 0.5;
 
-      // 1) Captures of loose sets (greedy: any valid grouping).
-      const looseSets = this.looseSetsFor(view, v);
-      for (const set of looseSets.slice(0, 6)) {
-        const gain = set.reduce((sum, id) => sum + cardWeight(id, view, rules), 0) + cardWeight(cardId, view, rules);
-        const sweep = this.wouldSweep(view, set, []);
+      const intent = action.intent;
+      if (intent.kind === 'CAPTURE') {
+        const taken = [
+          action.cardId,
+          ...intent.tableCardIds,
+          ...intent.houseIds.flatMap((hid) => view.houses.find((h) => h.id === hid)?.cards.map((c) => c.id) ?? []),
+        ];
+        const gain = taken.reduce((sum, id) => sum + handValue(id), 0);
+        const steal = intent.houseIds.some((hid) => {
+          const h = view.houses.find((x) => x.id === hid);
+          return h !== undefined && view.myTeam !== null && h.ownerByTeam[view.myTeam === 0 ? 1 : 0] !== undefined;
+        });
+        const sweep = view.tableLoose.length === intent.tableCardIds.length + 0 &&
+          view.tableLoose.every((c) => intent.tableCardIds.includes(c.id)) &&
+          view.houses.every((h) => intent.houseIds.includes(h.id));
         candidates.push({
-          action: { type: 'PLAY_CARD', playerId: selfId, cardId, intent: { kind: 'CAPTURE', tableCardIds: set, houseIds: [] } },
-          score: 100 + gain * 2 + (sweep ? (opening ? 25 : 50) : 0),
-          why: `capture ${set.length + 1} card${set.length ? 's' : ''}${sweep ? ' — SEEP!' : ''}`,
+          action,
+          score: 100 + gain * 2 + (steal ? 40 : 0) + (sweep ? (view.playsMade === 0 ? 25 : view.playsMade >= 47 ? 0 : 50) : 0),
+          why: `take ${taken.length} card${taken.length === 1 ? '' : 's'}${sweep ? ' — SEEP!' : ''}`,
+        });
+      } else if (intent.kind === 'ADD_TO_HOUSE') {
+        const house = view.houses.find((h) => h.id === intent.houseId);
+        const pakkaNow = house !== undefined && !house.pakka;
+        candidates.push({
+          action,
+          score: 55 + (pakkaNow ? 30 : 10) + this.weights.buildiness * 20,
+          why: pakkaNow ? 'make our ghar pakka' : 'strengthen the ghar',
+        });
+      } else if (intent.kind === 'BUILD') {
+        candidates.push({
+          action,
+          score: 45 + this.weights.buildiness * 45 + intent.total * 0.5 - dumpPenalty * 0.2,
+          why: `build ghar ${intent.total}`,
+        });
+      } else if (intent.kind === 'BREAK_HOUSE') {
+        const house = view.houses.find((h) => h.id === intent.houseId);
+        const newTotal = (house?.total ?? 0) + v;
+        candidates.push({
+          action,
+          score: 70 + (13 - newTotal) + this.weights.buildiness * 10,
+          why: `break their ghar ${house?.total} up to ${newTotal}`,
+        });
+      } else {
+        const bait =
+          this.weights.bait > 0 && ctx.rng.next() < this.weights.bait
+            ? 8
+            : 0;
+        candidates.push({
+          action,
+          score: 10 - handValue(action.cardId) * 0.5 + bait,
+          why: 'throw a card',
         });
       }
-
-      // 2) House interactions.
-      for (const house of view.houses) {
-        if (house.total === v) {
-          const steal = house.ownerTeam !== view.myTeam;
-          const sweep = this.wouldSweep(view, [], [house.id]);
-          candidates.push({
-            action: { type: 'PLAY_CARD', playerId: selfId, cardId, intent: { kind: 'CAPTURE', tableCardIds: [], houseIds: [house.id] } },
-            score: 110 + house.cards.length * 6 + (steal ? 40 : 0) + (sweep ? 60 : 0),
-            why: `${steal ? 'steal' : 'take'} the ghar of ${house.total}`,
-          });
-        }
-        if (house.ownerTeam === view.myTeam) {
-          // Add a complete set (card alone or with loose cards).
-          const need = house.total - v;
-          if (need === 0 && this.countInHand(view, selfId, v, cardId) >= 1) {
-            const pakkaNow = house.sets === 1;
-            candidates.push({
-              action: { type: 'PLAY_CARD', playerId: selfId, cardId, intent: { kind: 'ADD_TO_HOUSE', houseId: house.id, tableCardIds: [] } },
-              score: 55 + (pakkaNow ? 30 : 10),
-              why: pakkaNow ? 'make our ghar pakka' : 'strengthen our ghar',
-            });
-          } else if (need > 0) {
-            for (const set of this.looseSetsFor(view, need)) {
-              candidates.push({
-                action: { type: 'PLAY_CARD', playerId: selfId, cardId, intent: { kind: 'ADD_TO_HOUSE', houseId: house.id, tableCardIds: set } },
-                score: 50 + this.weights.buildiness * 30,
-                why: `add ${set.length + 1} cards to our ghar ${house.total}`,
-              });
-            }
-          }
-        } else if (!house.pakka && house.total + v <= 13 && this.countInHand(view, selfId, house.total + v, cardId) >= 1) {
-          candidates.push({
-            action: { type: 'PLAY_CARD', playerId: selfId, cardId, intent: { kind: 'BREAK_HOUSE', houseId: house.id } },
-            score: 90 + (13 - house.total - v) * -1 + 20,
-            why: `break their ghar ${house.total} up to ${house.total + v}`,
-          });
-        }
-      }
-
-      // 3) Builds (9–13, backed by another held card).
-      const restValues = handIds.filter((id) => id !== cardId).map((id) => captureValue(view.knownCards[id]!));
-      for (const set of this.looseSetsBetween(view, Math.max(9 - v, 1), 13 - v)) {
-        const total = set.sum + v;
-        if (opening && bid !== null && total !== bid) continue;
-        if (!restValues.includes(total)) continue;
-        candidates.push({
-          action: { type: 'PLAY_CARD', playerId: selfId, cardId, intent: { kind: 'BUILD', tableCardIds: set.ids, total } },
-          score: 45 + this.weights.buildiness * 45 + total * 0.5,
-          why: `build ghar ${total}`,
-        });
-      }
-
-      // 4) Lay down.
-      const layScore = 10 - cardWeight(cardId, view, rules) * 0.5 + (this.weights.bait > 0 && ctx.rng.next() < this.weights.bait ? 8 : 0);
-      candidates.push({
-        action: { type: 'PLAY_CARD', playerId: selfId, cardId, intent: { kind: 'LAY_DOWN' } },
-        score: layScore,
-        why: 'throw a card',
-      });
     }
 
     if (candidates.length === 0) {
-      // Opening play fallback: throw the announced card itself.
-      if (opening && bid !== null) {
-        const bidCard = handIds.find((id) => captureValue(view.knownCards[id]!) === bid);
-        if (bidCard) {
-          return {
-            action: { type: 'PLAY_CARD', playerId: selfId, cardId: bidCard, intent: { kind: 'LAY_DOWN' } } satisfies SeepAction,
-            thought: `nothing to do with the ${bid} — laying it`,
-          };
-        }
-      }
       return { action: null as unknown as SeepAction, thought: 'no legal candidates' };
     }
-
+    void step;
     candidates.sort((a, b) => b.score - a.score);
     const best = candidates[0]!;
     return { action: best.action, thought: best.why };
   }
-
-  /** Loose-card sets summing exactly to `v` (bounded enumeration). */
-  private looseSetsFor(view: SeepPlayerView, v: number): string[][] {
-    const ids = view.tableLoose.map((c) => c.id);
-    const values = new Map(ids.map((id) => [id, captureValue(view.knownCards[id] ?? view.tableLoose.find((x) => x.id === id)!)]));
-    const out: string[][] = [];
-    const walk = (start: number, cur: string[], sum: number): void => {
-      if (sum === v && cur.length > 0) {
-        out.push([...cur]);
-        return;
-      }
-      if (start >= ids.length || cur.length >= 5 || out.length >= 12 || sum >= v) return;
-      for (let j = start; j < ids.length; j++) {
-        walk(j + 1, [...cur, ids[j]!], sum + (values.get(ids[j]!) ?? 0));
-      }
-    };
-    walk(0, [], 0);
-    return out;
-  }
-
-  /** Loose-card sets whose sum lies in [min, max] (bounded enumeration). */
-  private looseSetsBetween(view: SeepPlayerView, min: number, max: number): Array<{ ids: string[]; sum: number }> {
-    const ids = view.tableLoose.map((c) => c.id);
-    const values = new Map(ids.map((id) => [id, captureValue(view.knownCards[id] ?? view.tableLoose.find((x) => x.id === id)!)]));
-    const out: Array<{ ids: string[]; sum: number }> = [];
-    const walk = (start: number, cur: string[], sum: number): void => {
-      if (cur.length > 0 && sum >= min && sum <= max) {
-        out.push({ ids: [...cur], sum });
-        return; // supersets only grow the sum — stop here
-      }
-      if (start >= ids.length || cur.length >= 5 || out.length >= 12 || sum > max) return;
-      for (let j = start; j < ids.length; j++) {
-        walk(j + 1, [...cur, ids[j]!], sum + (values.get(ids[j]!) ?? 0));
-      }
-    };
-    walk(0, [], 0);
-    return out;
-  }
-
-  private countInHand(view: SeepPlayerView, selfId: string, value: number, exceptCardId: string): number {
-    return (view.handCardIds[selfId] ?? []).filter(
-      (id) => id !== exceptCardId && view.knownCards[id] && captureValue(view.knownCards[id]!) === value,
-    ).length;
-  }
-
-  private wouldSweep(view: SeepPlayerView, extraLoose: string[], houseIds: string[]): boolean {
-    const remainingLoose = view.tableLoose.filter((c) => !extraLoose.includes(c.id));
-    const remainingHouses = view.houses.filter((h) => !houseIds.includes(h.id));
-    return remainingLoose.length === 0 && remainingHouses.length === 0;
-  }
 }
+

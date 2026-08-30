@@ -1,815 +1,678 @@
+/**
+ * Seep engine tests — canonical Punjabi 100-point rules.
+ * Contract: docs/rules/seep-punjabi-100.md (Pagat).
+ *
+ * Fixtures use forced decks laid out in the real counter-clockwise deal
+ * order: bidder's 4, floor 4, then counter-clockwise packets of four from
+ * the bidder until every hand holds 12 (bidder 11 after his first play —
+ * 4 + 4 + 8 + 36 = 52 exactly).
+ *
+ * Fixture conventions to keep decks valid:
+ *  - bidder cards are hearts, floor cards spades/diamonds, extras clubs —
+ *    so suit+rank signatures never collide;
+ *  - floors avoid loose sets that sum to the house total (they would
+ *    auto-cement — the engine is right, the fixtures would lie);
+ *  - walks through filler turns use `walkOnce`, which never touches the
+ *    house under test.
+ */
 import { describe, expect, it } from 'vitest';
+import type { Card, Suit } from '@game-night/shared';
 import {
   DEFAULT_SEEP_RULES,
-  VARIANT_TEN_DIAMOND_SIX,
   SeepEngine,
-  SeepEngineError,
   cardPoints,
-  captureValue,
-  mergeSeepRules,
-  partitionableInto,
-  reachableSubsetSum,
-  teamOfSeat,
+  enumerateSeepActions,
+  houseCopies,
+  houseIsPakka,
+  maximalCaptureAlternatives,
   totalDeckPoints,
+  type SeepAction,
   type SeepPlayerView,
   type SeepState,
 } from '../src/index.js';
-import { createRng, shuffle, standardDeck, type Card, type GameAction, type Suit } from '@game-night/shared';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const ORDER = ['n', 'e', 's', 'w'];
-const PLAYERS = ORDER.map((id, i) => ({ id, name: id.toUpperCase(), seat: i }));
-const teamOfPlayer = (pid: string): 0 | 1 => (ORDER.indexOf(pid) % 2) as 0 | 1;
 
 const c = (id: string, suit: Suit, rank: number): Card => ({ id, suit, rank });
+const PLAYERS = ['n', 'e', 's', 'w'].map((id, i) => ({ id, name: id.toUpperCase(), seat: i }));
+let tagSeq = 0;
 
-/** Extra cards to pad a forced deck up to exactly 52 (face-exact, ids renamed). */
-function filler(n: number, used: Iterable<Card>, tag: string): Card[] {
-  const taken = new Set([...used].map((x) => `${x.suit}${x.rank}`));
+/** Signature-safe filler; never collides with the pool or reserved extras. */
+function filler(n: number, pool: Card[], reserved: Set<string> = new Set()): Card[] {
+  const taken = new Set([...pool.map((x) => `${x.suit}${x.rank}`), ...reserved]);
   const out: Card[] = [];
-  for (const card of standardDeck()) {
-    if (out.length >= n) break;
-    if (taken.has(`${card.suit}${card.rank}`)) continue;
-    taken.add(`${card.suit}${card.rank}`);
-    out.push({ ...card, id: `f-${tag}-${out.length}` });
+  for (const suit of ['clubs', 'diamonds', 'hearts', 'spades'] as Suit[]) {
+    for (let rank = 1; rank <= 13 && out.length < n; rank++) {
+      if (taken.has(`${suit}${rank}`)) continue;
+      taken.add(`${suit}${rank}`);
+      const card = c(`f${tagSeq++}`, suit, rank);
+      out.push(card);
+      pool.push(card);
+    }
   }
+  if (out.length < n) throw new Error(`filler exhausted: need ${n - out.length} more`);
   return out;
 }
 
-/**
- * Assemble a physical deck from zones listed in POP ORDER (the first zone's
- * first card is dealt first — deck.pop() walks the array from the end).
- */
-function buildDeck(zones: Card[][]): Card[] {
-  const flat: Card[] = [];
-  for (const zone of zones) flat.push(...zone);
-  return flat.slice().reverse();
+/** Forced deck (reversed so pop() deals in exactly the written order). */
+function zoneDeck(pool: Card[]): Card[] {
+  return [...pool].reverse();
 }
 
-/** Full 52-card deck laid out: opener, table, then the post-announce deal. */
-function deckFrom(opener: Card[], table: Card[], then: Card[]): Card[] {
-  return buildDeck([opener, table, then, filler(52, [...opener, ...table, ...then], 'z')]);
+/** Counter-clockwise packets from the bidder until every hand reaches 12. */
+function completeDeal(pool: Card[], extras: Partial<Record<'w' | 's' | 'e' | 'n', Card[]>> = {}): void {
+  // reserve every extra signature so early fillers cannot steal it
+  const reserved = new Set(Object.values(extras).flat().map((x) => `${x.suit}${x.rank}`));
+  const counts: Record<string, number> = { w: 4, s: 0, e: 0, n: 0 };
+  const packets: Record<string, number> = { w: 0, s: 0, e: 0, n: 0 };
+  while (Object.values(counts).some((n) => n < 12)) {
+    for (const pid of ['w', 's', 'e', 'n'] as const) {
+      if (counts[pid] >= 12) continue;
+      const extra = packets[pid] === 0 ? extras[pid] : undefined;
+      if (extra) {
+        for (const card of extra) {
+          if (pool.some((x) => x.suit === card.suit && x.rank === card.rank)) {
+            throw new Error(`fixture collision: ${card.suit}${card.rank}`);
+          }
+        }
+        pool.push(...extra);
+        filler(4 - extra.length, pool, reserved);
+      } else {
+        filler(4, pool, reserved);
+      }
+      counts[pid] += 4;
+      packets[pid] += 1;
+    }
+  }
 }
 
-type Options = Parameters<SeepEngine['createGame']>[1];
-
-function fresh(opts: Options = {}): SeepEngine {
-  const engine = new SeepEngine();
-  engine.createGame(PLAYERS, { firstTurnSeat: 0, ...opts });
-  return engine;
+function newEngine(pool: Card[], opts: { dealerSeat?: number; rules?: Record<string, number> } = {}): SeepEngine {
+  const e = new SeepEngine();
+  e.createGame(PLAYERS, {
+    forcedDeck: zoneDeck(pool),
+    dealerSeat: opts.dealerSeat ?? 0,
+    rules: opts.rules as never,
+  });
+  return e;
 }
 
 const state = (e: SeepEngine): SeepState => e.getState();
-const view = (e: SeepEngine, pid = 'n', opts?: { revealAll?: boolean }): SeepPlayerView =>
-  e.getPlayerState(pid, opts) as SeepPlayerView;
+const view = (e: SeepEngine, pid: string): SeepPlayerView => e.getPlayerState(pid);
+const pidAt = (e: SeepEngine, seat: number): string => state(e).players[seat]!.id;
 
-function announce(e: SeepEngine, value: number, pid = 'n'): void {
-  const res = e.handleAction({ type: 'ANNOUNCE', playerId: pid, value } as GameAction);
-  expect(res.ok).toBe(true);
+function announce(e: SeepEngine, value: number): void {
+  const bidder = pidAt(e, state(e).bidderSeat);
+  const res = e.handleAction({ type: 'ANNOUNCE', playerId: bidder, value } as never);
+  expect(res.ok, `announce ${value}: ${res.error ?? ''}`).toBe(true);
 }
 
-/** Announce the highest biddable value the opener holds (the announce only). */
-function announceBest(e: SeepEngine, pid = 'n'): number {
-  const hand = state(e).hands[pid] ?? [];
-  const best = Math.max(...hand.map((x) => captureValue(x)));
-  announce(e, best, pid);
-  return best;
+function play(e: SeepEngine, pid: string, cardId: string, intent: unknown): { ok: boolean; error?: string } {
+  return e.handleAction({ type: 'PLAY_CARD', playerId: pid, cardId, intent } as never);
 }
 
-type PlayIntent = Extract<SeepAction, { type: 'PLAY_CARD' }>['intent'];
-
-function play(e: SeepEngine, playerId: string, cardId: string, intent: PlayIntent): { ok: boolean; error?: string } {
-  return e.handleAction({ type: 'PLAY_CARD', playerId, cardId, intent } as unknown as GameAction);
+function acts(e: SeepEngine, pid: string): SeepAction[] {
+  return enumerateSeepActions(view(e, pid), pid);
 }
 
-/** Enumerate every subset (max 6 cards) of `cards` summing exactly to `sum`. */
-function subsetsSumming(cards: Card[], sum: number): Card[][] {
-  const out: Card[][] = [];
-  const walk = (start: number, cur: Card[], total: number): void => {
-    if (total === sum && cur.length > 0) out.push([...cur]);
-    if (start >= cards.length || cur.length >= 6) return;
-    for (let j = start; j < cards.length; j++) {
-      walk(j + 1, [...cur, cards[j]!], total + captureValue(cards[j]!));
-    }
-  };
-  walk(0, [], 0);
-  return out;
-}
-
-/** Lay any legal card (first in hand order that validates). */
-function layAny(e: SeepEngine, pid: string): void {
-  const hand = state(e).hands[pid]!;
-  for (const card of hand) {
-    const res = play(e, pid, card.id, { kind: 'LAY_DOWN' });
-    if (res.ok) return;
+/** Soundness gate: everything enumerated must be engine-legal. */
+function expectEnumeratedLegal(e: SeepEngine, pid: string): SeepAction[] {
+  const list = acts(e, pid);
+  for (const a of list) {
+    expect(
+      e.validateAction(a as never),
+      `enumerated action must validate: ${JSON.stringify((a as { intent?: unknown }).intent ?? a.type)}`,
+    ).toBe(true);
   }
-  throw new Error(`${pid} has no legal lay`);
+  return list;
+}
+
+/** Bidder builds a kachcha 9-house from 6+3, keeping the backing 9. */
+function houseTable(): SeepEngine {
+  const pool: Card[] = [
+    c('w6', 'hearts', 6), c('w9', 'hearts', 9), c('w3', 'diamonds', 3), c('w2', 'hearts', 2), // bidder
+    c('t3', 'spades', 3), c('t2', 'spades', 2), c('tK', 'diamonds', 13), c('tQ', 'diamonds', 12), // floor: no 9-sums
+  ];
+  completeDeal(pool);
+  const e = newEngine(pool);
+  announce(e, 9);
+  expect(play(e, 'w', 'w6', { kind: 'BUILD', tableCardIds: ['t3'], total: 9 }).ok).toBe(true);
+  return e;
 }
 
 /**
- * Full-deal driver: announces the top value, then plays the first VALID
- * action from a greedy candidate list (captures first, lays last).
+ * One filler turn for `pid` that never mutates the house layout: no break,
+ * add, build, or house capture (plain lays and loose captures only).
  */
-function autoPlay(e: SeepEngine): void {
-  if (state(e).phase === 'ANNOUNCE') announceBest(e);
-  let guard = 0;
-  while (!e.isGameFinished() && guard++ < 300) {
-    const s = state(e);
-    const pid = s.players[s.currentTurn]!.id;
-    const action = greedyAction(e, s, pid);
-    if (!action) throw new Error(`no action for ${pid}`);
-    const res = e.handleAction(action);
-    if (!res.ok) throw new Error(`driver failed for ${pid}: ${res.error}`);
-  }
-  expect(e.isGameFinished()).toBe(true);
-}
-
-function greedyAction(e: SeepEngine, s: SeepState, pid: string): GameAction | null {
-  const hand = s.hands[pid] ?? [];
-  if (s.phase === 'ANNOUNCE') {
-    return { type: 'ANNOUNCE', playerId: pid, value: Math.max(...hand.map((x) => captureValue(x))) } as unknown as GameAction;
-  }
-  const first = s.playsMade === 0;
-  const bid = s.bid!;
-  const ranked = [...hand].sort((a, b) => captureValue(b) - captureValue(a));
-  const candidates: GameAction[] = [];
-  for (const card of ranked) {
-    const v = captureValue(card);
-    if (first && v !== bid) continue;
-    const houses = s.houses.filter((h) => h.total === v);
-    const subsets = subsetsSumming(s.tableLoose, v);
-    if (subsets.length > 0 || houses.length > 0) {
-      candidates.push({
-        type: 'PLAY_CARD',
-        playerId: pid,
-        cardId: card.id,
-        intent: { kind: 'CAPTURE', tableCardIds: subsets[0]?.map((x) => x.id) ?? [], houseIds: houses.map((h) => h.id) },
-      } as unknown as GameAction);
-    }
-  }
-  for (const card of ranked) {
-    if (first && captureValue(card) !== bid) continue;
-    candidates.push({ type: 'PLAY_CARD', playerId: pid, cardId: card.id, intent: { kind: 'LAY_DOWN' } } as unknown as GameAction);
-  }
-  return candidates.find((action) => e.validateAction(action)) ?? null;
+function walkOnce(e: SeepEngine, pid: string, houseId: string | null): void {
+  const all = expectEnumeratedLegal(e, pid);
+  const safe = all.filter((a) => {
+    if (a.type !== 'PLAY_CARD') return false;
+    const it = a.intent;
+    if (it.kind === 'BREAK_HOUSE' || it.kind === 'ADD_TO_HOUSE' || it.kind === 'BUILD') return false;
+    if (it.kind === 'CAPTURE') return it.houseIds.length === 0;
+    return it.kind === 'LAY_DOWN';
+  });
+  const list = safe.length > 0 ? safe : all;
+  expect(list.length, `no walk action for ${pid}`).toBeGreaterThan(0);
+  const res = e.handleAction(list[0]! as never);
+  expect(res.ok, `walk failed: ${JSON.stringify(list[0])}`).toBe(true);
 }
 
 // ---------------------------------------------------------------------------
-// Scoring
-// ---------------------------------------------------------------------------
 
-describe('scoring — the common 100-point table', () => {
-  const rules = DEFAULT_SEEP_RULES;
-
-  it('scores every spade at face value, faces included', () => {
-    expect(cardPoints(c('as', 'spades', 1), rules)).toBe(1);
-    expect(cardPoints(c('s7', 'spades', 7), rules)).toBe(7);
-    expect(cardPoints(c('s11', 'spades', 11), rules)).toBe(11);
-    expect(cardPoints(c('s12', 'spades', 12), rules)).toBe(12);
-    expect(cardPoints(c('s13', 'spades', 13), rules)).toBe(13);
+describe('deck and capture alternatives', () => {
+  it('scores exactly 100 points: spades face value, aces 1, 10♦ 6', () => {
+    expect(totalDeckPoints(DEFAULT_SEEP_RULES)).toBe(100);
+    const d = (suit: Suit, rank: number) => cardPoints(c('x', suit, rank), DEFAULT_SEEP_RULES);
+    expect(d('spades', 13)).toBe(13);
+    expect(d('spades', 1)).toBe(1);
+    expect(d('hearts', 1)).toBe(1);
+    expect(d('diamonds', 10)).toBe(6);
+    expect(d('clubs', 10)).toBe(0);
+    expect(d('hearts', 5)).toBe(0);
   });
 
-  it('scores the other aces 1 and the ten of diamonds 2', () => {
-    expect(cardPoints(c('ah', 'hearts', 1), rules)).toBe(1);
-    expect(cardPoints(c('ad', 'diamonds', 1), rules)).toBe(1);
-    expect(cardPoints(c('ac', 'clubs', 1), rules)).toBe(1);
-    expect(cardPoints(c('td', 'diamonds', 10), rules)).toBe(2);
-    expect(cardPoints(c('5c', 'clubs', 5), rules)).toBe(0);
+  it('a J over floor 2,3,5,6 has exactly the two overlapping maximal alternatives', () => {
+    const alts = maximalCaptureAlternatives(
+      [c('a', 'clubs', 2), c('b', 'clubs', 3), c('d', 'clubs', 5), c('e', 'clubs', 6)],
+      11,
+    );
+    expect(alts).toHaveLength(2);
+    const sizes = alts.map((g) => g.map((x) => x.length).sort().join('+')).sort();
+    expect(sizes).toEqual(['2', '3']);
   });
 
-  it('the deck is worth 96 card points, 100 with the majority bonus', () => {
-    expect(totalDeckPoints(rules)).toBe(96);
-    expect(totalDeckPoints(rules) + rules.majorityCardsBonus).toBe(100);
-  });
-
-  it('the family variant (10♦ = 6, no majority) also totals 100', () => {
-    const variant = mergeSeepRules(VARIANT_TEN_DIAMOND_SIX);
-    expect(cardPoints(c('td', 'diamonds', 10), variant)).toBe(6);
-    expect(variant.majorityCardsBonus).toBe(0);
-    expect(totalDeckPoints(variant)).toBe(100);
+  it('an 8 over A,3,5,7,8 has exactly one maximal alternative (take everything)', () => {
+    const alts = maximalCaptureAlternatives(
+      [c('a', 'clubs', 1), c('b', 'clubs', 3), c('d', 'clubs', 5), c('e', 'clubs', 7), c('f', 'clubs', 8)],
+      8,
+    );
+    expect(alts).toHaveLength(1);
+    expect(alts[0]!.reduce((n, g) => n + g.length, 0)).toBe(5);
   });
 });
 
-// ---------------------------------------------------------------------------
-// Group captures
-// ---------------------------------------------------------------------------
-
-describe('partitionable captures', () => {
-  it('accepts several separate groups captured together (A+7, 3+5, 8 with an 8)', () => {
-    const cards = [c('a', 'clubs', 1), c('7', 'hearts', 7), c('3', 'diamonds', 3), c('5', 'spades', 5), c('8', 'clubs', 8)];
-    expect(partitionableInto(cards, 8)).toBe(true);
-  });
-  it('rejects a selection that cannot group evenly', () => {
-    expect(partitionableInto([c('a', 'clubs', 1), c('3', 'diamonds', 3), c('5', 'spades', 5)], 8)).toBe(false);
-    expect(partitionableInto([], 8)).toBe(false);
-  });
-  it('still answers the simple subset-sum question', () => {
-    expect(reachableSubsetSum([c('x', 'clubs', 2), c('y', 'hearts', 3), c('z', 'spades', 5)], 10)).toBe(true);
-    expect(reachableSubsetSum([c('x', 'clubs', 2), c('y', 'hearts', 3)], 6)).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Deal, announce and the constrained opening play
-// ---------------------------------------------------------------------------
-
-describe('deal and announce', () => {
-  it('deals 4 to the opener and 4 face-down to the table', () => {
-    const e = fresh({ seed: 7 });
+describe('opening: deal, bid and first play', () => {
+  it('deals 4 to the bidder + 4 face-down floor cards; the full deal uses all 52 cards', () => {
+    const pool: Card[] = [c('b1', 'hearts', 11)];
+    filler(3, pool); // rest of bidder hand
+    filler(4, pool); // floor
+    completeDeal(pool);
+    const e = newEngine(pool);
     const s = state(e);
     expect(s.phase).toBe('ANNOUNCE');
-    expect(s.hands['n']).toHaveLength(4);
-    expect(s.hands['e']).toHaveLength(0);
-    expect(s.tableLoose).toHaveLength(4);
-    expect(s.deck).toHaveLength(44);
-    expect(s.bid).toBeNull();
-  });
-
-  it('hides the face-down table from views until the announce', () => {
-    const e = fresh({ seed: 7 });
-    const v = view(e, 'e');
-    expect(v.tableLoose).toEqual([]);
-    expect(v.tableFaceDownCount).toBe(4);
-    for (const card of state(e).tableLoose) expect(v.knownCards[card.id]).toBeUndefined();
-    // Test Mode sees through the backs.
-    const vTest = view(e, 'e', { revealAll: true });
-    for (const card of state(e).tableLoose) expect(vTest.knownCards[card.id]).toBeDefined();
-  });
-
-  it('redeals automatically when the opener cannot announce (all cards ≤ 8)', () => {
-    let seed = 0;
-    for (let s = 1; s < 20000; s++) {
-      const deck = shuffle(standardDeck(), createRng(s));
-      if (deck.slice(-4).every((x) => x.rank < 9)) {
-        seed = s;
-        break;
-      }
-    }
-    expect(seed).toBeGreaterThan(0);
-    const e = fresh({ seed });
-    const s = state(e);
-    expect(s.hands['n']!.some((x) => x.rank >= 9)).toBe(true);
-    expect(s.events.some((ev) => ev.type === 'REDEAL')).toBe(true);
-  });
-
-  it('only the opener may announce, and only a value they hold', () => {
-    const e = fresh({ seed: 7 });
-    expect(e.handleAction({ type: 'ANNOUNCE', playerId: 'e', value: 10 } as GameAction).ok).toBe(false);
-    const held = state(e).hands['n']!.map(captureValue);
-    const notHeld = [9, 10, 11, 12, 13].find((x) => !held.includes(x));
-    if (notHeld !== undefined) {
-      expect(e.handleAction({ type: 'ANNOUNCE', playerId: 'n', value: notHeld } as GameAction).ok).toBe(false);
-    }
-    expect(e.handleAction({ type: 'ANNOUNCE', playerId: 'n', value: 8 } as GameAction).ok).toBe(false);
-  });
-
-  it('playing before the announce is rejected; announcing turns the table up', () => {
-    const e = fresh({ seed: 7 });
-    const card = state(e).hands['n']![0]!;
-    expect(e.handleAction({ type: 'PLAY_CARD', playerId: 'n', cardId: card.id, intent: { kind: 'LAY_DOWN' } } as GameAction).ok).toBe(false);
-    announceBest(e);
-    const s = state(e);
-    expect(s.phase).toBe('TURN_PLAY');
-    expect(s.bid).toBeGreaterThanOrEqual(9);
-    const v = view(e, 'e');
-    expect(v.tableLoose).toHaveLength(4);
-    expect(v.tableFaceDownCount).toBe(0);
-    for (const card2 of s.tableLoose) expect(v.knownCards[card2.id]).toBeDefined();
-  });
-});
-
-// Opener: 10♥ 6♠ 5♣ 2♦; table: 4♦ 9♣ 8♠ 3♥ — no accidental 6/10 captures.
-function openingEngine(): SeepEngine {
-  const opener = [c('h10', 'hearts', 10), c('s6', 'spades', 6), c('c5', 'clubs', 5), c('d2', 'diamonds', 2)];
-  const table = [c('d4', 'diamonds', 4), c('c9', 'clubs', 9), c('s8', 'spades', 8), c('h3', 'hearts', 3)];
-  return fresh({ forcedDeck: deckFrom(opener, table, filler(44, [...opener, ...table], 'o')), firstTurnSeat: 0 });
-}
-
-describe('the opening play must involve the announced number', () => {
-  it('rejects a capture with a non-announced card', () => {
-    const e = openingEngine();
-    announce(e, 10);
-    // 6+4 = 10 needs the announced card; playing the 6 to capture only 4 (6) is
-    // doubly invalid: the 4 does not equal 6 AND the play ignores the bid.
-    const res = play(e, 'n', 's6', { kind: 'CAPTURE', tableCardIds: ['h3'], houseIds: [] });
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/announced/);
-  });
-
-  it('allows building the announced total with the promised card in hand', () => {
-    const e = openingEngine();
-    announce(e, 10);
-    const res = play(e, 'n', 's6', { kind: 'BUILD', tableCardIds: ['d4'], total: 10 });
-    expect(res.ok).toBe(true);
-    const s = state(e);
-    expect(s.houses).toHaveLength(1);
-    expect(s.houses[0]).toMatchObject({ total: 10, ownerId: 'n', sets: 1 });
-  });
-
-  it('rejects a build of a different total on the opening play', () => {
-    const e = openingEngine();
-    announce(e, 10);
-    // 6+3 = 9 — a fine ghar, but the announce was 10.
-    const res = play(e, 'n', 's6', { kind: 'BUILD', tableCardIds: ['h3'], total: 9 });
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/announced/);
-  });
-
-  it('laying the announced card is always available', () => {
-    const e = openingEngine();
-    announce(e, 10);
-    expect(play(e, 'n', 'h10', { kind: 'LAY_DOWN' }).ok).toBe(true);
-  });
-
-  it('laying a non-announced card on the opening play is rejected', () => {
-    const e = openingEngine();
-    announce(e, 10);
-    const res = play(e, 'n', 'c5', { kind: 'LAY_DOWN' });
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/announced 10|throw the announced/);
-  });
-});
-
-describe('the rest of the deal lands after the first play', () => {
-  it('tops everyone up (opener 11, others 12) and never deals again', () => {
-    const e = openingEngine();
-    announce(e, 10);
-    expect(play(e, 'n', 'h10', { kind: 'LAY_DOWN' }).ok).toBe(true);
-    const s = state(e);
-    expect(s.hands['n']).toHaveLength(11);
-    expect(s.hands['e']).toHaveLength(12);
-    expect(s.hands['s']).toHaveLength(12);
-    expect(s.hands['w']).toHaveLength(12);
-    expect(s.deck).toHaveLength(0);
-    expect(s.dealRestPending).toBe(false);
-    expect(s.events.filter((ev) => ev.type === 'BATCH_DEALT')).toHaveLength(3);
-    expect(s.playsMade).toBe(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Houses: kachcha, pakka, adding, breaking, retention
-// ---------------------------------------------------------------------------
-
-// Ghar 9 built by n (6 + loose 3, backed by 9♥). Table keeps 8/4/7.
-// The rest-deal runs in rounds (n,e,s,w / n,e,s,w / e,s,w), so the scripted
-// top-ups are laid out per round: E must find 13/2/Q/7 etc. in hand order.
-function houseEngine(): { e: SeepEngine; houseId: string } {
-  const opener = [c('h9', 'hearts', 9), c('s6', 'spades', 6), c('c5', 'clubs', 5), c('d2', 'diamonds', 2)];
-  const table = [c('d3', 'diamonds', 3), c('c8', 'clubs', 8), c('s4', 'spades', 4), c('h7', 'hearts', 7)];
-  const used = [...opener, ...table];
-  const rounds: Card[][] = [];
-  // round 1: n (holds the second 9), e (K, 2, Q, 6), s (10), w (6)
-  rounds.push([c('n1', 'clubs', 9), ...filler(3, [...used, c('n1', 'clubs', 9)], 'na')]);
-  rounds.push([c('e1', 'clubs', 13), c('e2', 'hearts', 2), c('e3', 'diamonds', 12), c('e4', 'spades', 11)]);
-  rounds.push([c('s1', 'hearts', 10), ...filler(3, [...used, c('n1', 'clubs', 9), c('s1', 'hearts', 10)], 'sa')]);
-  rounds.push([c('w1', 'clubs', 6), ...filler(3, [...used, c('n1', 'clubs', 9), c('s1', 'hearts', 10), c('w1', 'clubs', 6)], 'wa')]);
-  // round 2: n (filler), e (7 …), s, w
-  rounds.push(filler(4, [...used, c('n1', 'clubs', 9)], 'nb'));
-  rounds.push([c('e5', 'clubs', 7), ...filler(3, [...used, c('n1', 'clubs', 9), c('e5', 'clubs', 7)], 'eb')]);
-  rounds.push(filler(4, [...used, c('n1', 'clubs', 9)], 'sb'));
-  rounds.push(filler(4, [...used, c('n1', 'clubs', 9)], 'wb'));
-  // round 3: e (…9 among them), s, w — n sits out (11 cards already)
-  rounds.push([c('e9', 'hearts', 9), ...filler(3, [...used, c('n1', 'clubs', 9), c('e9', 'hearts', 9)], 'ec')]);
-  rounds.push(filler(4, [...used, c('n1', 'clubs', 9)], 'sc'));
-  rounds.push(filler(4, [...used, c('n1', 'clubs', 9)], 'wc'));
-  const e2 = fresh({ forcedDeck: deckFrom(opener, table, rounds.flat()), firstTurnSeat: 0 });
-  announce(e2, 9);
-  const res = play(e2, 'n', 's6', { kind: 'BUILD', tableCardIds: ['d3'], total: 9 });
-  expect(res.ok).toBe(true);
-  return { e: e2, houseId: state(e2).houses[0]!.id };
-}
-
-describe('houses (ghar)', () => {
-  it('ghar totals must lie between 9 and 13', () => {
-    const opener = [c('h9', 'hearts', 9), c('s6', 'spades', 6), c('c5', 'clubs', 5), c('d2', 'diamonds', 2)];
-    const table = [c('d3', 'diamonds', 3), c('c9', 'clubs', 9), c('s4', 'spades', 4), c('h7', 'hearts', 7)];
-    const e = fresh({ forcedDeck: deckFrom(opener, table, filler(44, [...opener, ...table], 'g')), firstTurnSeat: 0 });
-    announce(e, 9);
-    // 6+3 = 9 ✓ (range checks: 6+4 = 10 is fine too — the 8 and 14 cases are
-    // exercised structurally by the min/max rules; total 9 is the boundary).
-    expect(play(e, 'n', 's6', { kind: 'BUILD', tableCardIds: ['d3'], total: 9 }).ok).toBe(true);
-  });
-
-  it('building requires holding the promised card', () => {
-    // Opener holds J but no 10: 6+4 cannot be built into ghar 10.
-    const opener = [c('h11', 'hearts', 11), c('s6', 'spades', 6), c('c5', 'clubs', 5), c('d2', 'diamonds', 2)];
-    const table = [c('d4', 'diamonds', 4), c('c9', 'clubs', 9), c('s8', 'spades', 8), c('h5', 'hearts', 5)];
-    const e = fresh({ forcedDeck: deckFrom(opener, table, filler(44, [...opener, ...table], 'p')), firstTurnSeat: 0 });
+    expect(s.bidderSeat).toBe(3); // to the dealer's right (counter-clockwise)
+    expect(s.currentTurn).toBe(3);
+    expect(view(e, 'w').tableLoose).toHaveLength(0);
+    expect(view(e, 'w').tableFaceDownCount).toBe(4);
     announce(e, 11);
-    // The announced J has no capture (no 11 among 4/9/8/5) → lay it.
-    expect(play(e, 'n', 'h11', { kind: 'LAY_DOWN' }).ok).toBe(true);
+    expect(view(e, 'w').tableLoose).toHaveLength(4);
+    const driver = legalDriver();
+    while ((state(e).phase === 'TURN_PLAY' || state(e).phase === 'ANNOUNCE') && driver(e)) { /* play the deal out */ }
+    const s2 = state(e);
+    expect(s2.deck).toHaveLength(0);
+    expect(Object.values(s2.hands).flat()).toHaveLength(0);
+    expect(Object.values(s2.captures).flat()).toHaveLength(52);
+    expect(s2.phase === 'DEAL_COMPLETE' || s2.phase === 'MATCH_COMPLETE').toBe(true);
   });
 
-  it('an owner may add another complete set, making the ghar pakka', () => {
-    const { e, houseId } = houseEngine();
-    layAny(e, 'e');
-    layAny(e, 's');
-    layAny(e, 'w');
-    // n's top-up holds a second 9 — play it onto the ghar (9 alone = the set).
-    const hand = state(e).hands['n']!;
-    const nine = hand.find((x) => captureValue(x) === 9);
-    expect(nine).toBeDefined();
-    const res = play(e, 'n', nine!.id, { kind: 'ADD_TO_HOUSE', houseId, tableCardIds: [] });
-    expect(res.ok).toBe(true);
-    expect(state(e).houses[0]!.sets).toBe(2);
-    expect(view(e, 'n').houses[0]!.pakka).toBe(true);
-  });
-
-  it('adding with a completed set of loose cards keeps the total (pakka rule 12)', () => {
-    const e = fresh({ seed: 5 });
-    const s = state(e);
-    s.houses.push({ id: 'h-1', total: 12, ownerId: 'n', sets: 2, cards: [c('a', 'clubs', 7), c('b', 'diamonds', 5)] });
-    s.tableLoose = [c('t7', 'clubs', 7), c('t3', 'hearts', 3)];
-    s.hands = { n: [c('m2', 'spades', 2), c('mq', 'hearts', 12)], e: [c('x1', 'clubs', 2)], s: [c('x2', 'clubs', 3)], w: [c('x3', 'clubs', 4)] };
-    s.currentTurn = 0;
-    s.bid = 12;
-    s.phase = 'TURN_PLAY';
-    s.dealRestPending = false;
-    s.playsMade = 9;
-    // 2 + 7 + 3 = 12 — another complete set joins the pakka ghar.
-    const res = play(e, 'n', 'm2', { kind: 'ADD_TO_HOUSE', houseId: 'h-1', tableCardIds: ['t7', 't3'] });
-    expect(res.ok).toBe(true);
-    expect(state(e).houses[0]!.sets).toBe(3);
-    expect(state(e).tableLoose).toEqual([]);
-  });
-
-  it('only the owning team may add to a ghar', () => {
-    const { e, houseId } = houseEngine();
-    // E holds a 9 (filled into eRest? use the top-up: find any 9 in E's hand)
-    const eHand = state(e).hands['e']!;
-    const nine = eHand.find((x) => captureValue(x) === 9);
-    if (!nine) return; // filler variation — owning-team rule covered below
-    const res = play(e, 'e', nine.id, { kind: 'ADD_TO_HOUSE', houseId, tableCardIds: [] });
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/owning team/);
-  });
-
-  it('any player holding a matching value may add for the owner? no — opponents cannot', () => {
-    // Crafted: opponent holds 12 with n's pakka ghar 12 on an empty table.
-    const e = fresh({ seed: 5 });
-    const s = state(e);
-    s.houses.push({ id: 'h-1', total: 12, ownerId: 'n', sets: 1, cards: [c('a', 'clubs', 7), c('b', 'diamonds', 5)] });
-    s.tableLoose = [];
-    s.hands = { n: [c('m3', 'spades', 3)], e: [c('xq', 'clubs', 12)], s: [c('x2', 'clubs', 3)], w: [c('x3', 'clubs', 4)] };
-    s.currentTurn = 1;
-    s.bid = 12;
-    s.phase = 'TURN_PLAY';
-    s.dealRestPending = false;
-    s.playsMade = 9;
-    const res = play(e, 'e', 'xq', { kind: 'ADD_TO_HOUSE', houseId: 'h-1', tableCardIds: [] });
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/owning team/);
-  });
-
-  it('breaking a kachcha ghar raises the total and transfers ownership', () => {
-    const { e, houseId } = houseEngine();
-    // E holds 2 and Q(12): break ghar 9 by playing the 2 → ghar 11.
-    const res = play(e, 'e', 'e2', { kind: 'BREAK_HOUSE', houseId });
-    expect(res.ok).toBe(true);
-    const house = state(e).houses[0]!;
-    expect(house.total).toBe(11);
-    expect(house.ownerId).toBe('e');
-    expect(house.sets).toBe(1);
-  });
-
-  it('a break that overshoots 13 or lacks the new total is rejected', () => {
-    const { e, houseId } = houseEngine();
-    // K: 9+13 = 22 → out of range.
-    expect(play(e, 'e', 'e1', { kind: 'BREAK_HOUSE', houseId }).ok).toBe(false);
-    // 7: 9+7 = 16 → out of range (also matches the loose 7 — either way invalid).
-    expect(play(e, 'e', 'e5', { kind: 'BREAK_HOUSE', houseId }).ok).toBe(false);
-    // 2 with the Q held: 9+2 = 11 ✓ → the same break as the ownership test.
-    expect(play(e, 'e', 'e2', { kind: 'BREAK_HOUSE', houseId }).ok).toBe(true);
-  });
-
-  it('you cannot break your own ghar, but your partner may', () => {
-    const e = fresh({ seed: 5 });
-    const s = state(e);
-    s.houses.push({ id: 'h-1', total: 9, ownerId: 'n', sets: 1, cards: [c('a', 'clubs', 4), c('b', 'diamonds', 5)] });
-    s.tableLoose = [];
-    s.hands = {
-      n: [c('m2', 'spades', 2), c('m11', 'hearts', 11)],
-      e: [c('x1', 'clubs', 3)],
-      s: [c('p2', 'hearts', 2), c('p11', 'clubs', 11)],
-      w: [c('x3', 'clubs', 4)],
-    };
-    s.currentTurn = 0;
-    s.bid = 9;
-    s.phase = 'TURN_PLAY';
-    s.dealRestPending = false;
-    s.playsMade = 9;
-    // The owner himself may not break his ghar.
-    const own = play(e, 'n', 'm2', { kind: 'BREAK_HOUSE', houseId: 'h-1' });
-    expect(own.ok).toBe(false);
-    expect(own.error).toMatch(/own ghar/);
-    // But the partner (same team, different player) may take it over.
-    s.currentTurn = 2;
-    const partner = play(e, 's', 'p2', { kind: 'BREAK_HOUSE', houseId: 'h-1' });
-    expect(partner.ok).toBe(true);
-    expect(state(e).houses[0]!.ownerId).toBe('s');
-  });
-
-  it('an owner must retain a matching card while the ghar stands', () => {
-    const e = fresh({ seed: 5 });
-    const s = state(e);
-    s.houses.push(
-      { id: 'h-1', total: 9, ownerId: 'n', sets: 1, cards: [c('a', 'clubs', 4), c('b', 'diamonds', 5)] },
-      { id: 'h-2', total: 9, ownerId: 'n', sets: 1, cards: [c('d', 'hearts', 4), c('e', 'spades', 5)] },
-    );
-    s.tableLoose = [];
-    s.hands = {
-      n: [c('m9', 'hearts', 9)],
-      e: [c('x1', 'clubs', 3)],
-      s: [c('x2', 'clubs', 3)],
-      w: [c('x3', 'clubs', 4)],
-    };
-    s.currentTurn = 0;
-    s.bid = 9;
-    s.phase = 'TURN_PLAY';
-    s.dealRestPending = false;
-    s.playsMade = 9;
-    // Spending the only 9 on one of the two ghars orphans the other.
-    const res = play(e, 'n', 'm9', { kind: 'CAPTURE', tableCardIds: [], houseIds: ['h-1'] });
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/keep a 9/);
-    // Taking BOTH houses retires the obligation.
-    expect(play(e, 'n', 'm9', { kind: 'CAPTURE', tableCardIds: [], houseIds: ['h-1', 'h-2'] }).ok).toBe(true);
-    expect(state(e).houses).toHaveLength(0);
-  });
-
-  it('a pakka ghar cannot be broken', () => {
-    const { e, houseId } = houseEngine();
-    layAny(e, 'e');
-    layAny(e, 's');
-    layAny(e, 'w');
-    const hand = state(e).hands['n']!;
-    const nine = hand.find((x) => captureValue(x) === 9);
-    expect(nine).toBeDefined();
-    expect(play(e, 'n', nine!.id, { kind: 'ADD_TO_HOUSE', houseId, tableCardIds: [] }).ok).toBe(true);
-    expect(state(e).houses[0]!.sets).toBe(2);
-    const res = play(e, 'e', 'e2', { kind: 'BREAK_HOUSE', houseId });
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/pakka/);
-  });
-
-  it('capturing a ghar takes the whole stack with the matching card', () => {
-    const { e, houseId } = houseEngine();
-    const res = play(e, 'e', 'e10', { kind: 'CAPTURE', tableCardIds: [], houseIds: [houseId] });
-    if (state(e).hands['e']!.some((x) => x.id === 'e10')) {
-      // e10 is a 9 → captures the ghar.
-      expect(res.ok).toBe(true);
-      expect(state(e).houses).toHaveLength(0);
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Captures, must-capture and sweeps
-// ---------------------------------------------------------------------------
-
-describe('captures', () => {
-  it('take several separate groups and matching houses in one play', () => {
-    const e = fresh({ seed: 3 });
-    const s = state(e);
-    s.houses.push({ id: 'h-1', total: 9, ownerId: 'w', sets: 1, cards: [c('hc1', 'clubs', 4), c('hc2', 'diamonds', 5)] });
-    s.tableLoose = [
-      c('t1', 'clubs', 1), c('t2', 'hearts', 8), c('t3', 'diamonds', 3), c('t4', 'spades', 6), c('t5', 'clubs', 9),
+  it('the first play must involve the bid; Pagat 7-8-8-J must take 2+9+J', () => {
+    const pool: Card[] = [
+      c('j', 'hearts', 11), c('h7', 'hearts', 7), c('h8a', 'hearts', 8), c('h8b', 'diamonds', 8), // bidder
+      c('f2', 'spades', 2), c('f9', 'spades', 9), c('fj', 'clubs', 11), c('fk', 'diamonds', 13), // floor
     ];
-    s.hands = { n: [c('m9', 'hearts', 9)], e: [c('x1', 'clubs', 2)], s: [c('x2', 'clubs', 3)], w: [c('x3', 'clubs', 4)] };
-    s.currentTurn = 0;
-    s.bid = 9;
-    s.phase = 'TURN_PLAY';
-    s.dealRestPending = false;
-    s.playsMade = 9;
-    // 1+8 = 9, 3+6 = 9, the loose 9, and the whole house — one play.
-    const res = play(e, 'n', 'm9', { kind: 'CAPTURE', tableCardIds: ['t1', 't2', 't3', 't4', 't5'], houseIds: ['h-1'] });
-    expect(res.ok).toBe(true);
-    expect(s.captures['n']).toHaveLength(1 + 5 + 2);
-    // Everything is gone → that is also a sweep (+50, mid-deal).
-    expect(s.tableLoose).toHaveLength(0);
-    expect(s.houses).toHaveLength(0);
-    expect(s.sweepPoints[0]).toBe(50);
-    expect(s.lastCaptureTeam).toBe(0);
+    completeDeal(pool);
+    const e = newEngine(pool);
+    announce(e, 11);
+
+    // throwing a non-bid card or capturing partially is illegal
+    expect(play(e, 'w', 'h7', { kind: 'LAY_DOWN' }).ok).toBe(false);
+    expect(play(e, 'w', 'j', { kind: 'CAPTURE', tableCardIds: ['f2', 'f9'], houseIds: [] }).ok).toBe(false);
+    // the J MUST take 2+9 and the loose J — the K (13) stays
+    expect(play(e, 'w', 'j', { kind: 'CAPTURE', tableCardIds: ['f2', 'f9', 'fj'], houseIds: [] }).ok).toBe(true);
+    const s = state(e);
+    expect(s.tableLoose.map((x) => x.id)).toEqual(['fk']);
+    expect(s.captures['w']).toHaveLength(4);
+    expect(s.playsMade).toBe(1);
+    expectEnumeratedLegal(e, 'w');
   });
 
-  it('rejects a selection whose groups do not all match the played value', () => {
-    const e = fresh({ seed: 3 });
+  it('a first-play sweep of the floor pays only 25', () => {
+    const pool: Card[] = [
+      c('q', 'hearts', 12), c('b2', 'hearts', 3), c('b3', 'diamonds', 5), c('b4', 'diamonds', 4), // bidder
+      c('f1', 'spades', 4), c('f2', 'spades', 4), c('f3', 'clubs', 12), c('f4', 'hearts', 4), // floor
+    ];
+    completeDeal(pool);
+    const e = newEngine(pool);
+    announce(e, 12);
+    // Q takes {f3} and {f1,f2,f4} (4+4+4=12) — all four floor cards → sweep
+    const res = play(e, 'w', 'q', { kind: 'CAPTURE', tableCardIds: ['f1', 'f2', 'f3', 'f4'], houseIds: [] });
+    expect(res.ok, res.error).toBe(true);
     const s = state(e);
-    s.tableLoose = [c('t1', 'clubs', 1), c('t2', 'hearts', 8), c('t3', 'diamonds', 3)];
-    s.hands = { n: [c('m8', 'hearts', 8)], e: [c('x1', 'clubs', 2)], s: [c('x2', 'clubs', 3)], w: [c('x3', 'clubs', 4)] };
-    s.currentTurn = 0;
-    s.bid = 8;
-    s.phase = 'TURN_PLAY';
-    s.dealRestPending = false;
-    s.playsMade = 9;
-    // 1+8 = 9 — not a group of 8s, so the selection is illegal even though 8 alone matches.
-    const res = play(e, 'n', 'm8', { kind: 'CAPTURE', tableCardIds: ['t1', 't2'], houseIds: [] });
-    expect(res.ok).toBe(false);
-    expect(play(e, 'n', 'm8', { kind: 'CAPTURE', tableCardIds: ['t2'], houseIds: [] }).ok).toBe(true);
-  });
-
-  it('enforces must-capture against laying, building, adding and breaking', () => {
-    const e = fresh({ seed: 3 });
-    const s = state(e);
-    s.houses.push({ id: 'h-1', total: 9, ownerId: 'n', sets: 1, cards: [c('hc1', 'clubs', 4), c('hc2', 'diamonds', 5)] });
-    s.tableLoose = [c('t9', 'clubs', 9)];
-    s.hands = { n: [c('m9', 'hearts', 9)], e: [c('x1', 'clubs', 2)], s: [c('x2', 'clubs', 3)], w: [c('x3', 'clubs', 4)] };
-    s.currentTurn = 0;
-    s.bid = 9;
-    s.phase = 'TURN_PLAY';
-    s.dealRestPending = false;
-    s.playsMade = 9;
-    expect(play(e, 'n', 'm9', { kind: 'LAY_DOWN' }).ok).toBe(false);
-    expect(play(e, 'n', 'm9', { kind: 'ADD_TO_HOUSE', houseId: 'h-1', tableCardIds: [] }).ok).toBe(false);
-    expect(play(e, 'n', 'm9', { kind: 'CAPTURE', tableCardIds: ['t9'], houseIds: ['h-1'] }).ok).toBe(true);
-  });
-
-  it('a matching card may still be played onto an own-team house when no loose capture exists', () => {
-    const e = fresh({ seed: 3 });
-    const s = state(e);
-    s.houses.push({ id: 'h-1', total: 10, ownerId: 'n', sets: 1, cards: [c('hc1', 'clubs', 4), c('hc2', 'diamonds', 6)] });
-    s.tableLoose = [c('t3', 'clubs', 3)];
-    s.hands = { n: [c('m10', 'hearts', 10), c('m10b', 'spades', 10)], e: [c('x1', 'clubs', 2)], s: [c('x2', 'clubs', 3)], w: [c('x3', 'clubs', 4)] };
-    s.currentTurn = 0;
-    s.bid = 10;
-    s.phase = 'TURN_PLAY';
-    s.dealRestPending = false;
-    s.playsMade = 9;
-    // Rule 11: two 10s — play one onto the ghar, keep the other as the promise.
-    const res = play(e, 'n', 'm10', { kind: 'ADD_TO_HOUSE', houseId: 'h-1', tableCardIds: [] });
-    expect(res.ok).toBe(true);
-    expect(state(e).houses[0]!.sets).toBe(2);
+    expect(s.sweeps[1]).toBe(1); // w is seat 3 → team 1
+    expect(s.sweepPoints[1]).toBe(25);
   });
 });
 
-describe('sweeps', () => {
-  function sweepEngine(): SeepEngine {
-    // Opening play sweeps: bid 10, table 1+2+3+4 (one group summing 10).
-    const opener = [c('h10', 'hearts', 10), c('s6', 'spades', 6), c('c5', 'clubs', 5), c('d2', 'diamonds', 2)];
-    const table = [c('t1', 'clubs', 1), c('t2', 'hearts', 2), c('t3', 'diamonds', 3), c('t4', 'spades', 4)];
-    return fresh({ forcedDeck: deckFrom(opener, table, filler(44, [...opener, ...table], 'w')), firstTurnSeat: 0 });
+describe('must-capture is per played card, not per hand', () => {
+  function mustTable(): SeepEngine {
+    // bidder throws the J (no 11-group on the floor); s then holds 8 + J backing
+    const pool: Card[] = [
+      c('wJ', 'hearts', 11), c('w2', 'hearts', 2), c('w4', 'hearts', 4), c('w5', 'diamonds', 5), // bidder
+      c('t3', 'spades', 3), c('t5', 'spades', 5), c('t2', 'diamonds', 2), c('tK', 'diamonds', 13), // floor: single 8-group {3,5}
+    ];
+    completeDeal(pool, {
+      s: [c('s8', 'clubs', 8), c('sJb', 'clubs', 11), c('s6', 'clubs', 6), c('s9', 'clubs', 9)],
+    });
+    const e = newEngine(pool);
+    announce(e, 11);
+    // opening play: throw the bid card (it takes nothing: floor has no 11-group)
+    expect(play(e, 'w', 'wJ', { kind: 'LAY_DOWN' }).ok).toBe(true);
+    expect(pidAt(e, state(e).currentTurn)).toBe('s');
+    return e;
   }
 
-  it('a sweep on the opening play pays 25', () => {
-    const e = sweepEngine();
-    announce(e, 10);
-    const res = play(e, 'n', 'h10', { kind: 'CAPTURE', tableCardIds: ['t1', 't2', 't3', 't4'], houseIds: [] });
-    expect(res.ok).toBe(true);
+  it('a card that can capture may not be thrown and capture-all is enforced', () => {
+    const e = mustTable();
+    expect(play(e, 's', 's8', { kind: 'LAY_DOWN' }).ok).toBe(false);
+    expect(play(e, 's', 's8', { kind: 'CAPTURE', tableCardIds: ['t3'], houseIds: [] }).ok).toBe(false);
+    expect(play(e, 's', 's8', { kind: 'CAPTURE', tableCardIds: ['t3', 't5'], houseIds: [] }).ok).toBe(true);
+  });
+
+  it('BUILD is a legal alternative use even when the card could capture', () => {
+    const e = mustTable();
+    // 8+3=11 build (backed by sJb) instead of capturing 3+5 — the loose wJ
+    // auto-cements the house (a loose card of the same value joins it)
+    const res = play(e, 's', 's8', { kind: 'BUILD', tableCardIds: ['t3'], total: 11 });
+    expect(res.ok, res.error).toBe(true);
+    const h = state(e).houses[0]!;
+    expect(h.total).toBe(11);
+    expect(houseIsPakka(h)).toBe(true); // wJ was auto-absorbed
+    expectEnumeratedLegal(e, 's');
+  });
+});
+
+describe('houses: build, retention, break, cement', () => {
+  it('builds a kachcha ghar; pakka is derived from copies, not stored', () => {
+    const e = houseTable();
+    const h = state(e).houses[0]!;
+    expect(h.total).toBe(9);
+    expect(h.cards.map((x) => x.id).sort()).toEqual(['t3', 'w6'].sort());
+    expect(houseCopies(h)).toBe(1);
+    expect(houseIsPakka(h)).toBe(false);
+    expect(h.ownerByTeam[1]).toBe('w'); // w is seat 3 → team 1
+    expect(state(e).houses.filter((x) => x.total === 9)).toHaveLength(1);
+  });
+
+  it('a build that does not form complete copies of the total is rejected', () => {
+    const pool: Card[] = [
+      c('w6', 'hearts', 6), c('w9', 'hearts', 9), c('w3', 'diamonds', 3), c('w2', 'hearts', 2),
+      c('t3', 'spades', 3), c('t2', 'spades', 2), c('tK', 'diamonds', 13), c('tQ', 'diamonds', 12),
+    ];
+    completeDeal(pool);
+    const e = newEngine(pool);
+    announce(e, 9);
+    // 6+3 = 9 is a complete copy; declaring total 10 is nonsense
+    expect(play(e, 'w', 'w6', { kind: 'BUILD', tableCardIds: ['t3'], total: 10 }).ok).toBe(false);
+  });
+
+  it('a single play can establish a cemented house (9 played onto a loose 9)', () => {
+    const pool: Card[] = [
+      c('w9a', 'hearts', 9), c('w9b', 'hearts', 9), c('w9c', 'diamonds', 9), c('w2', 'hearts', 2), // bidder: three 9s
+      c('t9', 'spades', 9), c('t5', 'spades', 5), c('tK', 'diamonds', 13), c('tQ', 'diamonds', 12), // floor: loose 9
+    ];
+    completeDeal(pool);
+    const e = newEngine(pool);
+    announce(e, 9);
+    // play one 9 onto the loose 9 → 18 = 2 copies → pakka, backed by w9b
+    const res = play(e, 'w', 'w9a', { kind: 'BUILD', tableCardIds: ['t9'], total: 9 });
+    expect(res.ok, res.error).toBe(true);
+    const h = state(e).houses[0]!;
+    expect(h.total).toBe(9);
+    expect(houseCopies(h)).toBe(2);
+    expect(houseIsPakka(h)).toBe(true);
+    expect(h.ownerByTeam[1]).toBe('w');
+  });
+
+  it('a kachcha ghar can be broken by a non-owner; the breaker becomes owner with retention', () => {
+    const pool: Card[] = [
+      c('w6', 'hearts', 6), c('w9', 'hearts', 9), c('w3', 'diamonds', 3), c('w2', 'hearts', 2), // bidder
+      c('t3', 'spades', 3), c('t2', 'spades', 2), c('tK', 'diamonds', 13), c('tQ', 'diamonds', 12), // floor
+    ];
+    completeDeal(pool, {
+      s: [c('s2', 'clubs', 2), c('sJ', 'clubs', 11), c('sJb', 'diamonds', 11), c('s4', 'clubs', 4)], // break 9→11, backing J
+    });
+    const e = newEngine(pool);
+    announce(e, 9);
+    expect(play(e, 'w', 'w6', { kind: 'BUILD', tableCardIds: ['t3'], total: 9 }).ok).toBe(true);
+    expect(pidAt(e, state(e).currentTurn)).toBe('s'); // counter-clockwise: w → s
+    const houseId = state(e).houses[0]!.id;
+    const res = play(e, 's', 's2', { kind: 'BREAK_HOUSE', houseId });
+    expect(res.ok, res.error).toBe(true);
+    const h = state(e).houses[0]!;
+    expect(h.total).toBe(11);
+    expect(h.ownerByTeam[0]).toBe('s'); // s is seat 2 → team 0: the breaker took over
+    expect(state(e).hands['s']!.some((x) => x.rank === 11)).toBe(true); // retention
+  });
+
+  it('breaking your own ghar is illegal; a cemented ghar cannot be broken', () => {
+    // w holds TWO 9s: cementing his own ghar needs one 9 to play and one to keep
+    const pool: Card[] = [
+      c('w6', 'hearts', 6), c('w9a', 'hearts', 9), c('w9b', 'diamonds', 9), c('w3', 'hearts', 3), // bidder
+      c('t3', 'spades', 3), c('t2', 'spades', 2), c('tK', 'diamonds', 13), c('tQ', 'diamonds', 12), // floor
+    ];
+    completeDeal(pool);
+    const e = newEngine(pool);
+    announce(e, 9);
+    expect(play(e, 'w', 'w6', { kind: 'BUILD', tableCardIds: ['t3'], total: 9 }).ok).toBe(true);
+    const houseId = state(e).houses[0]!.id;
+    for (const pid of ['s', 'e', 'n']) walkOnce(e, pid, houseId);
+    expect(pidAt(e, state(e).currentTurn)).toBe('w');
+    // w owns it → cannot break it himself
+    expect(play(e, 'w', 'w9a', { kind: 'BREAK_HOUSE', houseId }).ok).toBe(false);
+    // owner cements with one 9 while keeping the second
+    const res = play(e, 'w', 'w9a', { kind: 'ADD_TO_HOUSE', houseId, tableCardIds: [] });
+    expect(res.ok, res.error).toBe(true);
+    expect(houseIsPakka(state(e).houses[0]!)).toBe(true);
+    // pakka → any break now fails
+    expect(play(e, 'w', 'w3', { kind: 'BREAK_HOUSE', houseId }).ok).toBe(false);
+  });
+
+  it('an opponent cementing becomes co-owner of one pakka ghar (both teams retain)', () => {
+    const pool: Card[] = [
+      c('w6', 'hearts', 6), c('w9', 'hearts', 9), c('w3', 'diamonds', 3), c('w2', 'hearts', 2), // bidder
+      c('t3', 'spades', 3), c('t2', 'spades', 2), c('tK', 'diamonds', 13), c('tQ', 'diamonds', 12), // floor
+    ];
+    completeDeal(pool, {
+      n: [c('n9', 'spades', 9), c('n9b', 'clubs', 9), c('n4', 'spades', 4), c('n5', 'hearts', 5)], // cement + retention
+    });
+    const e = newEngine(pool);
+    announce(e, 9);
+    expect(play(e, 'w', 'w6', { kind: 'BUILD', tableCardIds: ['t3'], total: 9 }).ok).toBe(true);
+    const houseId = state(e).houses[0]!.id;
+    for (const pid of ['s', 'e']) walkOnce(e, pid, houseId);
+    expect(pidAt(e, state(e).currentTurn)).toBe('n');
+    const res = play(e, 'n', 'n9', { kind: 'ADD_TO_HOUSE', houseId, tableCardIds: [] });
+    expect(res.ok, res.error).toBe(true);
+    const h = state(e).houses[0]!;
+    expect(houseCopies(h)).toBe(2);
+    expect(houseIsPakka(h)).toBe(true);
+    expect(h.ownerByTeam[1]).toBe('w');
+    expect(h.ownerByTeam[0]).toBe('n'); // second owner via cement
+    expect(state(e).hands['n']!.some((x) => x.rank === 9)).toBe(true); // both retain
+    expect(state(e).hands['w']!.some((x) => x.rank === 9)).toBe(true);
+  });
+});
+
+describe('auto-cement', () => {
+  it('building a 12-house while a loose Q lies on the floor absorbs it (pakka)', () => {
+    const pool: Card[] = [
+      c('w5', 'hearts', 5), c('wq', 'hearts', 12), c('w4', 'hearts', 4), c('w3', 'diamonds', 3), // bidder: 5+4+3=12, backing Q
+      c('t4', 'spades', 4), c('t3', 'spades', 3), c('tq', 'diamonds', 12), c('t2', 'spades', 2), // floor: loose Q
+    ];
+    completeDeal(pool);
+    const e = newEngine(pool);
+    announce(e, 12);
+    const res = play(e, 'w', 'w5', { kind: 'BUILD', tableCardIds: ['t4', 't3'], total: 12 });
+    expect(res.ok, res.error).toBe(true);
+    const h = state(e).houses[0]!;
+    expect(h.cards.map((x) => x.id).sort()).toEqual(['w5', 't4', 't3', 'tq'].sort());
+    expect(houseIsPakka(h)).toBe(true);
+    expect(state(e).tableLoose.some((x) => x.id === 'tq')).toBe(false);
+  });
+
+  it('breaking into a total matching a loose set cements automatically (9+1=10 over 4+6)', () => {
+    const pool: Card[] = [
+      c('w6', 'hearts', 6), c('w9', 'hearts', 9), c('w3', 'diamonds', 3), c('w2', 'hearts', 2), // bidder: build 9 (6+t3), backing 9
+      c('t3', 'spades', 3), c('t4', 'diamonds', 4), c('t6', 'diamonds', 6), c('t2', 'spades', 2), // floor: 4+6=10 loose
+    ];
+    completeDeal(pool, {
+      s: [c('s1', 'clubs', 1), c('s10b', 'clubs', 10), c('s8', 'clubs', 8), c('s5', 'clubs', 5)], // break 9+1=10, backing 10
+    });
+    const e = newEngine(pool);
+    announce(e, 9);
+    expect(play(e, 'w', 'w6', { kind: 'BUILD', tableCardIds: ['t3'], total: 9 }).ok).toBe(true);
+    // no auto-cement at build time: nothing on the floor equals/sums to 9
+    expect(houseIsPakka(state(e).houses[0]!)).toBe(false);
+    expect(pidAt(e, state(e).currentTurn)).toBe('s');
+    const houseId = state(e).houses[0]!.id;
+    const res = play(e, 's', 's1', { kind: 'BREAK_HOUSE', houseId });
+    expect(res.ok, res.error).toBe(true);
+    const h = state(e).houses[0]!;
+    expect(h.total).toBe(10);
+    expect(h.cards.map((x) => x.id).sort()).toEqual(['w6', 't3', 's1', 't4', 't6'].sort());
+    expect(houseCopies(h)).toBe(2); // 6+3+1+4+6 = 20 = 2 × 10
+    expect(houseIsPakka(h)).toBe(true);
+    expect(state(e).hands['s']!.some((x) => x.rank === 10)).toBe(true); // breaker retains
+  });
+});
+
+describe('capturing houses and leftovers', () => {
+  it('a J takes a J-house and a loose 7+4 in the same compulsory play', () => {
+    const pool: Card[] = [
+      c('wj', 'hearts', 11), c('wb', 'hearts', 2), c('wc', 'diamonds', 3), c('wd', 'diamonds', 5), // bidder
+      c('fj', 'spades', 11), c('f7', 'spades', 7), c('f4', 'diamonds', 4), c('fx', 'hearts', 4), // floor: J + 7+4
+    ];
+    completeDeal(pool);
+    const e = newEngine(pool);
+    announce(e, 11);
+    const res = play(e, 'w', 'wj', { kind: 'CAPTURE', tableCardIds: ['f7', 'f4', 'fj'], houseIds: [] });
+    expect(res.ok, res.error).toBe(true);
+    expect(state(e).captures['w']).toHaveLength(4);
+  });
+
+  it('a ghar is captured by its matching card alone (never as part of a set)', () => {
+    const e = houseTable();
+    const houseId = state(e).houses[0]!.id;
+    for (const pid of ['s', 'e', 'n']) walkOnce(e, pid, houseId);
+    expect(pidAt(e, state(e).currentTurn)).toBe('w');
+    const res = play(e, 'w', 'w9', { kind: 'CAPTURE', tableCardIds: [], houseIds: [houseId] });
+    expect(res.ok, res.error).toBe(true);
+    expect(state(e).houses).toHaveLength(0);
+    expect(state(e).captures['w']).toHaveLength(3); // w9 + house cards
+  });
+
+  it('a queen cannot pick up a 9-house together with a 3 (house needs the exact card)', () => {
+    const pool: Card[] = [
+      c('w6', 'hearts', 6), c('w9', 'hearts', 9), c('w3', 'diamonds', 3), c('w2', 'hearts', 2), // bidder
+      c('t3', 'spades', 3), c('t2', 'spades', 2), c('tK', 'diamonds', 13), c('tQ', 'diamonds', 12), // floor
+    ];
+    completeDeal(pool, {
+      s: [c('sQ', 'clubs', 12), c('sQb', 'hearts', 12), c('s7', 'clubs', 7), c('s8', 'clubs', 8)],
+    });
+    const e = newEngine(pool);
+    announce(e, 9);
+    expect(play(e, 'w', 'w6', { kind: 'BUILD', tableCardIds: ['t3'], total: 9 }).ok).toBe(true);
+    const houseId = state(e).houses[0]!.id;
+    // floor has no group of 12, so a Q could only target the house — and 12 ≠ 9
+    expect(play(e, 's', 'sQ', { kind: 'CAPTURE', tableCardIds: [], houseIds: [houseId] }).ok).toBe(false);
+    expectEnumeratedLegal(e, 's');
+  });
+
+  it('leftover floor cards go to the team that picked up last', () => {
+    const e = new SeepEngine();
+    e.createGame(PLAYERS, { seed: 777 });
+    const driver = legalDriver();
+    while ((state(e).phase === 'TURN_PLAY' || state(e).phase === 'ANNOUNCE') && driver(e)) { /* play */ }
     const s = state(e);
     expect(s.tableLoose).toHaveLength(0);
-    expect(s.sweeps[0]).toBe(1);
-    expect(s.sweepPoints[0]).toBe(25);
-    expect(s.events.find((ev) => ev.type === 'SEEP_SWEEP')?.payload).toMatchObject({ bonus: 25 });
-  });
-
-  it('a normal mid-deal sweep pays 50', () => {
-    const e = fresh({ seed: 3 });
-    const s = state(e);
-    s.tableLoose = [c('t1', 'clubs', 1), c('t2', 'hearts', 7), c('t3', 'diamonds', 3), c('t4', 'spades', 5)];
-    s.hands = { n: [c('m8', 'hearts', 8)], e: [c('x1', 'clubs', 2)], s: [c('x2', 'clubs', 3)], w: [c('x3', 'clubs', 4)] };
-    s.currentTurn = 0;
-    s.bid = 8;
-    s.phase = 'TURN_PLAY';
-    s.dealRestPending = false;
-    s.playsMade = 9;
-    const res = play(e, 'n', 'm8', { kind: 'CAPTURE', tableCardIds: ['t1', 't2', 't3', 't4'], houseIds: [] });
-    expect(res.ok).toBe(true);
-    expect(state(e).sweepPoints[0]).toBe(50);
-  });
-
-  it('a sweep with the very last card of the deal pays nothing', () => {
-    const e = fresh({ seed: 3 });
-    const s = state(e);
-    s.tableLoose = [c('t1', 'clubs', 1), c('t2', 'hearts', 7), c('t3', 'diamonds', 3), c('t4', 'spades', 5)];
-    s.hands = { n: [], e: [], s: [], w: [c('m8', 'hearts', 8)] };
-    s.currentTurn = 3;
-    s.bid = 8;
-    s.phase = 'TURN_PLAY';
-    s.dealRestPending = false;
-    s.playsMade = 47;
-    const res = play(e, 'w', 'm8', { kind: 'CAPTURE', tableCardIds: ['t1', 't2', 't3', 't4'], houseIds: [] });
-    expect(res.ok).toBe(true);
-    const after = state(e);
-    expect(after.sweeps[1]).toBe(1);
-    expect(after.sweepPoints[1]).toBe(0);
-    expect(after.phase).toBe('ROUND_COMPLETE');
-  });
-
-  it('after a sweep the next player lays into the empty table', () => {
-    const e = sweepEngine();
-    announce(e, 10);
-    expect(play(e, 'n', 'h10', { kind: 'CAPTURE', tableCardIds: ['t1', 't2', 't3', 't4'], houseIds: [] }).ok).toBe(true);
-    const s = state(e);
-    expect(s.currentTurn).toBe(1);
-    const card = s.hands['e']![0]!;
-    expect(play(e, 'e', card.id, { kind: 'LAY_DOWN' }).ok).toBe(true);
-    expect(state(e).tableLoose).toHaveLength(1);
+    expect(s.houses).toHaveLength(0);
+    const piles = Object.values(s.captures).flat();
+    expect(piles).toHaveLength(52);
+    const pts = piles.reduce((sum, card) => sum + cardPoints(card, DEFAULT_SEEP_RULES), 0);
+    const scores = s.teamScores!;
+    expect(scores[0] + scores[1]).toBe(pts + s.sweepPoints[0] + s.sweepPoints[1]);
   });
 });
 
-// ---------------------------------------------------------------------------
-// Endgame, scoring and invariants
-// ---------------------------------------------------------------------------
-
-describe('a full dealt game', () => {
-  it('runs 48 plays, every capture lands, and scores conserve', () => {
-    const e = fresh({ seed: 11, firstTurnSeat: 0 });
-    autoPlay(e);
-    const s = state(e);
-    expect(s.playsMade).toBe(48);
-    expect(s.phase).toBe('ROUND_COMPLETE');
-    const captured = Object.values(s.captures).flat();
-    expect(captured).toHaveLength(52);
-    const tp = s.teamScores!;
-    const cardPts = captured.reduce((sum, card) => sum + cardPoints(card, DEFAULT_SEEP_RULES), 0);
-    expect(cardPts).toBe(96);
-    const sweepsPts = s.sweepPoints[0] + s.sweepPoints[1];
-    const spread = Object.entries(s.captures).reduce(
-      (acc, [pid, cards]) => acc + (teamOfPlayer(pid) === 0 ? cards.length : -cards.length),
-      0,
-    );
-    expect(tp[0] + tp[1]).toBe(96 + sweepsPts + (spread !== 0 ? 4 : 0));
-    // Partners share their team score.
-    expect(e.calculateScore()['n']).toBe(tp[0]);
-    expect(e.calculateScore()['s']).toBe(tp[0]);
-    expect(e.calculateScore()['e']).toBe(tp[1]);
-    expect(e.calculateScore()['w']).toBe(tp[1]);
-  });
-
-  it('is deterministic for a given seed', () => {
-    const a = fresh({ seed: 21 });
-    autoPlay(a);
-    const b = fresh({ seed: 21 });
-    autoPlay(b);
-    expect(JSON.stringify(state(a).teamScores)).toBe(JSON.stringify(state(b).teamScores));
-    expect(state(a).events.map((ev) => [ev.seq, ev.type])).toEqual(state(b).events.map((ev) => [ev.seq, ev.type]));
-  });
-
-  it('leaves nothing on the table at the end', () => {
-    const e = fresh({ seed: 11 });
-    autoPlay(e);
-    expect(state(e).tableLoose).toHaveLength(0);
-    expect(state(e).houses).toHaveLength(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Views, restore, misc
-// ---------------------------------------------------------------------------
-
-describe('views and persistence', () => {
-  it('filter opponent hands and expose team structure', () => {
-    const e = fresh({ seed: 7 });
-    announceBest(e);
-    const v = view(e, 'n');
-    expect(v.myTeam).toBe(0);
-    expect(v.teams).toEqual({ 0: ['n', 's'], 1: ['e', 'w'] });
-    for (const id of v.handCardIds['e'] ?? []) expect(v.knownCards[id]).toBeUndefined();
-    for (const id of v.handCardIds['n'] ?? []) expect(v.knownCards[id]).toBeDefined();
-    expect(v.bid).toBe(state(e).bid);
-  });
-
-  it('round-trips through restoreState', () => {
-    const e = fresh({ seed: 21 });
-    autoPlay(e);
-    const snapshot = JSON.parse(JSON.stringify(state(e))) as SeepState;
-    const restored = new SeepEngine();
-    restored.restoreState(snapshot);
-    expect(JSON.stringify(restored.getState())).toBe(JSON.stringify(snapshot));
-    expect(restored.isGameFinished()).toBe(true);
-    expect(restored.calculateScore()).toEqual(e.calculateScore());
-  });
-
-  it('rejects foreign state versions', () => {
-    const restored = new SeepEngine();
-    expect(() => restored.restoreState({ stateVersion: 99 } as unknown as SeepState)).toThrow(/version/);
-  });
-
-  it('exposes house ownership and pakka state in views', () => {
-    const e = fresh({ seed: 3 });
-    const s = state(e);
-    s.houses.push({ id: 'h-1', total: 12, ownerId: 'n', sets: 2, cards: [c('a', 'clubs', 7), c('b', 'hearts', 5)] });
-    s.bid = 12;
-    const v = view(e, 'e');
-    expect(v.houses[0]).toMatchObject({ ownerId: 'n', ownerTeam: 0, sets: 2, pakka: true });
-  });
-
-  it('reports the majority team in the round result', () => {
-    const e = fresh({ seed: 11 });
-    autoPlay(e);
-    const result = view(e).roundResult!;
-    const spread = Object.entries(state(e).captures).reduce(
-      (acc, [pid, cards]) => acc + (teamOfPlayer(pid) === 0 ? cards.length : -cards.length),
-      0,
-    );
-    if (spread !== 0) {
-      expect(result.majorityTeam).toBe(spread > 0 ? 0 : 1);
-    } else {
-      expect(result.majorityTeam).toBeNull();
+describe('sweep timing', () => {
+  it('mid-deal sweep pays 50; the final-card sweep scores nothing', () => {
+    const rules = DEFAULT_SEEP_RULES;
+    expect(rules.sweepBonus).toBe(50);
+    expect(rules.firstPlaySweepBonus).toBe(25);
+    expect(rules.lastPlaySweepZero).toBe(true);
+    for (let seed = 5; seed <= 7; seed++) {
+      const e = new SeepEngine();
+      e.createGame(PLAYERS, { seed: seed * 991 });
+      const driver = legalDriver();
+      let plays = 0;
+      let ok = true;
+      while ((state(e).phase === 'TURN_PLAY' || state(e).phase === 'ANNOUNCE') && ok) {
+        const before = state(e).sweepPoints[0] + state(e).sweepPoints[1];
+        ok = driver(e);
+        const after = state(e);
+        plays = after.playsMade;
+        if (after.sweepPoints[0] + after.sweepPoints[1] > before && plays >= 48) {
+          throw new Error('sweep awarded on the final play');
+        }
+      }
+      expect(plays).toBe(48);
     }
   });
 });
+
+describe('baazi match play', () => {
+  it('accumulates deal differences, applies the minimum-loss rule and rotates the dealer', () => {
+    const e = new SeepEngine();
+    e.createGame(PLAYERS, { seed: 20240, rules: { minimumDealPoints: 40, baaziLeadTarget: 45 } as never });
+    let guard = 0;
+    while (state(e).phase !== 'MATCH_COMPLETE' && guard++ < 30) {
+      const driver = legalDriver();
+      while ((state(e).phase === 'TURN_PLAY' || state(e).phase === 'ANNOUNCE') && driver(e)) { /* play the deal */ }
+      if (state(e).phase === 'MATCH_COMPLETE') break;
+      const s = state(e);
+      expect(s.dealHistory.length).toBeGreaterThan(0);
+      const last = s.dealHistory[s.dealHistory.length - 1]!;
+      const dealerTeam = s.dealerSeat % 2;
+      const dealerAhead = last.leadAfter === 0 ? null : last.leadAfter > 0 ? 0 : 1;
+      const expected = dealerAhead !== dealerTeam ? s.dealerSeat : (s.dealerSeat + 3) % 4;
+      const baaziJustEnded = !!last.baazi;
+      e.handleNextDeal(s.players[s.dealerSeat]!.id);
+      const s2 = state(e);
+      if (baaziJustEnded) {
+        // after a baazi the partner of the would-be next dealer deals
+        expect(s2.dealerSeat).toBe((expected + 2) % 4);
+      } else {
+        expect(s2.dealerSeat).toBe(expected);
+      }
+      expect(s2.dealNo).toBe(s.dealNo + 1);
+      expect(s2.tableLoose).toHaveLength(0);
+      expect(s2.houses).toHaveLength(0);
+      expect(s2.bid).toBeNull();
+    }
+    expect(state(e).phase).toBe('MATCH_COMPLETE');
+    expect(state(e).baazisWon[0] + state(e).baazisWon[1]).toBeGreaterThanOrEqual(1);
+    // scoreboard = baazis won, shared by each partnership
+    const score = e.calculateScore();
+    for (const p of PLAYERS) {
+      expect(score[p.id]).toBe(state(e).baazisWon[p.seat % 2]);
+    }
+  });
+
+  it('a deal below the minimum instantly loses the baazi', () => {
+    const e = new SeepEngine();
+    e.createGame(PLAYERS, { seed: 9001, rules: { minimumDealPoints: 500 } as never });
+    const driver = legalDriver();
+    while ((state(e).phase === 'TURN_PLAY' || state(e).phase === 'ANNOUNCE') && driver(e)) { /* one deal */ }
+    const s = state(e);
+    // 500 is unreachable → BOTH teams below the minimum → the lower scorer loses
+    expect(s.phase).toBe('MATCH_COMPLETE');
+    const winner = s.teamScores![0] < s.teamScores![1] ? 1 : 0;
+    expect(s.baaziWinnerTeam).toBe(winner);
+    expect(s.baaziReason).toBe('minimum-points');
+    expect(s.baaziLead).toBe(0);
+  });
+});
+
+describe('information model', () => {
+  it('captured cards are inspectable only until the next player plays', () => {
+    const pool: Card[] = [
+      c('w9', 'hearts', 9), c('w9b', 'hearts', 9), c('w3', 'diamonds', 3), c('w6', 'hearts', 6), // bidder
+      c('t3', 'spades', 3), c('t6', 'diamonds', 6), c('t2', 'spades', 2), c('tK', 'diamonds', 13), // floor: single 9-group {3,6}
+    ];
+    completeDeal(pool);
+    const e = newEngine(pool);
+    announce(e, 9);
+    expect(play(e, 'w', 'w9', { kind: 'CAPTURE', tableCardIds: ['t3', 't6'], houseIds: [] }).ok).toBe(true);
+    // next player (s) has not played yet → the pick-up is still inspectable
+    const v0 = view(e, 'n');
+    expect([...v0.inspectableCardIds].sort()).toEqual(['t3', 't6', 'w9'].sort());
+    expect(v0.knownCards['t3']).toBeDefined();
+    // after s plays, the window closes for everyone
+    walkOnce(e, 's', null);
+    const v1 = view(e, 'n');
+    expect(v1.knownCards['t3']).toBeUndefined();
+    expect(v1.knownCards['w9']).toBeUndefined();
+    expect(v1.inspectableCardIds).toHaveLength(0);
+    // pile sizes stay public, contents do not
+    expect(v1.captureCounts['w']).toBe(3);
+    // hands of other players stay hidden
+    expect(v1.handCardIds['e']!.every((id) => v1.knownCards[id] === undefined)).toBe(true);
+  });
+
+  it('houses remain fully inspectable at all times', () => {
+    const e = houseTable();
+    const v = view(e, 'n');
+    expect(v.houses).toHaveLength(1);
+    expect(v.houses[0]!.cards.every((card) => !!v.knownCards[card.id])).toBe(true);
+    expect(v.houses[0]!.ownerByTeam).toEqual({ 1: 'w' });
+  });
+});
+
+describe('enumeration soundness under fuzz', () => {
+  it('every enumerated action validates across random playouts', () => {
+    for (let seed = 1; seed <= 8; seed++) {
+      const e = new SeepEngine();
+      e.createGame(PLAYERS, { seed: seed * 1013 });
+      let guard = 0;
+      while (state(e).phase === 'TURN_PLAY' && guard++ < 60) {
+        const pid = pidAt(e, state(e).currentTurn);
+        const list = expectEnumeratedLegal(e, pid);
+        if (list.length === 0) break;
+        const pick = list[guard % list.length]!;
+        expect(e.handleAction(pick as never).ok, `action failed: ${JSON.stringify(pick)}`).toBe(true);
+      }
+      const s = state(e);
+      const inPlay =
+        Object.values(s.hands).flat().length +
+        Object.values(s.captures).flat().length +
+        s.tableLoose.length +
+        s.houses.reduce((n, h) => n + h.cards.length, 0) +
+        s.deck.length;
+      expect(inPlay).toBe(52);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+function rank(a: SeepAction): number {
+  if (a.type !== 'PLAY_CARD') return 0;
+  const it = a.intent;
+  if (it.kind === 'CAPTURE') return 100 + it.tableCardIds.length + it.houseIds.length * 5;
+  if (it.kind === 'ADD_TO_HOUSE') return 60;
+  if (it.kind === 'BUILD') return 50;
+  if (it.kind === 'BREAK_HOUSE') return 40;
+  return 10;
+}
+
+/** Greedy driver that only ever plays enumerated (validated) actions. */
+function legalDriver(): (e: SeepEngine) => boolean {
+  return (e: SeepEngine): boolean => {
+    const s = state(e);
+    if (s.phase === 'ANNOUNCE') {
+      const bidder = pidAt(e, s.bidderSeat);
+      const options = acts(e, bidder).filter((a) => a.type === 'ANNOUNCE');
+      if (options.length === 0) return false;
+      const best = options.sort((a, b) => (b as { value: number }).value - (a as { value: number }).value)[0]!;
+      expect(e.handleAction(best as never).ok).toBe(true);
+      return true;
+    }
+    if (s.phase !== 'TURN_PLAY') return false;
+    const pid = pidAt(e, s.currentTurn);
+    const list = expectEnumeratedLegal(e, pid);
+    if (list.length === 0) return false;
+    list.sort((a, b) => rank(b) - rank(a));
+    const res = e.handleAction(list[0]! as never);
+    expect(res.ok, `driver action failed: ${JSON.stringify(list[0])}`).toBe(true);
+    return true;
+  };
+}

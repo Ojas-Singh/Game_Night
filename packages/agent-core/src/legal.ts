@@ -9,8 +9,8 @@
 
 import type { CaboPlayerView, CaboAction } from '@game-night/engine-cabo';
 import type { PairOnePlayerView, PairOneAction } from '@game-night/engine-pairone';
-import type { SeepPlayerView, SeepAction } from '@game-night/engine-seep';
-import { captureValue } from '@game-night/engine-seep';
+import type { SeepPlayerView } from '@game-night/engine-seep';
+import { enumerateSeepActions } from '@game-night/engine-seep';
 import type { AnyGameView, AnyGameAction } from './types.js';
 
 const isRealCard = (id: string): boolean =>
@@ -149,109 +149,13 @@ function pairOneActions(view: PairOnePlayerView, selfId: string): AnyGameAction[
   return acts;
 }
 
-/** Subset sizes above this are never worth enumerating (table stays small). */
-const SEEP_MAX_SET = 4;
-
+/**
+ * Seep: delegate to the ENGINE's canonical enumerator so agents and the web
+ * client can never drift apart on the rules (contract §Shared legal-action
+ * engine). The engine validates anything it produces.
+ */
 function seepActions(view: SeepPlayerView, selfId: string): AnyGameAction[] {
-  const me = { playerId: selfId };
-  const acts: AnyGameAction[] = [];
-
-  // The opener announces a number 9–13 they hold.
-  if (view.phase === 'ANNOUNCE') {
-    for (const id of view.handCardIds[selfId] ?? []) {
-      const card = view.knownCards[id];
-      if (!card) continue;
-      const v = captureValue(card);
-      if (v >= 9 && v <= 13) acts.push({ type: 'ANNOUNCE', ...me, value: v });
-    }
-    return acts;
-  }
-  if (view.phase !== 'TURN_PLAY') return [];
-
-  const handIds = (view.handCardIds[selfId] ?? []).filter((id) => view.knownCards[id]);
-  const loose = view.tableLoose;
-  const n = Math.min(loose.length, SEEP_MAX_SET);
-
-  // Hand values (own hand is always known to its owner).
-  const handValues = handIds.map((id) => captureValue(view.knownCards[id]!));
-  const bid = view.bid;
-  const openingPlay = view.players.find((p) => p.isCurrentTurn)?.id === selfId && view.playsMade === 0;
-
-  for (let i = 0; i < handIds.length; i++) {
-    const cardId = handIds[i]!;
-    const v = handValues[i]!;
-    const rest = handValues.filter((_, j) => j !== i);
-    // On the opening play every move must involve the announced number —
-    // the per-action gates below enforce that (builds of the bid total may
-    // use a non-bid card).
-    const mustInvolveBid = openingPlay && bid !== null;
-
-    // Lay down (over-approximation: the engine enforces must-capture).
-    if (!mustInvolveBid || v === bid) {
-      acts.push({ type: 'PLAY_CARD', ...me, cardId, intent: { kind: 'LAY_DOWN' } });
-    }
-
-    // Capture loose subsets summing to v (must be v === bid on the opener).
-    if (!mustInvolveBid || v === bid) {
-      for (let k = 1; k <= n; k++) {
-        for (const combo of indexCombinations(loose.length, k)) {
-          const ids = combo.map((idx) => loose[idx]!.id);
-          const sum = combo.reduce((acc, idx) => acc + captureValue(loose[idx]!), 0);
-          if (sum !== v) continue;
-          acts.push({ type: 'PLAY_CARD', ...me, cardId, intent: { kind: 'CAPTURE', tableCardIds: ids, houseIds: [] } });
-        }
-      }
-    }
-    // Capture houses of the same total (loose cards optional).
-    for (const house of view.houses) {
-      if (house.total === v && (!mustInvolveBid || v === bid)) {
-        acts.push({ type: 'PLAY_CARD', ...me, cardId, intent: { kind: 'CAPTURE', tableCardIds: [], houseIds: [house.id] } });
-      }
-      // Add another complete set to an own-team house: played card alone or
-      // with loose cards completing the house total.
-      if (house.ownerTeam === view.myTeam) {
-        const need = house.total - v;
-        if (need === 0) {
-          acts.push({ type: 'PLAY_CARD', ...me, cardId, intent: { kind: 'ADD_TO_HOUSE', houseId: house.id, tableCardIds: [] } });
-        } else if (need > 0) {
-          for (let k = 1; k <= n; k++) {
-            for (const combo of indexCombinations(loose.length, k)) {
-              const sum = combo.reduce((acc, idx) => acc + captureValue(loose[idx]!), 0);
-              if (sum !== need) continue;
-              acts.push({
-                type: 'PLAY_CARD',
-                ...me,
-                cardId,
-                intent: { kind: 'ADD_TO_HOUSE', houseId: house.id, tableCardIds: combo.map((idx) => loose[idx]!.id) },
-              });
-            }
-          }
-        }
-      }
-      // Break an opponent's kachcha ghar upward: total + v ≤ 13, hold the new total.
-      if (!house.pakka && house.ownerTeam !== view.myTeam && house.total + v <= 13 && rest.includes(house.total + v)) {
-        acts.push({ type: 'PLAY_CARD', ...me, cardId, intent: { kind: 'BREAK_HOUSE', houseId: house.id } });
-      }
-    }
-    // Builds: card + subset totals another held value, 9–13.
-    if (view.myTeam !== null) {
-      for (let k = 1; k <= n; k++) {
-        for (const combo of indexCombinations(loose.length, k)) {
-          const total = v + combo.reduce((acc, idx) => acc + captureValue(loose[idx]!), 0);
-          if (total < 9 || total > 13) continue;
-          if (mustInvolveBid && total !== bid) continue;
-          if (!rest.includes(total)) continue;
-          acts.push({
-            type: 'PLAY_CARD',
-            ...me,
-            cardId,
-            intent: { kind: 'BUILD', tableCardIds: combo.map((idx) => loose[idx]!.id), total },
-          });
-        }
-      }
-    }
-  }
-  return acts;
+  return enumerateSeepActions(view, selfId) as unknown as AnyGameAction[];
 }
 
 export interface EnumerateOpts {

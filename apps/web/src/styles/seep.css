@@ -272,27 +272,39 @@
   justify-content: center;
   max-width: min(94vw, 780px);
 }
-/* Seep layout: hand raised above the avatar pill; the action bar floats
-   ABOVE the hand so buttons never cover my seat or cards. The rules (info)
+/* Seep layout: hand raised above the avatar pill; play chips anchor to the
+   hand itself so they can never drift over other seats. The rules (info)
    button moves to the top-right, clear of the bottom stacks entirely. */
 .seep-room .seat-me {
   bottom: 62px;
-}
-.seep-room .seep-action-bar {
-  bottom: 200px;
-  max-width: min(92vw, 640px);
 }
 .seep-room .info-toggle {
   top: 18px;
   right: 18px;
   bottom: auto;
 }
-@media (max-height: 780px) {
-  .seep-room .seep-action-bar { bottom: 188px; }
-}
 @media (max-width: 720px) {
   .seep-room .seat-me { bottom: 54px; }
-  .seep-room .seep-action-bar { bottom: 182px; }
+}
+
+/* Contextual play chips: one chip per engine-legal play for the selected
+   card. Anchored above MY hand (child of .seat-me) — no fixed pixel offsets. */
+.seep-play-chips {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: min(92vw, 660px);
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: rgba(12, 20, 34, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(4px);
+  z-index: 30;
 }
 
 /* My-turn affordance: the hand breathes so I know I can play. */
@@ -479,4 +491,11 @@
   .seep-rail { padding: 3px 10px; font-size: 0.8rem; }
   .seep-rail-points { font-size: 0.95rem; }
   .seep-announce-text { font-size: 1.4rem; }
+}
+
+
+/* Co-owned (cemented by both sides) ghar: split team tint. */
+.seep-house.both {
+  border-color: rgba(200, 170, 255, 0.9);
+  box-shadow: 0 0 14px rgba(170, 140, 255, 0.35);
 }

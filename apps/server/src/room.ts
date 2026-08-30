@@ -481,13 +481,26 @@ export class Room {
     this.system('Returned to the lobby');
   }
 
-  /** Host starts a fresh round in the same room; match scoreboard persists. */
+  /** Host starts the next deal (mid-baazi) or a fresh baazi in the same room. */
   playAgain(playerId: string): void {
     if (playerId !== this.hostId) throw new RoomError('only the host can start the next round');
+    const label = GAME_REGISTRY[this.gameId].label;
+    // Seep baazi play: a completed deal (baazi still live) deals the next
+    // hand in the SAME match — dealer progression lives in the engine.
+    if (this.engine && this.gameId === 'seep' && !this.engine.isGameFinished()) {
+      const seep = this.engine as SeepEngine;
+      const phase = seep.getState().phase;
+      if (phase === 'DEAL_COMPLETE') {
+        const res = seep.handleNextDeal(playerId);
+        if (!res.ok) throw new RoomError(res.error ?? 'cannot deal the next hand');
+        this.system(`Next deal — ${label}! Baazi continues.`);
+        return;
+      }
+      throw new RoomError('current deal is still in progress');
+    }
     if (this.engine && !this.engine.isGameFinished()) {
       throw new RoomError('current round is still in progress');
     }
-    const label = GAME_REGISTRY[this.gameId].label;
     this.engine = null;
     this.startGame(playerId);
     this.system(`Next round — ${label}!`);

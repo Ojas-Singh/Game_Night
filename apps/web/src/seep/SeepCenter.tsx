@@ -147,10 +147,13 @@ export default function SeepCenter({
             {view.houses.map((house) => {
               const top = house.cards[house.cards.length - 1];
               const action = houseActions[house.id];
+              const ownerTeams = Object.keys(house.ownerByTeam).map(Number);
+              const teamClass = ownerTeams.length === 2 ? 'both' : `team${ownerTeams[0] ?? 0}`;
+              const ownerNames = house.owners.map((o) => view.players.find((p) => p.id === o)?.name ?? o).join(' & ');
               return (
                 <motion.button
                   key={house.id}
-                  className={`seep-house team${house.ownerTeam} ${highlighted.has(house.id) ? 'hot' : ''} ${action ? `act-${action}` : ''}`}
+                  className={`seep-house ${teamClass} ${highlighted.has(house.id) ? 'hot' : ''} ${action ? `act-${action}` : ''}`}
                   data-card-id={house.id}
                   initial={{ scale: 0.5, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
@@ -158,7 +161,7 @@ export default function SeepCenter({
                   transition={{ type: 'spring', stiffness: 300, damping: 24 }}
                   onClick={onHouseClick ? () => onHouseClick(house.id) : undefined}
                   disabled={!onHouseClick}
-                  title={`Ghar ${house.total} — ${house.pakka ? 'pakka (locked)' : 'kachcha (breakable)'}, team ${house.ownerTeam}, ${house.cards.length} cards`}
+                  title={`Ghar ${house.total} — ${house.pakka ? `pakka (locked, ${house.copies} sets)` : 'kachcha (breakable)'}, owned by ${ownerNames}, ${house.cards.length} cards`}
                 >
                   {action && (
                     <span className={`seep-house-badge ${action}`} aria-hidden>

@@ -93,7 +93,7 @@ apps/web                # React client (round-table Cabo, memory-grid Pair One, 
 ## Tests
 
 ```bash
-pnpm test   # 187 core tests — 104 engine (Cabo + Pair One + Seep) + 44 server/transport (incl. full-game socket integration & persistence) + 39 web logic — plus agent (16), arena (12) and trainer (9) suites
+pnpm test   # 188 core tests — 100 engine (Cabo + Pair One + Seep, incl. exhaustive Seep legal-action parity fuzz) + 44 server/transport (incl. full-game socket integration & persistence) + 44 web logic — plus agent (16), arena (12) and trainer (9) suites
 ```
 
 House rules are data: Seep's scoring table, sweep bonus and deal shape live in

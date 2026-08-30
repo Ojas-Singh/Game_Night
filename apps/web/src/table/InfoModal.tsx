@@ -198,20 +198,25 @@ function SeepRules() {
           Play in <strong>partnerships of two</strong> (you and the player across the table
           score together). Play one card per turn — use its number (A=1, J=11, Q=12, K=13) to
           capture cards worth points: <strong>every spade at face value</strong> (K♠ 13!), the
-          other <strong>aces 1</strong> each, and the <strong>10♦ 2</strong>.
+          other <strong>aces 1</strong> each, and the <strong>10♦ 6</strong> — exactly{' '}
+          <strong>100 points</strong> in the deck.
         </p>
         <p>
-          The team that captures <strong>more cards</strong> gets +4 — 100 points in the deck.
+          A <strong>baazi</strong> is won by the first team to lead the other by{' '}
+          <strong>100+ points</strong> across deals. A team that scores under{' '}
+          <strong>9 points</strong> in a deal loses the baazi instantly.
         </p>
       </section>
 
       <section className="info-section">
         <h4>The opening</h4>
         <p>
-          The opener receives 4 cards; 4 more go <strong>face-down</strong> to the table. The
-          opener <strong>announces a number 9–13 they hold</strong> — the table turns up — and
-          their first play must involve that number: capture cards totalling it, build a ghar of
-          it, or throw the announced card. Then everyone is dealt up to 12 cards.
+          The <strong>bidder</strong> (right of the dealer) gets 4 cards; 4 more go{' '}
+          <strong>face-down</strong> to the table. The bidder <strong>announces a number 9–13
+          they hold</strong> — the table turns up — and their first play must involve that
+          number: capture cards of it, build a ghar of it, or throw the announced card. The
+          rest of the deck then deals out in packets of 4 until everyone holds 12 —{' '}
+          <strong>48 plays</strong> per deal.
         </p>
       </section>
 
@@ -220,7 +225,9 @@ function SeepRules() {
         <p>
           Play a card and take table cards that <strong>group into its value</strong> — several
           groups at once is fine: with an 8, take <em>A+7</em>, <em>3+5</em> <em>and</em> a
-          loose 8. If your card <em>can</em> capture, it <strong>must</strong>.
+          loose 8 (groups may not overlap). If your card <em>can</em> capture, it{' '}
+          <strong>must</strong> — and it takes <strong>every</strong> matching card, set and
+          ghar: two loose 11s both go with a played jack.
         </p>
       </section>
 
@@ -233,18 +240,23 @@ function SeepRules() {
             <em>kachcha</em> ghar, owned by you.
           </p>
           <p>
-            🔒 <strong>Pakka:</strong> a second complete set of the same total (yours or your
-            partner&rsquo;s) locks the ghar — it can never be broken again.
+            🔒 <strong>Pakka (cement):</strong> add another complete set of the same total to a
+            ghar your side owns — it can never be broken again. Cementing an{' '}
+            <em>opponent&rsquo;s</em> kachcha ghar (while holding its total) makes you a
+            co-owner, and both sides must keep its total in hand.
           </p>
           <p>
             💥 <strong>Break:</strong> play a card on a <em>kachcha</em> ghar you don&rsquo;t
-            own to raise its total (max 13) — you must hold the new total, and the ghar becomes
-            yours.
+            own — yours <em>or</em> your partner&rsquo;s — to raise its total (max 13); you must
+            hold the new total and become its owner.
           </p>
           <p>
             🏠 <strong>Capture:</strong> a card matching the total takes the whole ghar.
           </p>
-          <p>As long as you own a ghar, you must keep a matching card in hand.</p>
+          <p>
+            As long as you own a ghar you must keep a matching card in hand — one to play, one
+            to keep.
+          </p>
         </div>
       </section>
 
@@ -261,7 +273,8 @@ function SeepRules() {
         <h4>Endgame</h4>
         <p>
           Everyone plays all 12 cards. Leftover table cards go to the team that captured{' '}
-          <strong>last</strong>. Highest total wins the deal.
+          <strong>last</strong>. The deal&rsquo;s margin carries into the baazi lead; the
+          winner of each baazi deals next — after a baazi, the winner&rsquo;s partner deals.
         </p>
         <p className="tip">💡 Tip: count the spades — a captured K♠ (13) is the richest card in the game.</p>
       </section>

@@ -27,18 +27,12 @@ function bestAction(room: Room, state: SeepState, pid: string): GameAction {
   const hand = state.hands[pid] ?? [];
   const loose = state.tableLoose;
   const tryCapture = (cardId: string): GameAction | null => {
-    // House capture first (includes own ghars — always available when held).
     const v = captureValue(hand.find((x) => x.id === cardId)!);
-    for (const house of state.houses) {
-      if (house.total !== v) continue;
-      const act = {
-        type: 'PLAY_CARD',
-        playerId: pid,
-        cardId,
-        intent: { kind: 'CAPTURE', tableCardIds: [], houseIds: [house.id] },
-      } as unknown as GameAction;
-      if (room.engine!.validateAction(act)) return act;
-    }
+    // All matching houses are compulsory in one capture (Pagat: pick up ALL
+    // matching items; maximal collections only).
+    const matchingHouses = state.houses.filter((h) => h.total === v).map((h) => h.id);
+    // A capture takes groups totalling a multiple of v — the engine keeps
+    // only maximal, non-overlapping collections, so just let it judge masks.
     for (let mask = 1; mask < 1 << loose.length; mask++) {
       const ids: string[] = [];
       let sum = 0;
@@ -48,12 +42,21 @@ function bestAction(room: Room, state: SeepState, pid: string): GameAction {
           sum += captureValue(loose[i]!);
         }
       }
-      if (sum !== v) continue;
+      if (sum % v !== 0 || sum === 0) continue;
       const act = {
         type: 'PLAY_CARD',
         playerId: pid,
         cardId,
-        intent: { kind: 'CAPTURE', tableCardIds: ids, houseIds: [] },
+        intent: { kind: 'CAPTURE', tableCardIds: ids, houseIds: matchingHouses },
+      } as unknown as GameAction;
+      if (room.engine!.validateAction(act)) return act;
+    }
+    if (matchingHouses.length > 0) {
+      const act = {
+        type: 'PLAY_CARD',
+        playerId: pid,
+        cardId,
+        intent: { kind: 'CAPTURE', tableCardIds: [], houseIds: matchingHouses },
       } as unknown as GameAction;
       if (room.engine!.validateAction(act)) return act;
     }
@@ -111,30 +114,35 @@ describe('Seep room integration', () => {
     expect(room.engine?.gameId).toBe('seep');
 
     let guard = 0;
-    while (room.engine && !room.engine.isGameFinished() && guard++ < 80) {
+    while (room.engine && !room.engine.isGameFinished() && guard++ < 600) {
       const state = room.engine.getState() as SeepState;
+      // A completed deal with the baazi still live is not a finished MATCH —
+      // the host deals the next hand instead of driving a turn.
+      if (state.phase === 'DEAL_COMPLETE') {
+        room.playAgain(room.hostId!);
+        continue;
+      }
       const pid = state.players[state.currentTurn]!.id;
       expect(() => room.handleGameAction(pid, bestAction(room, state, pid))).not.toThrow();
     }
     expect(room.engine!.isGameFinished()).toBe(true);
 
     const state = room.engine!.getState() as SeepState;
-    expect(state.phase).toBe('ROUND_COMPLETE');
+    expect(['DEAL_COMPLETE', 'MATCH_COMPLETE']).toContain(state.phase);
     expect(state.teamScores).not.toBeNull();
     const tp = state.teamScores!;
-    // Scoreboard: partners share the team score (seats 0/2 = team 0).
+    // Scoreboard = baazis won, shared by each partnership (seats 0/2 = team 0).
     const ids = [...room.players.keys()];
-    expect(room.scoreboard[ids[0]!]).toBe(tp[0]);
-    expect(room.scoreboard[ids[2]!]).toBe(tp[0]);
-    expect(room.scoreboard[ids[1]!]).toBe(tp[1]);
-    expect(room.scoreboard[ids[3]!]).toBe(tp[1]);
+    expect(room.scoreboard[ids[0]!]).toBe(state.baazisWon[0]);
+    expect(room.scoreboard[ids[2]!]).toBe(state.baazisWon[0]);
+    expect(room.scoreboard[ids[1]!]).toBe(state.baazisWon[1]);
+    expect(room.scoreboard[ids[3]!]).toBe(state.baazisWon[1]);
     // Conservation: card points + sweep bonuses across the whole 52-card deck.
     const captured = ids.flatMap((pid) => state.captures[pid] ?? []);
     expect(captured).toHaveLength(52);
     const pts = captured.reduce((sum, card) => sum + cardPoints(card, DEFAULT_SEEP_RULES), 0);
     const sweepTotal = state.sweepPoints[0] + state.sweepPoints[1];
-    const majorityBonus = state.majorityTeam !== null ? 4 : 0;
-    expect(tp[0] + tp[1]).toBe(pts + sweepTotal + majorityBonus);
+    expect(tp[0] + tp[1]).toBe(pts + sweepTotal);
   });
 
   it('plays a full deal driven by the real SeepHeuristicBot (live AI path)', async () => {
@@ -145,8 +153,12 @@ describe('Seep room integration', () => {
     const rng = createAgentRng(1234);
 
     let guard = 0;
-    while (room.engine && !room.engine.isGameFinished() && guard++ < 120) {
+    while (room.engine && !room.engine.isGameFinished() && guard++ < 1200) {
       const state = room.engine.getState() as SeepState;
+      if (state.phase === 'DEAL_COMPLETE') {
+        room.playAgain(room.hostId!);
+        continue;
+      }
       const pid = state.players[state.currentTurn]!.id;
       const view = room.engine.getPlayerState(pid) as unknown as SeepPlayerView;
       const agent = new SeepHeuristicBot({ persona: ['balanced', 'baiter', 'scholar', 'conservative'][guard % 4] });
