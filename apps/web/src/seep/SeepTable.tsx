@@ -384,6 +384,7 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
           const isTurn = view.players.find((x) => x.isCurrentTurn)?.id === p.id;
           const team = view.teams[0].includes(p.id) ? 0 : 1;
           const count = view.handCounts[p.id] ?? 0;
+          const captured = view.captureCounts[p.id] ?? 0;
           return (
             <div
               key={p.id}
@@ -414,6 +415,12 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
                   {count > 4 && <span className="seep-more">+{count - 4}</span>}
                   {count === 0 && <span className="seep-more">out</span>}
                 </div>
+                {captured > 0 && (
+                  <span className="seep-captures" title={`${p.name}'s captured pile — ${captured} cards`}>
+                    <span className="seep-captures-stack" aria-hidden />
+                    {captured}
+                  </span>
+                )}
                 <span className={`seep-team-chip team${team}`}>T{team + 1}</span>
               </div>
             </div>
@@ -454,6 +461,12 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
             {me.name} (you)
             <span className={`seep-pill-team team${myTeam ?? 0}`}>{teamLabel(myTeam)}</span>
           </span>
+          {(view.captureCounts[me.id] ?? 0) > 0 && (
+            <span className="seep-captures" title={`Your captured pile — ${view.captureCounts[me.id]} cards`}>
+              <span className="seep-captures-stack" aria-hidden />
+              {view.captureCounts[me.id]}
+            </span>
+          )}
         </div>
 
         {/* centre: rails + stock + spread + houses */}

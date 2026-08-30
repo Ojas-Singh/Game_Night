@@ -499,3 +499,48 @@
   border-color: rgba(200, 170, 255, 0.9);
   box-shadow: 0 0 14px rgba(170, 140, 255, 0.35);
 }
+
+/* Face-down captured pile badge next to a seat. */
+.seep-captures {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(10, 16, 28, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-dim);
+}
+.seep-captures-stack {
+  width: 14px;
+  height: 19px;
+  border-radius: 3px;
+  background: linear-gradient(160deg, #33415c, #1c2740);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 1px 1px 0 rgba(255, 255, 255, 0.12), 3px 3px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* Last-pickup inspection tray (public window until the next play). */
+.seep-inspect {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: rgba(12, 20, 34, 0.85);
+  border: 1px dashed rgba(255, 226, 150, 0.4);
+  z-index: 12;
+}
+.seep-inspect-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}

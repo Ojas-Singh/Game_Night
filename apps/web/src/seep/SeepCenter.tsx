@@ -101,6 +101,17 @@ export default function SeepCenter({
           <span className="pile-count">{view.deckCount}</span>
         </div>
 
+        {/* last-pickup inspection tray: public while the next player hasn't played */}
+        {view.inspectableCardIds.length > 0 && (
+          <div className="seep-inspect" title="Last pick-up — inspectable until the next play">
+            <span className="seep-inspect-label">last pick-up</span>
+            {view.inspectableCardIds.map((id) => {
+              const card = view.knownCards[id];
+              return card ? <Card key={id} cardId={id} card={card} small /> : null;
+            })}
+          </div>
+        )}
+
         {/* loose table spread (face-down until the opener announces) */}
         <div className="seep-spread" aria-label="Cards on the table">
           <AnimatePresence>
