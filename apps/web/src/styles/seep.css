@@ -536,21 +536,24 @@
 }
 
 /* Last-pickup inspection tray (public window until the next play).
-   In normal flow above the centre row — never overlaps the hand. */
+   Overlays the top edge of the felt — an absolute child of .seep-center,
+   so it takes no layout space and can never squeeze the table spread. */
 .seep-inspect {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 6px;
-  margin: 2px auto 6px;
   padding: 5px 10px;
-  width: fit-content;
   border-radius: 12px;
-  background: rgba(12, 20, 34, 0.85);
+  background: rgba(12, 20, 34, 0.88);
   border: 1px dashed rgba(255, 226, 150, 0.4);
+  z-index: 12;
 }
 .seep-inspect .pcard {
-  --card-w: 42px;
+  --card-w: 40px;
 }
 .seep-inspect-label {
   font-size: 10px;

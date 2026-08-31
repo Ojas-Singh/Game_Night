@@ -22,6 +22,22 @@ function CardFace({ card }: { card: CardModel }) {
   );
 }
 
+/**
+ * Stable pseudo-random "dropped on the table" pose for a card: everything is
+ * derived from the card id, so a card keeps its tilt and offset across
+ * renders while different cards scatter differently.
+ */
+function tablePose(id: string, spread = 1): { rotate: number; x: number; y: number } {
+  let h = 5381;
+  for (let i = 0; i < id.length; i++) h = (((h << 5) + h) ^ id.charCodeAt(i)) | 0;
+  const a = Math.abs(h);
+  return {
+    rotate: ((a % 15) - 7) * spread, // ±7°
+    x: (Math.floor(a / 16) % 9) - 4, // ±4px
+    y: (Math.floor(a / 512) % 7) - 3, // ±3px
+  };
+}
+
 export interface SeepCenterProps {
   view: SeepPlayerView;
   myTeam: SeepTeam | null;
@@ -43,7 +59,9 @@ export interface SeepCenterProps {
 
 /**
  * The Seep centre: team score rails, the stock pile, the loose table spread
- * and the face-up house stacks. Everything here is public information.
+ * and the face-up house stacks. Everything here is public information. The
+ * last-pickup inspection tray OVERLAYS the felt (absolute, top) so it can
+ * never squeeze the spread around.
  */
 export default function SeepCenter({
   view,
@@ -91,8 +109,6 @@ export default function SeepCenter({
         })}
       </div>
 
-
-
       <div className="seep-middle">
         {/* stock pile (informational) */}
         <div className="pile deck-pile seep-deck">
@@ -103,37 +119,18 @@ export default function SeepCenter({
           <span className="pile-count">{view.deckCount}</span>
         </div>
 
-        {/* stock pile (informational) */}
-        <div className="pile deck-pile seep-deck">
-          <div className="deck-stack s1" />
-          <div className="deck-stack s2" />
-          <div className="deck-stack s3" />
-          <span className="pile-label">STOCK</span>
-          <span className="pile-count">{view.deckCount}</span>
-        </div>
-
-        {/* last-pickup inspection tray: public while the next player hasn't played */}
-        {view.inspectableCardIds.length > 0 && (
-          <div className="seep-inspect" title="Last pick-up — inspectable until the next play">
-            <span className="seep-inspect-label">last pick-up</span>
-            {view.inspectableCardIds.map((id) => {
-              const card = view.knownCards[id];
-              return card ? <Card key={id} cardId={id} card={card} small /> : null;
-            })}
-          </div>
-        )}
-
         {/* loose table spread (face-down until the opener announces) */}
         <div className="seep-spread" aria-label="Cards on the table">
           <AnimatePresence>
-            {view.tableLoose.map((card, i) => {
+            {view.tableLoose.map((card) => {
               const take = glowTake.has(card.id);
               const build = !take && glowBuild.has(card.id);
+              const pose = tablePose(card.id);
               return (
                 <motion.div
                   key={card.id}
-                  initial={{ scale: 0.4, opacity: 0, rotate: 0 }}
-                  animate={{ scale: 1, opacity: 1, rotate: (i % 3) - 1 }}
+                  initial={{ scale: 0.4, opacity: 0, rotate: pose.rotate, x: pose.x, y: pose.y }}
+                  animate={{ scale: 1, opacity: 1, rotate: pose.rotate, x: pose.x, y: pose.y }}
                   exit={{ scale: 0.5, opacity: 0 }}
                   transition={{ type: 'spring', stiffness: 320, damping: 26 }}
                   className={`seep-spread-slot ${take ? 'glow-take' : ''} ${build ? 'glow-build' : ''}`}
@@ -169,6 +166,7 @@ export default function SeepCenter({
             {view.houses.map((house) => {
               const top = house.cards[house.cards.length - 1];
               const action = houseActions[house.id];
+              const pose = tablePose(house.id, 0.55); // piles tilt a little, not a lot
               const ownerTeams = Object.keys(house.ownerByTeam).map(Number);
               const teamClass = ownerTeams.length === 2 ? 'both' : `team${ownerTeams[0] ?? 0}`;
               const ownerNames = house.owners.map((o) => view.players.find((p) => p.id === o)?.name ?? o).join(' & ');
@@ -177,8 +175,8 @@ export default function SeepCenter({
                   key={house.id}
                   className={`seep-house ${teamClass} ${highlighted.has(house.id) ? 'hot' : ''} ${action ? `act-${action}` : ''}`}
                   data-card-id={house.id}
-                  initial={{ scale: 0.5, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
+                  initial={{ scale: 0.5, opacity: 0, rotate: pose.rotate, x: pose.x }}
+                  animate={{ scale: 1, opacity: 1, rotate: pose.rotate, x: pose.x }}
                   exit={{ scale: 0.5, opacity: 0 }}
                   transition={{ type: 'spring', stiffness: 300, damping: 24 }}
                   onClick={onHouseClick ? () => onHouseClick(house.id) : undefined}
@@ -212,6 +210,18 @@ export default function SeepCenter({
           </AnimatePresence>
         </div>
       </div>
+
+      {/* last-pickup inspection tray — overlays the felt below the rails;
+          absolutely positioned so it never pushes the spread around */}
+      {view.inspectableCardIds.length > 0 && (
+        <div className="seep-inspect" title="Last pick-up — inspectable until the next play">
+          <span className="seep-inspect-label">last pick-up</span>
+          {view.inspectableCardIds.map((id) => {
+            const card = view.knownCards[id];
+            return card ? <Card key={id} cardId={id} card={card} small /> : null;
+          })}
+        </div>
+      )}
     </div>
   );
 }
