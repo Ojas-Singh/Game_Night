@@ -4,6 +4,7 @@ import type { RoomApi, CardFlight, ClientGameAction } from '../useRoom.js';
 import type { FlightPos } from '../table/CardFlights.js';
 import type { SeepPlayerView } from '@seep/views.js';
 import type { SeepTeam } from '@seep/rules.js';
+import { captureValue } from '@seep/index.js';
 import { allIntents, biddableValues, type SeepCandidateIntents } from './seepCandidates.js';
 import Card from '../table/Card.js';
 import SeepCenter from './SeepCenter.js';
@@ -143,6 +144,12 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
 
   /** Hovered/focused chip whose cards should preview on the table. */
   const [previewIds, setPreviewIds] = useState<string[]>([]);
+
+  /** Face value label for a card the view knows about. */
+  const valOf = (id: string): string => {
+    const card = view.knownCards[id];
+    return card ? String(card.rank) : '?';
+  };
 
   const act = (action: ClientGameAction) => {
     void room.sendAction(action).then((res) => {
@@ -562,7 +569,8 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
               onBlur={() => setPreviewIds([])}
               onClick={() => act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'BUILD', tableCardIds, total } })}
             >
-              🏗 Ghar {total}
+              🏗 {[selectedCardId, ...tableCardIds].map(valOf).join('+')} → Ghar {total}
+              {Math.round((captureValue(view.knownCards[selectedCardId]!) + tableCardIds.reduce((s, id) => s + captureValue(view.knownCards[id]!), 0)) / total) > 1 ? ' 🔒' : ''}
             </button>
           ))}
           {intents.addableHouses.map(({ houseId, tableCardIds }) => {
@@ -575,7 +583,7 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
                 onMouseLeave={() => setPreviewIds([])}
                 onClick={() => act({ type: 'PLAY_CARD', cardId: selectedCardId, intent: { kind: 'ADD_TO_HOUSE', houseId, tableCardIds } })}
               >
-                ⬆ Ghar {house?.total}{house && !house.pakka ? ' → pakka' : ''}
+                ⬆ {[selectedCardId, ...tableCardIds].map(valOf).join('+')} → Ghar {house?.total}{house && !house.pakka ? ' 🔒' : ''}
               </button>
             );
           })}

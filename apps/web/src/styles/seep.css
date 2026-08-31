@@ -561,3 +561,24 @@
   text-transform: uppercase;
   color: var(--ink-dim);
 }
+
+
+/* Kachcha ghars are open books: every card face-up in a row, plus the sum
+   so anyone can verify the pile actually totals what it claims. */
+.seep-house-cards {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-width: 150px;
+}
+.seep-house-card.flat {
+  position: static;
+  top: auto !important;
+}
+.seep-house-sum {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink-dim);
+  margin-left: 2px;
+}

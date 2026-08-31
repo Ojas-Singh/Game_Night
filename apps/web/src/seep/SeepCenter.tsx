@@ -196,14 +196,28 @@ export default function SeepCenter({
                       </span>
                     )}
                   </span>
-                  <span className="seep-house-stack" aria-hidden>
-                    {house.cards.slice(0, 3).map((c, i) => (
-                      <span key={c.id} className="seep-house-card" style={{ top: -i * 3 }}>
-                        {top ? <CardFace card={c} /> : null}
+                  {!house.pakka ? (
+                    // kachcha: open book — every card face-up with the sum
+                    <span className="seep-house-cards">
+                      {house.cards.map((c) => (
+                        <span key={c.id} className="seep-house-card flat">
+                          <CardFace card={c} />
+                        </span>
+                      ))}
+                      <span className="seep-house-sum">= {house.total}</span>
+                    </span>
+                  ) : (
+                    <>
+                      <span className="seep-house-stack" aria-hidden>
+                        {house.cards.slice(0, 3).map((c, i) => (
+                          <span key={c.id} className="seep-house-card" style={{ top: -i * 3 }}>
+                            {top ? <CardFace card={c} /> : null}
+                          </span>
+                        ))}
                       </span>
-                    ))}
-                  </span>
-                  <span className="seep-house-count">{house.cards.length}</span>
+                      <span className="seep-house-count">{house.cards.length}</span>
+                    </>
+                  )}
                 </motion.button>
               );
             })}
