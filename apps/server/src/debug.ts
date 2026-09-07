@@ -15,9 +15,41 @@
 import { Router } from 'express';
 import type { RoomManager } from './roomManager.js';
 import { log } from './log.js';
+import { config } from './config.js';
+import { runCaboDiagnostic } from './aiDiagnostic.js';
 
 export function debugRouter(rooms: RoomManager): Router {
   const r = Router();
+
+  r.get('/ai/status', (_req, res) => {
+    res.json({
+      configured: Boolean(config.agentApiUrl && config.agentApiKey && config.agentModel),
+      provider: config.agentProvider,
+      model: config.agentModel,
+      timeoutMs: config.agentTimeoutMs,
+      maxTokens: config.agentMaxTokens,
+      fallback: 'live-safe rooms only; diagnostics are strict',
+    });
+  });
+
+  r.post('/ai/diagnostic', async (req, res) => {
+    if (!config.agentApiUrl || !config.agentApiKey) return res.status(503).json({ error: 'provider not configured' });
+    try {
+      const result = await runCaboDiagnostic({
+        baseUrl: config.agentApiUrl,
+        apiKey: config.agentApiKey,
+        model: config.agentModel.startsWith('opencode-go/') ? config.agentModel.slice('opencode-go/'.length) : config.agentModel,
+        provider: config.agentProvider,
+        timeoutMs: config.agentTimeoutMs,
+        maxTokens: config.agentMaxTokens,
+        scenarios: Number(req.body?.scenarios) || 5,
+        maxDecisions: Number(req.body?.maxDecisions) || 80,
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(502).json({ error: 'diagnostic failed', detail: String(err).slice(0, 180) });
+    }
+  });
 
   // Inspect authoritative state for a room (includes hidden cards).
   r.get('/room/:roomId/state', (req, res) => {

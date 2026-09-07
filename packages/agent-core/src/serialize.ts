@@ -20,7 +20,7 @@ Turn flow: DRAW a card -> either KEEP it by swapping into one of your hand slots
   7-8 PEEK_OWN: look at one of your cards. 9-10 PEEK_OTHER: look at another player's card.
   J-Q BLIND_SWAP: swap one of your cards with another player's card without looking.
 At ANY moment on your turn you may also flush: if the discard top is rank R and you KNOW some card(s) of rank R (yours or others'), throw them onto the pile. Correct guesses remove cards; wrong ones penalize.
-When your hand value is (probably) lowest, CALL_CABO at the end of your action instead of ending normally. Everyone else gets one final turn, then hands reveal; lowest total wins, caller ties/loses are punished in scoring.`,
+When your hand value is (probably) lowest, CALL_CABO at the end of your action instead of ending normally. The caller does not take a final turn; every other player gets one. Hands reveal after that and the lowest total wins. If the caller is tied for lowest, the caller wins the tie under the active Cabo rules.`,
   pairone: `PAIR ONE — a public memory game. One full deck (52 cards) fills a fixed grid, all face down. Positions never move; collected pairs leave permanent gaps.
 On your turn flip any two grid cards (everyone sees them). If ranks match you COLLECT the pair and immediately flip again (same turn continues). If they don't match, both flip back and your turn ends.
 Round ends when the grid is empty; MOST pairs collected wins (ties shared). Perfect memory of every flip ever shown wins games.`,
@@ -34,7 +34,7 @@ On your turn play ONE card with an intent:
  - LAY_DOWN: throw the card on the table (only when nothing can be captured).
  While you own a ghar you must KEEP a matching card in hand until it is captured or broken.
 Sweep: clear the ENTIRE table with one play = +50 (only +25 on the very first play, nothing on the deal's final card).
-End: leftover table cards go to the team that captured last. Scoring: EVERY spade = face value (K♠ 13), other aces = 1, 10♦ = 2, team with MORE captured cards +4 — 100 points total; plus sweep bonuses.`,
+End: leftover table cards go to the team that captured last. The default Punjabi 100-point scoring is EVERY spade at face value (K♠ 13), other aces = 1, 10♦ = 6, no majority-card bonus, plus sweep bonuses (25 on the first play, 50 otherwise, 0 on the final play). The explicit casual variant changes 10♦ to 2 and adds a +4 majority bonus.`,
 };
 
 function cardLabel(view: AnyGameView, id: string): string {

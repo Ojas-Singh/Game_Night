@@ -771,6 +771,29 @@
   display: grid;
   place-items: center;
   overflow: hidden;
+  isolation: isolate;
+  background: #0b1611;
+}
+.table-room::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-image: linear-gradient(rgba(6, 13, 9, .55), rgba(6, 13, 9, .72)), url('/assets/lounge/table-room.png');
+  background-size: cover;
+  background-position: center;
+  opacity: .72;
+  pointer-events: none;
+}
+.table-room::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: url('/assets/lounge/felt.png') center / 460px auto;
+  opacity: .08;
+  mix-blend-mode: screen;
+  pointer-events: none;
 }
 .status-banner {
   position: fixed;

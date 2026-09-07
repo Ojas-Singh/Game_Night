@@ -37,10 +37,46 @@ export interface AgentObservation {
 }
 
 /** What an agent returns: the action, plus optional human-readable reasoning. */
+export type AgentFailureKind =
+  | 'none'
+  | 'empty_response'
+  | 'malformed_response'
+  | 'illegal_action'
+  | 'timeout'
+  | 'http_error'
+  | 'provider_error'
+  | 'candidate_budget'
+  | 'unknown';
+
+export interface AgentAttempt {
+  attempt: number;
+  status: 'accepted' | 'failed';
+  latencyMs: number;
+  httpStatus?: number;
+  finishReason?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  failure?: AgentFailureKind;
+}
+
+export interface AgentDecisionMeta {
+  source: 'model' | 'fallback' | 'heuristic' | 'solver';
+  provider?: string;
+  model?: string;
+  attempts?: AgentAttempt[];
+  failure?: AgentFailureKind;
+  latencyMs?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  candidateCount?: number;
+}
+
 export interface AgentDecision {
   action: AnyGameAction;
   /** Short reasoning trace ("I keep the 4 and discard…"). Logged when present. */
   thought?: string;
+  /** Auditable execution metadata. Never contains provider credentials or hidden state. */
+  meta?: AgentDecisionMeta;
 }
 
 /**

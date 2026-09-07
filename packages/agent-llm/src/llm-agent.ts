@@ -16,11 +16,13 @@ import {
   type AnyGameAction,
   type AgentContext,
   type AgentDecision,
+  type AgentAttempt,
+  type AgentFailureKind,
   type AgentObservation,
   type GameAgent,
 } from '@game-night/agent-core';
-import { CaboHeuristicBot, PairOneHeuristicBot } from '@game-night/agent-bots';
-import { chat, type ChatMessage } from './chat.js';
+import { CaboHeuristicBot, PairOneHeuristicBot, SeepHeuristicBot } from '@game-night/agent-bots';
+import { chat, LlmHttpError, LlmResponseError, type ChatMessage } from './chat.js';
 import { personaOr, type Persona } from './personas.js';
 
 export interface LlmAgentOptions {
@@ -64,7 +66,10 @@ export function buildLlmPrompt(
   candidates: AnyGameAction[],
   opts: PromptOptions = {},
 ): ChatMessage[] {
-  const maxCandidates = opts.maxCandidates ?? 200;
+  const maxCandidates = opts.maxCandidates;
+  if (maxCandidates != null && candidates.length > maxCandidates) {
+    throw new AgentError(`candidate budget exceeded: ${candidates.length} legal actions (limit ${maxCandidates})`);
+  }
   return buildPromptInner(obs, persona, candidates, maxCandidates);
 }
 
@@ -80,8 +85,24 @@ export function labelCandidates(candidates: AnyGameAction[], max?: number): Cand
   return list.map((action, i) => ({ id: `A${i}`, action }));
 }
 
-function buildPromptInner(obs: AgentObservation, persona: Persona, candidates: AnyGameAction[], maxCandidates: number): ChatMessage[] {
+function buildPromptInner(obs: AgentObservation, persona: Persona, candidates: AnyGameAction[], maxCandidates?: number): ChatMessage[] {
   const refs = labelCandidates(candidates, maxCandidates);
+  const aliases = new Map<string, string>();
+  let aliasIndex = 0;
+  const aliasFor = (value: string): string => {
+    let alias = aliases.get(value);
+    if (!alias) {
+      alias = `card-${String.fromCharCode(65 + (aliasIndex++ % 26))}${aliasIndex > 26 ? Math.floor(aliasIndex / 26) : ''}`;
+      aliases.set(value, alias);
+    }
+    return alias;
+  };
+  const publicAction = (value: unknown): unknown => {
+    if (typeof value === 'string' && /^c-/.test(value)) return aliasFor(value);
+    if (Array.isArray(value)) return value.map(publicAction);
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, publicAction(v)]));
+    return value;
+  };
   const system = [
     `You are "${persona.label}", a world-class card player in a game night app.`,
     persona.prompt,
@@ -93,7 +114,7 @@ function buildPromptInner(obs: AgentObservation, persona: Persona, candidates: A
     serializeView(obs.view, obs.selfId),
     '',
     `LEGAL ACTIONS (pick exactly one id):`,
-    ...refs.map((r) => `${r.id}: ${JSON.stringify(r.action)}`),
+    ...refs.map((r) => `${r.id}: ${JSON.stringify(publicAction(r.action))}`),
   ].join('\n');
   return [
     { role: 'system', content: system },
@@ -112,6 +133,22 @@ function extractJson(text: string): { thought?: string; action?: unknown; action
   } catch {
     return null;
   }
+}
+
+function restoreActionIds(value: unknown, aliases: Map<string, string>): unknown {
+  if (typeof value === 'string') return aliases.get(value) ?? value;
+  if (Array.isArray(value)) return value.map((item) => restoreActionIds(item, aliases));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, restoreActionIds(v, aliases)]));
+  return value;
+}
+
+function failureKind(error: unknown): AgentFailureKind {
+  if (error instanceof LlmResponseError) return error.kind;
+  if (error instanceof LlmHttpError) return 'http_error';
+  if (error instanceof AgentError && error.message.includes('candidate budget')) return 'candidate_budget';
+  if (error instanceof Error && (error.name === 'AbortError' || error.message.toLowerCase().includes('timeout'))) return 'timeout';
+  if (error instanceof Error && error.message.includes('unusable model answer')) return 'malformed_response';
+  return 'provider_error';
 }
 
 function actionMatches(candidate: unknown, list: AnyGameAction[]): AnyGameAction | null {
@@ -136,33 +173,49 @@ export class LlmAgent implements GameAgent {
   readonly label: string;
   private readonly opts: LlmAgentOptions & Required<Pick<LlmAgentOptions, 'baseUrl' | 'model'>>;
   private readonly persona: Persona;
-  private readonly fallback: GameAgent;
-
   constructor(opts: LlmAgentOptions) {
     this.opts = { ...opts, baseUrl: opts.baseUrl, model: opts.model };
     this.persona = personaOr(opts.persona);
     this.id = `llm:${this.persona.id}${opts.idSuffix ?? ''}`;
     this.label = `AI ${this.persona.label}`;
-    this.fallback = new CaboHeuristicBot();
-    // fallback swapped per-decision by gameId (see decide)
   }
 
   async decide(obs: AgentObservation, ctx: AgentContext): Promise<AgentDecision> {
     const candidates = enumerateLegalActions(obs.view, obs.selfId);
     if (candidates.length === 0) throw new AgentError('no candidates for LLM');
-    const maxCandidates = this.opts.maxCandidates ?? 200;
+    const maxCandidates = this.opts.maxCandidates;
+    const attempts: AgentAttempt[] = [];
+    const startedAt = Date.now();
+    const aliases = new Map<string, string>();
+    let aliasIndex = 0;
+    for (const action of candidates) {
+      const walk = (value: unknown): void => {
+        if (typeof value === 'string' && /^c-/.test(value) && !aliases.has(value)) {
+          const n = aliasIndex++;
+          aliases.set(value, `card-${String.fromCharCode(65 + (n % 26))}${n >= 26 ? Math.floor(n / 26) : ''}`);
+        } else if (Array.isArray(value)) value.forEach(walk);
+        else if (value && typeof value === 'object') Object.values(value).forEach(walk);
+      };
+      walk(action);
+    }
+    const reverseAliases = new Map([...aliases].map(([real, alias]) => [alias, real]));
+    if (maxCandidates != null && candidates.length > maxCandidates) {
+      throw new AgentError(`candidate budget exceeded: ${candidates.length} legal actions (limit ${maxCandidates})`);
+    }
 
-    const ask = async (messages: ChatMessage[]): Promise<AgentDecision> => {
-      const res = await chat({
+    const ask = async (messages: ChatMessage[], attempt: number): Promise<AgentDecision> => {
+      const attemptStarted = Date.now();
+      try {
+        const res = await chat({
         baseUrl: this.opts.baseUrl,
         apiKey: this.opts.apiKey,
         model: this.opts.model,
         messages,
         temperature: this.opts.temperature ?? 0.4,
-        maxTokens: this.opts.maxTokens ?? 400,
-        timeoutMs: this.opts.timeoutMs ?? 20_000,
+        maxTokens: this.opts.maxTokens ?? 2_048,
+        timeoutMs: this.opts.timeoutMs ?? 30_000,
         sessionId: this.opts.sessionId,
-      });
+        });
       const parsed = extractJson(res.content);
       let matched: AnyGameAction | null = null;
       if (parsed) {
@@ -172,16 +225,36 @@ export class LlmAgent implements GameAgent {
           );
           matched = ref ? ref.action : null;
         }
-        matched = matched ?? actionMatches(parsed.action, candidates);
+          matched = matched ?? actionMatches(restoreActionIds(parsed.action, reverseAliases), candidates);
       }
-      if (!matched) throw new Error(`unusable model answer: ${res.content.slice(0, 160)}`);
+      if (!matched) {
+        attempts.push({ attempt, status: 'failed', latencyMs: Date.now() - attemptStarted, httpStatus: res.httpStatus, finishReason: res.finishReason, promptTokens: res.usage?.promptTokens, completionTokens: res.usage?.completionTokens, failure: parsed ? 'illegal_action' : 'malformed_response' });
+        throw new Error(`unusable model answer: ${res.content.slice(0, 160)}`);
+      }
       const action = matched;
       const thought = parsed ? String(parsed.thought ?? '').slice(0, 300) : undefined;
-      return { action, thought: thought || undefined };
+      attempts.push({ attempt, status: 'accepted', latencyMs: Date.now() - attemptStarted, httpStatus: res.httpStatus, finishReason: res.finishReason, promptTokens: res.usage?.promptTokens, completionTokens: res.usage?.completionTokens });
+      return {
+        action,
+        thought: thought || undefined,
+        meta: {
+          source: 'model', provider: this.opts.provider, model: this.opts.model,
+          attempts, latencyMs: Date.now() - startedAt, promptTokens: res.usage?.promptTokens,
+          completionTokens: res.usage?.completionTokens, candidateCount: candidates.length,
+        },
+      };
+      } catch (err) {
+        if (!attempts.some((item) => item.attempt === attempt)) {
+          const details = err instanceof LlmResponseError ? err.details : undefined;
+          const status = err instanceof LlmHttpError ? err.status : details?.status;
+          attempts.push({ attempt, status: 'failed', latencyMs: Date.now() - attemptStarted, httpStatus: status, finishReason: details?.finishReason, promptTokens: details?.usage?.promptTokens, completionTokens: details?.usage?.completionTokens, failure: failureKind(err) });
+        }
+        throw err;
+      }
     };
 
     try {
-      return await ask(buildLlmPrompt(obs, this.persona, candidates, { maxCandidates }));
+      return await ask(buildLlmPrompt(obs, this.persona, candidates, { maxCandidates }), 1);
     } catch (err) {
       // One corrective retry, feeding the error back.
       try {
@@ -194,19 +267,29 @@ export class LlmAgent implements GameAgent {
           role: 'user',
           content: `Your previous answer was rejected: ${String(err).slice(0, 160)}. Reply again with valid JSON choosing EXACTLY one candidate action.`,
         });
-        return await ask(messages);
+        return await ask(messages, 2);
       } catch (retryErr) {
         if ((this.opts.mode ?? 'live-safe') === 'research-strict') {
           // Research metrics must see the failure, not a heuristic rescue.
-          throw new AgentError(`strict violation: ${String(retryErr).slice(0, 200)}`);
+          const kind = failureKind(retryErr);
+          throw new AgentError(`strict violation (${kind}): ${String(retryErr).slice(0, 200)}`);
         }
         // Live tables must never stall on the model: heuristic fallback.
-        const fb =
-          obs.view.gameId === 'cabo'
-            ? new CaboHeuristicBot({ idSuffix: '-fb' })
+        const fb = obs.view.gameId === 'cabo'
+          ? new CaboHeuristicBot({ idSuffix: '-fb' })
+          : obs.view.gameId === 'seep'
+            ? new SeepHeuristicBot({ id: `seep-fallback-${this.opts.model}` })
             : new PairOneHeuristicBot('-fb');
-        const d = fb.decide(obs, ctx);
-        return { action: d.action, thought: `[fallback] ${String(retryErr).slice(0, 120)}` };
+        const d = await fb.decide(obs, ctx);
+        return {
+          action: d.action,
+          thought: `[fallback] ${String(retryErr).slice(0, 120)}`,
+          meta: {
+            source: 'fallback', provider: this.opts.provider, model: this.opts.model,
+            attempts, failure: failureKind(retryErr), latencyMs: Date.now() - startedAt,
+            candidateCount: candidates.length,
+          },
+        };
       }
     }
   }

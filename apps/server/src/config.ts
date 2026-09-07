@@ -1,5 +1,30 @@
 /** Server configuration from environment variables — never hardcode hosts. */
 
+import { existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+
+// Local development runs from either the repository root or apps/server. Node's
+// built-in loader preserves explicitly exported variables, while making the
+// checked-out .env useful for `pnpm dev` and diagnostic scripts. Production
+// deployments continue to provide their environment through the process.
+function loadLocalEnv(): void {
+  const nodeEnv = process.env.NODE_ENV ?? 'development';
+  if (nodeEnv === 'production' || nodeEnv === 'test' || process.env.VITEST === 'true' || typeof process.loadEnvFile !== 'function') return;
+  let dir = process.cwd();
+  for (let i = 0; i < 4; i += 1) {
+    const candidate = join(dir, '.env');
+    if (existsSync(candidate)) {
+      try { process.loadEnvFile(candidate); } catch { /* malformed local env is reported by provider diagnostics */ }
+      return;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return;
+    dir = parent;
+  }
+}
+
+loadLocalEnv();
+
 function intEnv(name: string, def: number): number {
   const v = process.env[name];
   if (!v) return def;
@@ -32,6 +57,9 @@ export const config = {
     (process.env.OPENCODE_API_KEY || (process.env.AGENT_API_URL ?? '').includes('opencode.ai/zen/go')
       ? 'opencode-go'
       : 'endpoint'),
+  agentTimeoutMs: intEnv('AGENT_TIMEOUT_MS', 30_000),
+  agentMaxTokens: intEnv('AGENT_MAX_TOKENS', 2_048),
+  agentMaxCandidates: intEnv('AGENT_MAX_CANDIDATES', 0) || undefined,
 };
 
 export type AppConfig = typeof config;

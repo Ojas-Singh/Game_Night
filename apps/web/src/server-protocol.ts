@@ -96,7 +96,7 @@ export interface RoomLobbyState {
 
 export interface AiThought {
   id: string;
-  status: 'thinking' | 'decision';
+  status: 'thinking' | 'decision' | 'executed' | 'failed';
   at: string;
   playerId: string;
   playerName: string;
@@ -104,6 +104,13 @@ export interface AiThought {
   action?: string;
   source: string;
   model?: string;
+  executedAction?: string;
+  decisionSource?: string;
+  failure?: string;
+  latencyMs?: number;
+  attempts?: number;
+  observation?: string;
+  candidates?: string[];
 }
 
 export interface ChatMessage {

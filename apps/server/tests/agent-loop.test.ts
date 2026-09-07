@@ -158,4 +158,16 @@ describe('AgentLoops', () => {
     expect(typeof config.agentApiUrl).toBe('string');
     expect(typeof config.agentModel).toBe('string');
   });
+
+  it('keeps Test Mode private from an AI seat', () => {
+    const room = new Room();
+    const host = room.addPlayer('Watcher').player;
+    const ai = room.addAiPlayer(host.id, 'balanced');
+    room.startGame(host.id);
+    room.setTestMode(host.id, true);
+    const humanView = room.gameView(host.id)!;
+    const aiView = room.gameView(ai.id, { forAi: true })!;
+    expect(Object.keys(humanView.knownCards).length).toBeGreaterThan(Object.keys(aiView.knownCards).length);
+    expect(Object.keys(aiView.knownCards)).not.toEqual(Object.keys(humanView.knownCards));
+  });
 });

@@ -23,16 +23,40 @@ export interface ChatOptions {
 
 export interface ChatResult {
   content: string;
+  reasoningContent?: string;
+  finishReason?: string;
+  httpStatus: number;
+  usage?: { promptTokens?: number; completionTokens?: number };
 }
 
 export class LlmHttpError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly details?: { finishReason?: string; usage?: ChatResult['usage'] },
   ) {
     super(message);
     this.name = 'LlmHttpError';
   }
+}
+
+export class LlmResponseError extends Error {
+  constructor(
+    message: string,
+    readonly kind: 'empty_response' | 'provider_error',
+    readonly details: { status: number; finishReason?: string; usage?: ChatResult['usage'] },
+  ) {
+    super(message);
+    this.name = 'LlmResponseError';
+  }
+}
+
+function textContent(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => (typeof part === 'string' ? part : typeof part === 'object' && part && 'text' in part ? String((part as { text?: unknown }).text ?? '') : ''))
+    .join('');
 }
 
 export async function chat(opts: ChatOptions): Promise<ChatResult> {
@@ -61,11 +85,20 @@ export async function chat(opts: ChatOptions): Promise<ChatResult> {
       throw new LlmHttpError(`llm http ${res.status}: ${(await res.text()).slice(0, 200)}`, res.status);
     }
     const data = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{ finish_reason?: string; message?: { content?: unknown; reasoning_content?: unknown } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
-    const content = data.choices?.[0]?.message?.content ?? '';
-    if (!content) throw new Error('llm returned empty content');
-    return { content };
+    const choice = data.choices?.[0];
+    const content = textContent(choice?.message?.content);
+    const reasoningContent = textContent(choice?.message?.reasoning_content);
+    const finishReason = choice?.finish_reason;
+    const usage = data.usage
+      ? { promptTokens: data.usage.prompt_tokens, completionTokens: data.usage.completion_tokens }
+      : undefined;
+    if (!content.trim()) {
+      throw new LlmResponseError('llm returned empty content', 'empty_response', { status: res.status, finishReason, usage });
+    }
+    return { content, reasoningContent: reasoningContent || undefined, finishReason, httpStatus: res.status, usage };
   } finally {
     clearTimeout(timer);
   }

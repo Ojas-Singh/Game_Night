@@ -54,6 +54,8 @@ describe('LlmAgent', () => {
     const agent = new LlmAgent({ baseUrl, model: 'test-model' });
     const d = await agent.decide(obs, { rng: createAgentRng(1) });
     expect(d.action).toMatchObject({ type: 'FLIP_CARD', cardId: 'c-0' });
+    expect(d.meta?.source).toBe('model');
+    expect(d.meta?.attempts?.[0]?.status).toBe('accepted');
     expect(requests).toBe(1);
   });
 

@@ -34,7 +34,7 @@ export default function DebugControls({ room }: { room: RoomApi }) {
           </label>
           <label className="debug-option">
             <input type="checkbox" checked={!!room.lobby?.aiDebug} onChange={(event) => room.setAiDebug(event.target.checked)} />
-            <span><strong>Show AI reasoning</strong><small>Stream each AI’s latest thought and selected move.</small></span>
+            <span><strong>Show AI decisions</strong><small>Show the model’s provided rationale, attempts, and executed move. Hidden internal reasoning is never exposed.</small></span>
           </label>
           <div className="debug-trace-head"><span>AI activity</span><span>{thoughts.length ? `${thoughts.length} entries` : 'waiting'}</span></div>
           {!hasAi && <p className="debug-empty">Add an AI seat to see its decisions here.</p>}
@@ -53,9 +53,11 @@ export default function DebugControls({ room }: { room: RoomApi }) {
 function Trace({ thought }: { thought: AiThought }) {
   return (
     <li className={`debug-trace ${thought.status}`}>
-      <div className="debug-trace-top"><strong>{thought.playerName}</strong><span>{thought.status === 'thinking' ? 'thinking…' : thought.action ?? 'decision'}</span></div>
+      <div className="debug-trace-top"><strong>{thought.playerName}</strong><span>{thought.status === 'thinking' ? 'deciding…' : thought.status === 'executed' ? 'executed' : thought.status === 'failed' ? 'failed' : thought.action ?? 'decision'}</span></div>
       <p>{thought.thought}</p>
-      <small>{thought.source}</small>
+      <small>{thought.source}{thought.decisionSource ? ` · ${thought.decisionSource}` : ''}{thought.latencyMs != null ? ` · ${thought.latencyMs}ms` : ''}{thought.attempts != null ? ` · ${thought.attempts} attempt${thought.attempts === 1 ? '' : 's'}` : ''}{thought.failure ? ` · ${thought.failure}` : ''}</small>
+      {thought.executedAction && thought.status !== 'executed' && <small>Executed: {thought.executedAction}</small>}
+      {thought.candidates && <details className="debug-detail"><summary>Model input · {thought.candidates.length} candidates</summary><pre>{thought.candidates.join('\n')}</pre>{thought.observation && <pre>{thought.observation}</pre>}</details>}
     </li>
   );
 }

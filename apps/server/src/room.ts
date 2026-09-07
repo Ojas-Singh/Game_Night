@@ -547,6 +547,15 @@ export class Room {
     status: AiThought['status'],
     thought: string,
     action?: string,
+    meta?: {
+      executedAction?: string;
+      failure?: string;
+      latencyMs?: number;
+      attempts?: number;
+      decisionSource?: string;
+      observation?: string;
+      candidates?: string[];
+    },
   ): AiThought | null {
     if (!this.aiDebug) return null;
     const player = this.players.get(playerId);
@@ -563,6 +572,13 @@ export class Room {
       playerName: player.name,
       thought: thought.slice(0, 500),
       ...(action ? { action } : {}),
+      ...(meta?.executedAction ? { executedAction: meta.executedAction } : {}),
+      ...(meta?.failure ? { failure: meta.failure } : {}),
+      ...(meta?.latencyMs != null ? { latencyMs: meta.latencyMs } : {}),
+      ...(meta?.attempts != null ? { attempts: meta.attempts } : {}),
+      ...(meta?.decisionSource ? { decisionSource: meta.decisionSource } : {}),
+      ...(this.testMode && meta?.observation ? { observation: meta.observation.slice(0, 6_000) } : {}),
+      ...(this.testMode && meta?.candidates ? { candidates: meta.candidates.slice(0, 200) } : {}),
       source: [kind, provider, model].filter(Boolean).join(' · ') || `${kind} · ${agent.label}`,
       ...(model ? { model } : {}),
     };
@@ -693,7 +709,7 @@ export class Room {
     };
   }
 
-  gameView(playerId: string): AnyGameView | null {
+  gameView(playerId: string, opts: { forAi?: boolean } = {}): AnyGameView | null {
     if (!this.engine) return null;
     if (this.spectators.has(playerId)) {
       return this.engine instanceof RuleZeroEngine ? null : this.engine.getSpectatorView();
@@ -704,8 +720,8 @@ export class Room {
       // gameViewAsync for these rooms.
       return null; // sync callers get null; see gameViewAsync
     }
-    const opts = this.testMode ? { revealAll: true } : undefined;
-    return this.engine.getPlayerState(playerId, opts);
+    const viewOpts = this.testMode && !opts.forAi ? { revealAll: true } : undefined;
+    return this.engine.getPlayerState(playerId, viewOpts);
   }
 
   /** Async variant for service-backed engines (rulezero). */

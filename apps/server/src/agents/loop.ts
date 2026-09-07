@@ -49,6 +49,8 @@ export interface AgentLoopOptions {
 export class AgentLoops {
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private agents = new Map<string, GameAgent>(); // roomId:playerId → agent
+  private engineRefs = new Map<string, object>();
+  private engineEpoch = new Map<string, number>();
   private busy = new Set<string>();
   private readonly minThinkMs: number;
   private readonly maxThinkMs: number;
@@ -69,6 +71,11 @@ export class AgentLoops {
 
   /** Call after ANY room mutation. Cheap; collapses to one timer per room. */
   notify(room: Room): void {
+    if (room.engine && this.engineRefs.get(room.id) !== room.engine) {
+      for (const key of this.agents.keys()) if (key.startsWith(`${room.id}:`)) this.agents.delete(key);
+      this.engineRefs.set(room.id, room.engine);
+      this.engineEpoch.set(room.id, (this.engineEpoch.get(room.id) ?? 0) + 1);
+    }
     const prev = this.timers.get(room.id);
     if (prev) clearTimeout(prev);
     this.timers.delete(room.id);
@@ -195,7 +202,7 @@ export class AgentLoops {
     const existing = this.agents.get(key);
     if (existing) return existing;
     let agent: GameAgent;
-    if (config.agentApiUrl && room.gameId === 'cabo') {
+    if (config.agentApiUrl && (room.gameId === 'cabo' || room.gameId === 'pairone' || room.gameId === 'seep')) {
       const configuredModel = config.agentModel.startsWith('opencode-go/')
         ? config.agentModel.slice('opencode-go/'.length)
         : config.agentModel;
@@ -205,9 +212,11 @@ export class AgentLoops {
         model: configuredModel,
         persona: room.players.get(playerId)?.persona,
         idSuffix: `:${room.id.slice(0, 4)}`,
-        timeoutMs: 15_000,
+        timeoutMs: config.agentTimeoutMs,
+        maxTokens: config.agentMaxTokens,
+        maxCandidates: config.agentMaxCandidates,
         sessionId: config.agentProvider === 'opencode-go'
-          ? `room-${room.id}-seat-${playerId}`
+          ? `room-${room.id}-match-${this.engineEpoch.get(room.id) ?? 0}-seat-${playerId}`
           : undefined,
         provider: config.agentProvider,
       });
@@ -237,22 +246,35 @@ export class AgentLoops {
     this.busy.add(guard);
     try {
       if (!room.engine || room.engine.isGameFinished()) return;
-      const view = room.gameView(aiId);
+      // Test Mode is a human debugging aid. AI seats always receive their
+      // normal filtered view, otherwise the host's reveal switch becomes a
+      // hidden-information leak and invalidates model evaluation.
+      const view = room.gameView(aiId, { forAi: true });
       if (!view) return;
       if (view.gameId === 'rulezero') return; // service games: human seats only (for now)
       const obs = { gameId: view.gameId, selfId: aiId, view, step: 0 };
+      const legalCandidates = enumerateLegalActions(view, aiId);
       const rng = createAgentRng(randomBytes(4).readUInt32BE(0));
       let action;
+      let decisionMeta: import('@game-night/agent-core').AgentDecision['meta'];
       const agent = this.agentFor(room, aiId);
       const thinking = room.recordAiThought(aiId, agent, 'thinking', 'Reviewing the visible table…');
       if (thinking) await this.broadcaster.aiThought?.(room, thinking);
       try {
         const decision = await agent.decide(obs, { rng });
         action = decision.action;
-        const trace = room.recordAiThought(aiId, agent, 'decision', decision.thought ?? 'Selected a legal move.', action.type);
+        decisionMeta = decision.meta;
+        const trace = room.recordAiThought(aiId, agent, 'decision', decision.thought ?? 'Selected a legal move.', action.type, {
+          decisionSource: decision.meta?.source,
+          failure: decision.meta?.failure,
+          latencyMs: decision.meta?.latencyMs,
+          attempts: decision.meta?.attempts?.length,
+          observation: JSON.stringify(view),
+          candidates: legalCandidates.map((candidate) => JSON.stringify(candidate)),
+        });
         if (trace) await this.broadcaster.aiThought?.(room, trace);
       } catch (err) {
-        const trace = room.recordAiThought(aiId, agent, 'decision', `The agent failed, so the table used a safe fallback: ${String(err).slice(0, 180)}`);
+        const trace = room.recordAiThought(aiId, agent, 'failed', `The agent failed, so the table used a safe fallback: ${String(err).slice(0, 180)}`, undefined, { failure: 'agent_error', decisionSource: 'fallback' });
         if (trace) await this.broadcaster.aiThought?.(room, trace);
         log.warn('ai_agent_error', { roomId: room.id, aiId, error: String(err).slice(0, 120) });
       }
@@ -268,8 +290,19 @@ export class AgentLoops {
         // Illegal proposal (LLM drift): submit any engine-validated candidate.
         const legal = enumerateLegalActions(view, aiId).filter((a) => room.engine?.validateAction(a));
         if (legal.length === 0) return;
-        room.handleGameAction(aiId, rng.pick(legal));
+        const fallbackAction = rng.pick(legal);
+        action = fallbackAction;
+        decisionMeta = { ...(decisionMeta ?? {}), source: 'fallback', failure: 'illegal_action' };
+        room.handleGameAction(aiId, fallbackAction);
       }
+      const executed = room.recordAiThought(aiId, agent, 'executed', `Executed ${action.type} after authoritative validation.`, action.type, {
+        executedAction: action.type,
+        decisionSource: decisionMeta?.source ?? 'heuristic',
+        failure: decisionMeta?.failure,
+        latencyMs: decisionMeta?.latencyMs,
+        attempts: decisionMeta?.attempts?.length,
+      });
+      if (executed) await this.broadcaster.aiThought?.(room, executed);
       this.broadcaster.afterChange(room);
       log.debug('ai_action', { roomId: room.id, aiId, type: action.type });
     } catch (err) {

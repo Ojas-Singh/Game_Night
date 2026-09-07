@@ -151,6 +151,21 @@ button, .button-link { min-height: 44px; }
   display: flex;
   align-items: center;
   justify-content: center;
+  isolation: isolate;
+}
+.home-lounge-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 68% center;
+  border-radius: 28px;
+  opacity: .58;
+  mix-blend-mode: screen;
+  mask-image: linear-gradient(90deg, transparent 0%, black 22%, black 86%, transparent 100%);
+  pointer-events: none;
+  z-index: -2;
 }
 .home-stage-glow { position: absolute; inset: 14% 4% 7%; z-index: -1; border-radius: 50%; background: radial-gradient(ellipse, rgba(235, 172, 84, .2), transparent 66%); filter: blur(8px); }
 .home-stage-topline { position: absolute; top: 18px; left: 8%; right: 8%; display: flex; justify-content: space-between; color: rgba(239, 231, 215, .55); font-size: 10px; letter-spacing: .16em; }
@@ -188,7 +203,7 @@ button, .button-link { min-height: 44px; }
 .game-discovery-card { position: relative; overflow: hidden; min-height: 266px; }
 .game-discovery-card::before { content: ''; position: absolute; width: 180px; height: 180px; top: -86px; right: -50px; border-radius: 50%; background: rgba(255, 255, 255, .06); }
 .game-discovery-card.red { background: linear-gradient(150deg, #33221e, #1a1612); }.game-discovery-card.green { background: linear-gradient(150deg, #20372b, #151c16); }.game-discovery-card.blue { background: linear-gradient(150deg, #202d3d, #16171a); }
-.game-card-art { position: relative; z-index: 1; }.game-card-meta { color: var(--accent-strong); font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.game-card-art { position: relative; z-index: 1; height: 112px; overflow: hidden; border-radius: 13px; background: rgba(0,0,0,.2); }.game-card-art img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.06); opacity: .82; filter: saturate(.9) contrast(.96); }.game-card-art span { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255,236,192,.78); font: 500 46px Georgia, serif; text-shadow: 0 3px 12px #000; }.game-card-meta { color: var(--accent-strong); font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .game-discovery-card h3 { font-size: 34px; }.game-discovery-card p { max-width: 210px; }.game-discovery-card button, .game-discovery-card .button-link { align-self: flex-start; }
 .game-discovery-card button span, .lab-discovery .button-link span { margin-left: 8px; font-size: 18px; }
 .lab-discovery { background: linear-gradient(150deg, #3c3120, #201a12); }.lab-discovery .game-card-art { color: var(--accent-strong); }.lab-discovery p { max-width: 280px; }
@@ -378,6 +393,9 @@ button, .button-link { min-height: 44px; }
 }
 .debug-option input { width: 17px; height: 17px; margin: 1px 0 0; accent-color: var(--accent); }
 .debug-option strong { font-size: 12px; }
+.debug-detail { margin-top: 8px; border-top: 1px solid rgba(255, 220, 160, .1); padding-top: 7px; color: var(--ink-dim); font-size: 10px; }
+.debug-detail summary { cursor: pointer; color: var(--accent-strong); }
+.debug-detail pre { max-height: 150px; overflow: auto; margin: 7px 0 0; padding: 7px; border-radius: 7px; color: #dce9d8; background: rgba(0,0,0,.32); white-space: pre-wrap; word-break: break-word; font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .debug-trace-head {
   display: flex;
   justify-content: space-between;
