@@ -10,12 +10,13 @@ import type { PairOnePlayerView } from '@pairone/views.js';
 import type { PairOneAction } from '@pairone/types.js';
 import type { SeepAction } from '@seep/types.js';
 import type { AnyGameView, CaboPlayerView } from './server-protocol.js';
-import type { AiThought, ChatMessage, JoinResult, RoomLobbyState } from './server-protocol.js';
+import type { AiDecisionTrace, ChatMessage, JoinResult, RoomLobbyState } from './server-protocol.js';
 import type { CaboAction } from '@cabo/types.js';
 import { collectSeepFlights } from './seep/flights.js';
 import { playSound } from './sound.js';
 import { loadAvatar, saveAvatar } from './avatar.js';
 import type { Avatar } from './server-protocol.js';
+import { mergeAiTraces, upsertAiTrace } from './table/ai-trace.js';
 
 /** Derive sound cues from view transitions by comparing event logs. */
 function playSoundsFor(prev: AnyGameView, next: AnyGameView): void {
@@ -521,7 +522,14 @@ export function useRoom(): RoomApi {
   useEffect(() => {
     if (!socket) return;
     const onState = (state: RoomLobbyState) => {
-      setLobby(state);
+      setLobby((previous) => {
+        if (!state.aiDebug) return { ...state, aiThoughts: [] };
+        if (state.aiThoughts === undefined) return state;
+        return {
+          ...state,
+          aiThoughts: mergeAiTraces(previous?.aiThoughts ?? [], state.aiThoughts),
+        };
+      });
       setTestMode(!!state.testMode);
     };
     const onChat = (msg: ChatMessage) => {
@@ -659,10 +667,10 @@ export function useRoom(): RoomApi {
     const onEmote = ({ playerId, emote }: { playerId: string; emote: string }) => {
       setEmotes((prev) => ({ ...prev, [playerId]: { emote, at: Date.now() } }));
     };
-    const onAiThought = (thought: AiThought) => {
+    const onAiThought = (trace: AiDecisionTrace) => {
       setLobby((prev) => {
-        if (!prev || prev.hostId !== myIdRef.current) return prev;
-        return { ...prev, aiThoughts: [...(prev.aiThoughts ?? []), thought].slice(-80) };
+        if (!prev || prev.hostId !== myIdRef.current || !prev.aiDebug) return prev;
+        return { ...prev, aiThoughts: upsertAiTrace(prev.aiThoughts ?? [], trace) };
       });
     };
     socket.on('room:emote', onEmote);

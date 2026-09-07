@@ -3,6 +3,8 @@
  * endpoint, LM Studio, OpenAI itself…). No SDK dependency — one fetch call.
  */
 
+import type { TokenUsage } from '@game-night/agent-core';
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -23,10 +25,11 @@ export interface ChatOptions {
 
 export interface ChatResult {
   content: string;
-  reasoningContent?: string;
+  /** True when the provider returned a separate reasoning field or count. */
+  reasoningAvailable?: boolean;
   finishReason?: string;
   httpStatus: number;
-  usage?: { promptTokens?: number; completionTokens?: number };
+  usage?: TokenUsage;
 }
 
 export class LlmHttpError extends Error {
@@ -44,7 +47,7 @@ export class LlmResponseError extends Error {
   constructor(
     message: string,
     readonly kind: 'empty_response' | 'provider_error',
-    readonly details: { status: number; finishReason?: string; usage?: ChatResult['usage'] },
+    readonly details: { status: number; finishReason?: string; usage?: ChatResult['usage']; reasoningAvailable?: boolean },
   ) {
     super(message);
     this.name = 'LlmResponseError';
@@ -57,6 +60,33 @@ function textContent(content: unknown): string {
   return content
     .map((part) => (typeof part === 'string' ? part : typeof part === 'object' && part && 'text' in part ? String((part as { text?: unknown }).text ?? '') : ''))
     .join('');
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function parseUsage(value: unknown): TokenUsage | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const raw = value as Record<string, unknown>;
+  const completionDetails = raw.completion_tokens_details;
+  const outputDetails = raw.output_tokens_details;
+  const completion = completionDetails && typeof completionDetails === 'object'
+    ? completionDetails as Record<string, unknown>
+    : undefined;
+  const output = outputDetails && typeof outputDetails === 'object'
+    ? outputDetails as Record<string, unknown>
+    : undefined;
+  const usage: TokenUsage = {
+    promptTokens: numberValue(raw.prompt_tokens),
+    completionTokens: numberValue(raw.completion_tokens),
+    totalTokens: numberValue(raw.total_tokens),
+    reasoningTokens:
+      numberValue(raw.reasoning_tokens) ??
+      numberValue(completion?.reasoning_tokens) ??
+      numberValue(output?.reasoning_tokens),
+  };
+  return Object.values(usage).some((entry) => entry != null) ? usage : undefined;
 }
 
 export async function chat(opts: ChatOptions): Promise<ChatResult> {
@@ -88,20 +118,27 @@ export async function chat(opts: ChatOptions): Promise<ChatResult> {
       throw new LlmHttpError(`llm http ${res.status}: ${(await res.text()).slice(0, 200)}`, res.status);
     }
     const data = (await res.json()) as {
-      choices?: Array<{ finish_reason?: string; message?: { content?: unknown; reasoning_content?: unknown } }>;
-      usage?: { prompt_tokens?: number; completion_tokens?: number };
+      choices?: Array<{ finish_reason?: string; message?: { content?: unknown; reasoning_content?: unknown; reasoning?: unknown } }>;
+      usage?: unknown;
+      reasoning_tokens?: unknown;
     };
     const choice = data.choices?.[0];
     const content = textContent(choice?.message?.content);
-    const reasoningContent = textContent(choice?.message?.reasoning_content);
-    const finishReason = choice?.finish_reason;
-    const usage = data.usage
-      ? { promptTokens: data.usage.prompt_tokens, completionTokens: data.usage.completion_tokens }
-      : undefined;
-    if (!content.trim()) {
-      throw new LlmResponseError('llm returned empty content', 'empty_response', { status: res.status, finishReason, usage });
+    let usage = parseUsage(data.usage);
+    const rootReasoningTokens = numberValue(data.reasoning_tokens);
+    if (rootReasoningTokens != null && usage?.reasoningTokens == null) {
+      usage = { ...(usage ?? {}), reasoningTokens: rootReasoningTokens };
     }
-    return { content, reasoningContent: reasoningContent || undefined, finishReason, httpStatus: res.status, usage };
+    const reasoningAvailable = Boolean(
+      textContent(choice?.message?.reasoning_content).trim() ||
+      textContent(choice?.message?.reasoning).trim() ||
+      usage?.reasoningTokens != null,
+    );
+    const finishReason = choice?.finish_reason;
+    if (!content.trim()) {
+      throw new LlmResponseError('llm returned empty content', 'empty_response', { status: res.status, finishReason, usage, reasoningAvailable });
+    }
+    return { content, reasoningAvailable, finishReason, httpStatus: res.status, usage };
   } finally {
     clearTimeout(timer);
   }

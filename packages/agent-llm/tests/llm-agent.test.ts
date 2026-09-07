@@ -58,6 +58,8 @@ describe('LlmAgent', () => {
     expect(d.rationale).toEqual(['the slot is legal', 'it improves the visible position']);
     expect(d.meta?.source).toBe('model');
     expect(d.meta?.attempts?.[0]?.status).toBe('accepted');
+    expect(d.meta?.usage).toBeUndefined();
+    expect(d.meta?.providerReasoningAvailable).toBe(false);
     expect(requests).toBe(1);
   });
 
@@ -103,12 +105,23 @@ describe('LlmAgent', () => {
   it('records provider reasoning availability without exposing its text', async () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response(
-      JSON.stringify({ choices: [{ message: { content: '{"summary":"choose A0","factors":["legal"],"action_id":"A0"}', reasoning_content: 'hidden provider text' } }] }),
+      JSON.stringify({
+        choices: [{ message: { content: '{"summary":"choose A0","factors":["legal"],"action_id":"A0"}', reasoning_content: 'hidden provider text' }, finish_reason: 'stop' }],
+        usage: {
+          prompt_tokens: 120,
+          completion_tokens: 42,
+          total_tokens: 162,
+          completion_tokens_details: { reasoning_tokens: 18 },
+        },
+      }),
       { headers: { 'content-type': 'application/json' } },
     )) as unknown as typeof fetch;
     try {
       const d = await new LlmAgent({ baseUrl, model: 'test-model', mode: 'research-strict' }).decide(makeObs(), { rng: createAgentRng(8) });
       expect(d.meta?.providerReasoningAvailable).toBe(true);
+      expect(d.meta?.usage).toEqual({ promptTokens: 120, completionTokens: 42, reasoningTokens: 18, totalTokens: 162 });
+      expect(d.meta?.finishReason).toBe('stop');
+      expect(d.meta?.attempts?.[0]?.usage?.reasoningTokens).toBe(18);
       expect(JSON.stringify(d)).not.toContain('hidden provider text');
     } finally {
       globalThis.fetch = origFetch;
@@ -116,13 +129,15 @@ describe('LlmAgent', () => {
   });
 
   it('retries once on garbage then falls back to a legal heuristic move', async () => {
-    responses = ['I think flipping something is good!', 'still not json {{{'];
+    responses = ['private chain of thought: secret', 'still not json {{{'];
     const obs = makeObs(5);
     requests = 0;
     const agent = new LlmAgent({ baseUrl, model: 'test-model' });
     const d = await agent.decide(obs, { rng: createAgentRng(2) });
     expect(d.action.type).toBe('FLIP_CARD');
     expect(String(d.thought)).toContain('fallback');
+    expect(String(d.thought)).not.toContain('secret');
+    expect(d.meta?.attempts).toHaveLength(2);
     expect(requests).toBe(2); // exactly one corrective retry
   }, 20_000);
 

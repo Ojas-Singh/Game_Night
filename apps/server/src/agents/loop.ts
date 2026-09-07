@@ -21,15 +21,16 @@ import type { Server as SocketServer } from 'socket.io';
 import {
   enumerateLegalActions,
   createAgentRng,
+  type AgentDecision,
   type GameAgent,
 } from '@game-night/agent-core';
 import { CaboHeuristicBot, PairOneHeuristicBot, SeepHeuristicBot } from '@game-night/agent-bots';
 import { LlmAgent } from '@game-night/agent-llm';
-import type { Room } from '../room.js';
+import type { AiDecisionPatch, Room } from '../room.js';
 import { RoomError } from '../room.js';
 import { config } from '../config.js';
 import { log } from '../log.js';
-import type { AiThought } from '../protocol.js';
+import type { AiDecisionTrace } from '../protocol.js';
 
 const DEFAULT_MIN_THINK_MS = 700;
 const DEFAULT_MAX_THINK_MS = 2200;
@@ -38,7 +39,7 @@ export interface AgentBroadcaster {
   /** Re-broadcast lobby + game views + persist (same as human actions). */
   afterChange(room: Room): void | Promise<void>;
   /** Send host-only AI debug traces while a model is thinking/acting. */
-  aiThought?(room: Room, thought: AiThought): void | Promise<void>;
+  aiThought?(room: Room, trace: AiDecisionTrace): void | Promise<void>;
 }
 
 export interface AgentLoopOptions {
@@ -64,6 +65,22 @@ export class AgentLoops {
   ) {
     this.minThinkMs = opts.minThinkMs ?? DEFAULT_MIN_THINK_MS;
     this.maxThinkMs = opts.maxThinkMs ?? DEFAULT_MAX_THINK_MS;
+  }
+
+  private async publishTrace(room: Room, trace: AiDecisionTrace | null): Promise<void> {
+    if (trace) await this.broadcaster.aiThought?.(room, trace);
+  }
+
+  private traceMeta(meta: AgentDecision['meta']): AiDecisionPatch {
+    return {
+      ...(meta?.attempts ? { attempts: meta.attempts } : {}),
+      ...(meta?.usage ? { usage: meta.usage } : {}),
+      ...(meta?.finishReason ? { finishReason: meta.finishReason } : {}),
+      ...(meta?.providerReasoningAvailable ? { providerReasoningAvailable: true } : {}),
+      ...(meta?.latencyMs != null ? { latencyMs: meta.latencyMs } : {}),
+      ...(meta?.failure ? { failure: meta.failure } : {}),
+      ...(meta?.source ? { decisionSource: meta.source } : {}),
+    };
   }
 
   dispose(): void {
@@ -179,6 +196,7 @@ export class AgentLoops {
     const guard = `${room.id}`;
     if (this.busy.has(guard)) return;
     this.busy.add(guard);
+    let activeTrace: AiDecisionTrace | null = null;
     try {
       const engine = room.engine;
       if (!(engine instanceof RuleZeroEngine) || engine.isGameFinished()) return;
@@ -199,29 +217,75 @@ export class AgentLoops {
           continue;
         }
         if (!aiIds.includes(actor)) return; // humans turn — done pumping
-        const thinking = room.recordAiThought(actor, solver, 'thinking', 'Evaluating the legal actions from the current information state…');
-        if (thinking) await this.broadcaster.aiThought?.(room, thinking);
+        const decisionTrace = room.beginAiDecision(actor, solver);
+        activeTrace = decisionTrace;
+        await this.publishTrace(room, decisionTrace);
         const pick = await engine.chooseAiAction(actor);
-        if (pick === null) return;
-        const trace = room.recordAiThought(
-          actor,
-          solver,
-          'decision',
-          pick === -1 ? 'The solver advanced the service through a chance step.' : 'The solver selected a legal action from the service policy.',
-          pick === -1 ? 'CHANCE' : `ACTION_${pick}`,
-        );
-        if (trace) await this.broadcaster.aiThought?.(room, trace);
-        if (pick === -1) continue; // chance resolved; keep pumping
+        if (pick === null) {
+          const failed = decisionTrace
+            ? room.updateAiDecision(decisionTrace.id, {
+                status: 'failed',
+                summary: 'The solver did not return an action.',
+                failure: 'solver_no_action',
+                decisionSource: 'solver',
+              })
+            : null;
+          await this.publishTrace(room, failed);
+          return;
+        }
+        const decided = decisionTrace
+          ? room.updateAiDecision(decisionTrace.id, {
+              status: 'decision',
+              summary: pick === -1 ? 'The solver advanced the service through a chance step.' : 'The solver selected a legal action from the service policy.',
+              proposedAction: pick === -1 ? 'CHANCE' : `ACTION_${pick}`,
+              decisionSource: 'solver',
+            })
+          : null;
+        await this.publishTrace(room, decided);
+        if (pick === -1) {
+          const chance = decisionTrace
+            ? room.updateAiDecision(decisionTrace.id, { status: 'executed', executedAction: 'CHANCE' })
+            : null;
+          activeTrace = null;
+          await this.publishTrace(room, chance);
+          continue; // chance resolved; keep pumping
+        }
         await room.runCommand(async () => {
-          if (room.engine !== engine) return;
+          if (room.engine !== engine) {
+            const stale = decisionTrace
+              ? room.updateAiDecision(decisionTrace.id, {
+                  status: 'failed',
+                  summary: 'The table changed while the solver was deciding; the move was discarded.',
+                  failure: 'stale_decision',
+                  decisionSource: 'discarded',
+                })
+              : null;
+            activeTrace = null;
+            await this.publishTrace(room, stale);
+            return;
+          }
           await room.applyGameAction(actor, { type: 'RZ_APPLY', playerId: actor,
             actionIndex: pick, expectedRevision: engine.getState().snapshot.revision,
             commandId: randomBytes(16).toString('hex') } as any);
+          const executed = decisionTrace
+            ? room.updateAiDecision(decisionTrace.id, { status: 'executed', executedAction: `ACTION_${pick}` })
+            : null;
+          activeTrace = null;
+          await this.publishTrace(room, executed);
           await this.broadcaster.afterChange(room);
         });
         await this.sleep(200);
       }
     } catch (err) {
+      if (activeTrace) {
+        const failed = room.updateAiDecision(activeTrace.id, {
+          status: 'failed',
+          summary: 'The solver decision could not be completed.',
+          failure: 'solver_error',
+          decisionSource: 'failed',
+        });
+        await this.publishTrace(room, failed);
+      }
       log.error('ai_loop_error', { roomId: room.id, error: String(err).slice(0, 160) });
     } finally {
       this.busy.delete(guard);
@@ -270,6 +334,7 @@ export class AgentLoops {
 
   private async act(room: Room, aiId: string, interruptOnly = false): Promise<void> {
     const guard = `${room.id}`;
+    let activeTrace: AiDecisionTrace | null = null;
     if (interruptOnly) {
       if (this.flushBusy.has(guard)) return;
       this.flushBusy.add(guard);
@@ -306,35 +371,47 @@ export class AgentLoops {
       let action;
       let decisionMeta: import('@game-night/agent-core').AgentDecision['meta'];
       const agent = this.agentFor(room, aiId);
-      const thinking = room.recordAiThought(
-        aiId,
-        agent,
-        'thinking',
-        interruptOnly ? 'Known flush opportunity detected; choosing an interrupt action…' : 'Reviewing the visible table…',
-      );
-      if (thinking) await this.broadcaster.aiThought?.(room, thinking);
+      const trace = room.beginAiDecision(aiId, agent);
+      activeTrace = trace;
+      await this.publishTrace(room, trace);
       try {
         const decision = await agent.decide(obs, { rng, allowedActions: legalCandidates, interruptOnly });
         action = decision.action;
         decisionMeta = decision.meta;
-        const trace = room.recordAiThought(aiId, agent, 'decision', decision.thought ?? 'Selected a legal move.', action.type, {
-          decisionSource: decision.meta?.source,
-          failure: decision.meta?.failure,
-          latencyMs: decision.meta?.latencyMs,
-          attempts: decision.meta?.attempts?.length,
-          rationale: decision.rationale,
-          providerReasoningAvailable: decision.meta?.providerReasoningAvailable,
-          observation: JSON.stringify(view),
-          candidates: legalCandidates.map((candidate) => JSON.stringify(candidate)),
-        });
-        if (trace) await this.broadcaster.aiThought?.(room, trace);
+        const decided = trace
+          ? room.updateAiDecision(trace.id, {
+              status: 'decision',
+              summary: decision.thought ?? 'Selected a legal move.',
+              rationale: decision.rationale,
+              // A live-safe fallback returns the rescue bot's action as the
+              // decision value; it is executed, but was not proposed by the
+              // provider and must remain distinguishable in the inspector.
+              proposedAction: decision.meta?.source === 'fallback' ? undefined : action.type,
+              observation: JSON.stringify(view),
+              candidates: legalCandidates.map((candidate) => JSON.stringify(candidate)),
+              ...this.traceMeta(decision.meta),
+            })
+          : null;
+        await this.publishTrace(room, decided);
       } catch (err) {
-        const trace = room.recordAiThought(aiId, agent, 'failed', `The agent failed, so the table used a safe fallback: ${String(err).slice(0, 180)}`, undefined, { failure: 'agent_error', decisionSource: 'fallback' });
-        if (trace) await this.broadcaster.aiThought?.(room, trace);
         log.warn('ai_agent_error', { roomId: room.id, aiId, error: String(err).slice(0, 120) });
       }
       if (!action) {
         action = rng.pick(legalCandidates);
+        decisionMeta = {
+          ...(decisionMeta ?? {}),
+          source: 'fallback',
+          failure: 'agent_error',
+        };
+        const fallback = trace
+          ? room.updateAiDecision(trace.id, {
+              status: 'decision',
+              summary: 'The agent failed; selected a safe legal fallback.',
+              proposedAction: undefined,
+              ...this.traceMeta(decisionMeta),
+            })
+          : null;
+        await this.publishTrace(room, fallback);
       }
       // An LLM response is asynchronous. The room may have been restarted,
       // the seat may have changed, or a newer command may have advanced the
@@ -342,40 +419,76 @@ export class AgentLoops {
       // other move) against a newer information state.
       const latestView = room.gameView(aiId, { forAi: true });
       if (room.engine !== decisionEngine || !latestView || latestView.gameId === 'rulezero' || latestView.revision !== decisionRevision) {
-        const discarded = room.recordAiThought(
-          aiId,
-          agent,
-          'failed',
-          'The table changed while this decision was being prepared; the proposed move was discarded.',
-          undefined,
-          { failure: 'stale_decision', decisionSource: 'discarded' },
-        );
-        if (discarded) await this.broadcaster.aiThought?.(room, discarded);
+        const discarded = trace
+          ? room.updateAiDecision(trace.id, {
+              status: 'failed',
+              summary: 'The table changed while this decision was being prepared; the proposed move was discarded.',
+              failure: 'stale_decision',
+              decisionSource: 'discarded',
+            })
+          : null;
+        await this.publishTrace(room, discarded);
         return;
       }
+      const proposedAction = action;
       try {
         room.handleGameAction(aiId, action);
       } catch (err) {
         if (!(err instanceof RoomError)) throw err;
         // Illegal proposal (LLM drift): submit any engine-validated candidate.
         const legal = legalCandidates.filter((a) => room.engine?.validateAction(a));
-        if (legal.length === 0) return;
+        if (legal.length === 0) {
+          const failed = trace
+            ? room.updateAiDecision(trace.id, {
+                status: 'failed',
+                summary: 'The proposed move was rejected and no legal fallback remained.',
+                proposedAction: proposedAction.type,
+                failure: 'no_legal_fallback',
+                decisionSource: 'fallback',
+              })
+            : null;
+          await this.publishTrace(room, failed);
+          return;
+        }
         const fallbackAction = rng.pick(legal);
         action = fallbackAction;
         decisionMeta = { ...(decisionMeta ?? {}), source: 'fallback', failure: 'illegal_action' };
+        const repaired = trace
+          ? room.updateAiDecision(trace.id, {
+              status: 'decision',
+              summary: 'The proposed move was rejected; selected a legal fallback.',
+              proposedAction: proposedAction.type,
+              ...this.traceMeta(decisionMeta),
+            })
+          : null;
+        await this.publishTrace(room, repaired);
         room.handleGameAction(aiId, fallbackAction);
       }
-      const executed = room.recordAiThought(aiId, agent, 'executed', `Executed ${action.type} after authoritative validation.`, action.type, {
-        executedAction: action.type,
-        decisionSource: decisionMeta?.source ?? 'heuristic',
-        failure: decisionMeta?.failure,
-        latencyMs: decisionMeta?.latencyMs,
-        attempts: decisionMeta?.attempts?.length,
-      });
-      if (executed) await this.broadcaster.aiThought?.(room, executed);
-      this.broadcaster.afterChange(room);
+      const executed = trace
+        ? room.updateAiDecision(trace.id, {
+            status: 'executed',
+            executedAction: action.type,
+            decisionSource: decisionMeta?.source ?? 'heuristic',
+            ...this.traceMeta(decisionMeta),
+          })
+        : null;
+      // The engine has accepted the command. Transport/persistence errors
+      // after this point must not rewrite an authoritative execution as a
+      // failed model decision.
+      activeTrace = null;
+      await this.publishTrace(room, executed);
+      await this.broadcaster.afterChange(room);
       log.debug('ai_action', { roomId: room.id, aiId, type: action.type });
     } catch (err) {
+      if (activeTrace) {
+        const failed = room.updateAiDecision(activeTrace.id, {
+          status: 'failed',
+          summary: 'The AI decision could not be completed.',
+          failure: 'agent_loop_error',
+          decisionSource: 'failed',
+        });
+        await this.publishTrace(room, failed);
+      }
       log.error('ai_loop_error', { roomId: room.id, error: String(err).slice(0, 160) });
     } finally {
       if (interruptOnly) this.flushBusy.delete(guard);

@@ -202,16 +202,36 @@ describe('Room', () => {
     expect(() => room.setAiDebug(guest.id, true)).toThrow(/host/);
 
     room.setAiDebug(host.id, true);
-    const trace = room.recordAiThought(
+    const trace = room.beginAiDecision(
       ai.id,
       { label: 'Cabo Scholar', describe: () => ({ kind: 'llm', provider: 'test-provider', model: 'test-model' }) },
-      'decision',
-      'Choosing a safe discard',
-      'DISCARD_DRAWN',
     );
-    expect(trace?.source).toBe('LLM · test-provider · test-model');
+    const decided = trace && room.updateAiDecision(trace.id, {
+      status: 'decision',
+      summary: 'Choosing a safe discard',
+      proposedAction: 'DISCARD_DRAWN',
+    });
+    const executed = decided && room.updateAiDecision(decided.id, {
+      status: 'executed',
+      executedAction: 'DISCARD_DRAWN',
+    });
+    expect(executed?.source).toBe('LLM · test-provider · test-model');
+    expect(executed?.version).toBe(3);
+    expect(executed?.summary).toBe('Choosing a safe discard');
+    expect(executed?.proposedAction).toBe('DISCARD_DRAWN');
+    expect(executed?.executedAction).toBe('DISCARD_DRAWN');
     expect(room.lobbyState().aiThoughts).toBeUndefined();
     expect(room.aiThoughts).toHaveLength(1);
+
+    room.setTestMode(host.id, true);
+    const inspected = room.updateAiDecision(executed!.id, {
+      observation: '{"private":"test"}',
+      candidates: ['DRAW'],
+    });
+    expect(inspected?.observation).toContain('private');
+    room.setTestMode(host.id, false);
+    expect(room.aiThoughts[0]?.observation).toBeUndefined();
+    expect(room.aiThoughts[0]?.candidates).toBeUndefined();
 
     room.setAiDebug(host.id, false);
     expect(room.aiThoughts).toHaveLength(0);

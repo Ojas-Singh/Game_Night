@@ -12,7 +12,7 @@ import { RuleZeroEngine, type RuleZeroPlayerView } from './rulezeroEngine.js';
 import { takeRulezeroSpec } from './gameLab.js';
 import { PairOneEngine, type PairOnePlayerView } from '@game-night/engine-pairone';
 import { SeepEngine, type SeepPlayerView, type SeepState } from '@game-night/engine-seep';
-import type { AiThought, ChatMessage, LobbyPlayer, RoomLobbyState } from './protocol.js';
+import type { AiDecisionTrace, ChatMessage, LobbyPlayer, RoomLobbyState } from './protocol.js';
 import { isValidAvatar, randomAvatar, type Avatar } from './protocol.js';
 import { log } from './log.js';
 
@@ -20,6 +20,13 @@ import { log } from './log.js';
  *  (createGame/getState/getPlayerState/handleAction/calculateScore/...). */
 export type AnyGameEngine = CaboEngine | PairOneEngine | SeepEngine | RuleZeroEngine;
 export type AnyGameView = CaboPlayerView | PairOnePlayerView | SeepPlayerView | RuleZeroPlayerView;
+
+type AiTraceAgent = { label: string; describe?: () => Record<string, unknown> };
+export type AiDecisionPatch = Partial<Pick<AiDecisionTrace,
+  'status' | 'summary' | 'rationale' | 'proposedAction' | 'executedAction' |
+  'decisionSource' | 'attempts' | 'usage' | 'finishReason' |
+  'providerReasoningAvailable' | 'failure' | 'latencyMs' | 'observation' | 'candidates'
+>>;
 
 /** Available games on the platform. Adding one here lights it up everywhere. */
 const GAME_REGISTRY = {
@@ -162,7 +169,8 @@ export class Room {
   testMode = false;
   /** Host-only live AI reasoning panel. Never included in non-host views. */
   aiDebug = false;
-  aiThoughts: AiThought[] = [];
+  aiThoughts: AiDecisionTrace[] = [];
+  private aiDecisionSequence = 0;
   debug: RoomDebug;
   private reconnectGraceMs: number;
   private chatSeq = 0;
@@ -532,6 +540,15 @@ export class Room {
   setTestMode(playerId: string, enabled: boolean): void {
     if (playerId !== this.hostId) throw new RoomError('only the host can toggle Test Mode');
     this.testMode = enabled;
+    if (!enabled) {
+      this.aiThoughts = this.aiThoughts.map((trace) => ({
+        ...trace,
+        version: trace.version + 1,
+        updatedAt: new Date().toISOString(),
+        observation: undefined,
+        candidates: undefined,
+      }));
+    }
     this.system(enabled ? 'TEST MODE ON — all cards revealed' : 'TEST MODE OFF');
   }
 
@@ -541,24 +558,7 @@ export class Room {
     if (!enabled) this.aiThoughts = [];
   }
 
-  recordAiThought(
-    playerId: string,
-    agent: { label: string; describe?: () => Record<string, unknown> },
-    status: AiThought['status'],
-    thought: string,
-    action?: string,
-    meta?: {
-      executedAction?: string;
-      failure?: string;
-      latencyMs?: number;
-      attempts?: number;
-      decisionSource?: string;
-      observation?: string;
-      candidates?: string[];
-     rationale?: string[];
-      providerReasoningAvailable?: boolean;
-   },
-  ): AiThought | null {
+  beginAiDecision(playerId: string, agent: AiTraceAgent): AiDecisionTrace | null {
     if (!this.aiDebug) return null;
     const player = this.players.get(playerId);
     if (!player) return null;
@@ -566,28 +566,45 @@ export class Room {
     const kind = description.kind === 'llm' ? 'LLM' : description.kind === 'solver' ? 'Solver' : 'Heuristic';
     const provider = typeof description.provider === 'string' ? description.provider : undefined;
     const model = typeof description.model === 'string' ? description.model : undefined;
-    const entry: AiThought = {
+    const now = new Date().toISOString();
+    const entry: AiDecisionTrace = {
       id: randomUUID(),
-      status,
-      at: new Date().toISOString(),
+      version: 1,
+      sequence: ++this.aiDecisionSequence,
+      status: 'thinking',
+      startedAt: now,
+      updatedAt: now,
       playerId,
       playerName: player.name,
-      thought: thought.slice(0, 500),
-     ...(meta?.rationale?.length ? { rationale: meta.rationale.slice(0, 4).map((item) => item.slice(0, 220)) } : {}),
-      ...(meta?.providerReasoningAvailable ? { providerReasoningAvailable: true } : {}),
-     ...(action ? { action } : {}),
-      ...(meta?.executedAction ? { executedAction: meta.executedAction } : {}),
-      ...(meta?.failure ? { failure: meta.failure } : {}),
-      ...(meta?.latencyMs != null ? { latencyMs: meta.latencyMs } : {}),
-      ...(meta?.attempts != null ? { attempts: meta.attempts } : {}),
-      ...(meta?.decisionSource ? { decisionSource: meta.decisionSource } : {}),
-      ...(this.testMode && meta?.observation ? { observation: meta.observation.slice(0, 6_000) } : {}),
-      ...(this.testMode && meta?.candidates ? { candidates: meta.candidates.slice(0, 200) } : {}),
+      attempts: [],
       source: [kind, provider, model].filter(Boolean).join(' · ') || `${kind} · ${agent.label}`,
       ...(model ? { model } : {}),
     };
     this.aiThoughts = [...this.aiThoughts, entry].slice(-80);
     return entry;
+  }
+
+  updateAiDecision(id: string, patch: AiDecisionPatch): AiDecisionTrace | null {
+    const index = this.aiThoughts.findIndex((trace) => trace.id === id);
+    if (index < 0) return null;
+    const current = this.aiThoughts[index]!;
+    const privateFields = this.testMode
+      ? {}
+      : { observation: undefined, candidates: undefined };
+    const next: AiDecisionTrace = {
+      ...current,
+      ...patch,
+      ...privateFields,
+      version: current.version + 1,
+      updatedAt: new Date().toISOString(),
+      ...(patch.summary !== undefined ? { summary: patch.summary.slice(0, 500) } : {}),
+      ...(patch.rationale !== undefined ? { rationale: patch.rationale.slice(0, 4).map((item) => item.slice(0, 220)) } : {}),
+      ...(patch.observation !== undefined ? { observation: this.testMode ? patch.observation.slice(0, 6_000) : undefined } : {}),
+      ...(patch.candidates !== undefined ? { candidates: this.testMode ? patch.candidates.slice(0, 200) : undefined } : {}),
+    };
+    this.aiThoughts = this.aiThoughts.slice();
+    this.aiThoughts[index] = next;
+    return next;
   }
 
   /** Host restarts the round at ANY time: fresh deal, scoreboard preserved. */

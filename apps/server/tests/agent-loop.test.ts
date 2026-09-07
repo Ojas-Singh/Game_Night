@@ -170,7 +170,12 @@ describe('AgentLoops', () => {
     state.discard.push(state.deck.splice(topIndex, 1)[0]!);
     state.knowledge[ai.id] = [...new Set([...(state.knowledge[ai.id] ?? []), known.id])];
 
-    const interruptLoops = new AgentLoops({} as never, { afterChange: () => undefined }, FAST);
+    room.setAiDebug(host.id, true);
+    const updates: Array<{ id: string; status: string; version: number }> = [];
+    const interruptLoops = new AgentLoops({} as never, {
+      afterChange: () => undefined,
+      aiThought: (_room, trace) => { updates.push({ id: trace.id, status: trace.status, version: trace.version }); },
+    }, FAST);
     try {
       interruptLoops.notify(room);
       const deadline = Date.now() + 1_000;
@@ -179,6 +184,9 @@ describe('AgentLoops', () => {
       }
       expect(state.hands[ai.id]!.some((card) => card?.id === known.id)).toBe(false);
       expect(state.currentTurn).toBe(hostSeat);
+      expect(new Set(updates.map((update) => update.id)).size).toBe(1);
+      expect(updates.at(-1)?.status).toBe('executed');
+      expect(updates.at(-1)?.version).toBeGreaterThan(1);
     } finally {
       interruptLoops.dispose();
     }

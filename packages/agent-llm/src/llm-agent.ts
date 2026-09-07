@@ -20,6 +20,7 @@ import {
   type AgentFailureKind,
   type AgentObservation,
   type GameAgent,
+  type TokenUsage,
 } from '@game-night/agent-core';
 import { CaboHeuristicBot, PairOneHeuristicBot, SeepHeuristicBot } from '@game-night/agent-bots';
 import { chat, LlmHttpError, LlmResponseError, type ChatMessage } from './chat.js';
@@ -170,6 +171,20 @@ function failureKind(error: unknown): AgentFailureKind {
   return 'provider_error';
 }
 
+function addUsage(total: TokenUsage, usage: TokenUsage | undefined): void {
+  if (!usage) return;
+  for (const key of ['promptTokens', 'completionTokens', 'reasoningTokens', 'totalTokens'] as const) {
+    const value = usage[key];
+    if (value != null) total[key] = (total[key] ?? 0) + value;
+  }
+}
+
+function aggregateUsage(attempts: AgentAttempt[]): TokenUsage | undefined {
+  const usage: TokenUsage = {};
+  for (const attempt of attempts) addUsage(usage, attempt.usage);
+  return Object.keys(usage).length > 0 ? usage : undefined;
+}
+
 function actionMatches(candidate: unknown, list: AnyGameAction[]): AnyGameAction | null {
   if (candidate == null || typeof candidate !== 'object') return null;
   const c = candidate as Record<string, unknown>;
@@ -247,29 +262,31 @@ export class LlmAgent implements GameAgent {
           matched = matched ?? actionMatches(restoreActionIds(parsed.action, reverseAliases), candidates);
       }
       if (!matched) {
-        attempts.push({ attempt, status: 'failed', latencyMs: Date.now() - attemptStarted, httpStatus: res.httpStatus, finishReason: res.finishReason, promptTokens: res.usage?.promptTokens, completionTokens: res.usage?.completionTokens, failure: parsed ? 'illegal_action' : 'malformed_response' });
-        throw new Error(`unusable model answer: ${res.content.slice(0, 160)}`);
+        attempts.push({ attempt, status: 'failed', latencyMs: Date.now() - attemptStarted, httpStatus: res.httpStatus, finishReason: res.finishReason, usage: res.usage, reasoningAvailable: res.reasoningAvailable, failure: parsed ? 'illegal_action' : 'malformed_response' });
+        // Keep provider output out of errors and fallback explanations. The
+        // model response may contain private reasoning or other untrusted text.
+        throw new Error('unusable model answer');
       }
       const action = matched;
       const thought = parsed ? String(parsed.summary ?? parsed.thought ?? '').slice(0, 300) : undefined;
       const rationale = parsed ? normalizeRationale(parsed.factors) : undefined;
-      attempts.push({ attempt, status: 'accepted', latencyMs: Date.now() - attemptStarted, httpStatus: res.httpStatus, finishReason: res.finishReason, promptTokens: res.usage?.promptTokens, completionTokens: res.usage?.completionTokens });
+      attempts.push({ attempt, status: 'accepted', latencyMs: Date.now() - attemptStarted, httpStatus: res.httpStatus, finishReason: res.finishReason, usage: res.usage, reasoningAvailable: res.reasoningAvailable });
       return {
         action,
         thought: thought || undefined,
         rationale,
         meta: {
           source: 'model', provider: this.opts.provider, model: this.opts.model,
-          attempts, latencyMs: Date.now() - startedAt, promptTokens: res.usage?.promptTokens,
-          completionTokens: res.usage?.completionTokens, candidateCount: candidates.length,
-          providerReasoningAvailable: Boolean(res.reasoningContent),
+          attempts, latencyMs: Date.now() - startedAt, usage: aggregateUsage(attempts),
+          finishReason: res.finishReason, candidateCount: candidates.length,
+          providerReasoningAvailable: Boolean(res.reasoningAvailable || res.usage?.reasoningTokens != null),
         },
       };
       } catch (err) {
         if (!attempts.some((item) => item.attempt === attempt)) {
           const details = err instanceof LlmResponseError ? err.details : undefined;
           const status = err instanceof LlmHttpError ? err.status : details?.status;
-          attempts.push({ attempt, status: 'failed', latencyMs: Date.now() - attemptStarted, httpStatus: status, finishReason: details?.finishReason, promptTokens: details?.usage?.promptTokens, completionTokens: details?.usage?.completionTokens, failure: failureKind(err) });
+          attempts.push({ attempt, status: 'failed', latencyMs: Date.now() - attemptStarted, httpStatus: status, finishReason: details?.finishReason, usage: details?.usage, reasoningAvailable: details?.reasoningAvailable, failure: failureKind(err) });
         }
         throw err;
       }
@@ -297,6 +314,7 @@ export class LlmAgent implements GameAgent {
           throw new AgentError(`strict violation (${kind}): ${String(retryErr).slice(0, 200)}`);
         }
         // Live tables must never stall on the model: heuristic fallback.
+        const fallbackFailure = failureKind(retryErr);
         const fb = obs.view.gameId === 'cabo'
           ? new CaboHeuristicBot({ idSuffix: '-fb' })
           : obs.view.gameId === 'seep'
@@ -305,10 +323,13 @@ export class LlmAgent implements GameAgent {
         const d = await fb.decide(obs, ctx);
         return {
           action: d.action,
-          thought: `[fallback] ${String(retryErr).slice(0, 120)}`,
+          thought: `[fallback] ${fallbackFailure}`,
           meta: {
             source: 'fallback', provider: this.opts.provider, model: this.opts.model,
-            attempts, failure: failureKind(retryErr), latencyMs: Date.now() - startedAt,
+            attempts, failure: fallbackFailure, latencyMs: Date.now() - startedAt,
+            usage: aggregateUsage(attempts),
+            finishReason: attempts.at(-1)?.finishReason,
+            providerReasoningAvailable: attempts.some((attempt) => attempt.reasoningAvailable || attempt.usage?.reasoningTokens != null),
             candidateCount: candidates.length,
           },
         };

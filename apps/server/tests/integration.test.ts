@@ -277,6 +277,59 @@ describe('socket integration', () => {
     host.close();
   }, 15_000);
 
+  it('keeps AI decision traces host-only and publishes one lifecycle record', async () => {
+    const host = await connect();
+    const guest = await connect();
+    const created = await createRoom(host, 'Host');
+    const joined = await joinRoom(guest, { roomId: created.roomId, name: 'Guest' });
+    expect(joined.ok).toBe(true);
+    const ai = await addAi(host, 'balanced');
+    expect(ai.ok).toBe(true);
+
+    const hostTraces: Array<{ id: string; status: string; version: number }> = [];
+    const guestTraces: unknown[] = [];
+    host.on('room:ai_thought', (trace) => hostTraces.push(trace));
+    guest.on('room:ai_thought', (trace) => guestTraces.push(trace));
+    host.emit('room:set_ai_debug', { enabled: true });
+    expect((await startGame(host)).ok).toBe(true);
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timed out waiting for AI trace')), 10_000);
+      const check = (trace: { status: string }) => {
+        if (trace.status === 'executed') {
+          clearTimeout(timer);
+          host.off('room:ai_thought', check);
+          resolve();
+        }
+      };
+      host.on('room:ai_thought', check);
+    });
+
+    expect(guestTraces).toHaveLength(0);
+    expect(new Set(hostTraces.map((trace) => trace.id)).size).toBe(1);
+    expect(new Set(hostTraces.map((trace) => trace.status))).toEqual(new Set(['thinking', 'decision', 'executed']));
+    expect(hostTraces.at(-1)?.version).toBeGreaterThan(1);
+
+    const hydrated = await new Promise<{ aiThoughts?: Array<{ id: string; status: string }> }>((resolve) => {
+      const check = (state: { aiThoughts?: Array<{ id: string; status: string }> }) => {
+        if (state.aiThoughts?.length) {
+          host.off('room:state', check);
+          resolve(state);
+        }
+      };
+      host.on('room:state', check);
+      host.emit('room:set_name', { name: 'Host' });
+    });
+    expect(hydrated.aiThoughts).toHaveLength(1);
+    expect(hydrated.aiThoughts?.[0]?.id).toBe(hostTraces[0]?.id);
+
+    await new Promise<void>((resolve) => {
+      host.emit('room:end_game', undefined, () => resolve());
+    });
+    host.close();
+    guest.close();
+  }, 20_000);
+
   it('reconnects with token after disconnect and restores the same seat', async () => {
     const host = await connect();
     const created = await createRoom(host, 'Host');

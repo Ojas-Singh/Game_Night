@@ -46,7 +46,17 @@ export type AgentFailureKind =
   | 'http_error'
   | 'provider_error'
   | 'candidate_budget'
+  | 'agent_error'
+  | 'solver_error'
   | 'unknown';
+
+/** Provider-reported usage for one model request or an aggregate decision. */
+export interface TokenUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  reasoningTokens?: number;
+  totalTokens?: number;
+}
 
 export interface AgentAttempt {
   attempt: number;
@@ -54,8 +64,8 @@ export interface AgentAttempt {
   latencyMs: number;
   httpStatus?: number;
   finishReason?: string;
-  promptTokens?: number;
-  completionTokens?: number;
+  usage?: TokenUsage;
+  reasoningAvailable?: boolean;
   failure?: AgentFailureKind;
 }
 
@@ -66,11 +76,11 @@ export interface AgentDecisionMeta {
   attempts?: AgentAttempt[];
   failure?: AgentFailureKind;
   latencyMs?: number;
-  promptTokens?: number;
- completionTokens?: number;
+  usage?: TokenUsage;
+  finishReason?: string;
   /** Whether the provider returned a separate reasoning field; its text is never surfaced. */
   providerReasoningAvailable?: boolean;
- candidateCount?: number;
+  candidateCount?: number;
 }
 
 export interface AgentDecision {

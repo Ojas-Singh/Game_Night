@@ -91,27 +91,50 @@ export interface RoomLobbyState {
   scoreboard: Record<string, number>;
   testMode: boolean;
   aiDebug: boolean;
-  aiThoughts?: AiThought[];
+  aiThoughts?: AiDecisionTrace[];
 }
 
-export interface AiThought {
+export interface TokenUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  reasoningTokens?: number;
+  totalTokens?: number;
+}
+
+export interface AiAttemptTrace {
+  attempt: number;
+  status: 'accepted' | 'failed';
+  latencyMs: number;
+  httpStatus?: number;
+  finishReason?: string;
+  usage?: TokenUsage;
+  reasoningAvailable?: boolean;
+  failure?: string;
+}
+
+export interface AiDecisionTrace {
   id: string;
+  version: number;
+  sequence: number;
   status: 'thinking' | 'decision' | 'executed' | 'failed';
-  at: string;
+  startedAt: string;
+  updatedAt: string;
   playerId: string;
   playerName: string;
-  thought: string;
+  summary?: string;
   /** Model-provided decision factors; never provider hidden reasoning. */
- rationale?: string[];
+  rationale?: string[];
   providerReasoningAvailable?: boolean;
- action?: string;
   source: string;
   model?: string;
+  proposedAction?: string;
   executedAction?: string;
   decisionSource?: string;
   failure?: string;
   latencyMs?: number;
-  attempts?: number;
+  attempts: AiAttemptTrace[];
+  usage?: TokenUsage;
+  finishReason?: string;
   observation?: string;
   candidates?: string[];
 }
@@ -153,7 +176,7 @@ export type ServerToClientEvents = {
   'room:emote': (payload: { playerId: string; emote: string; timestamp: string }) => void;
   'game:view': (view: AnyGameView) => void;
   'room:closed': (payload: { reason: string }) => void;
-  'room:ai_thought': (thought: AiThought) => void;
+  'room:ai_thought': (trace: AiDecisionTrace) => void;
 };
 
 export type { GameAction, CaboPlayerView, PairOnePlayerView, SeepPlayerView };
