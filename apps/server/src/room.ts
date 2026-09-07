@@ -179,10 +179,8 @@ export class Room {
   private reconnectGraceMs: number;
   private chatSeq = 0;
   closed = false;
-  /** Cosmetics lookup injected by the host app (shop service). */
+  /** Cosmetics lookup injected by the host app (style service). */
   loadoutProvider?: (playerIds: string[]) => Record<string, PlayerLoadout>;
-  /** Fired once per completed round with the room + human seat ids. */
-  onRoundCompleted?: (room: Room, playerIds: string[]) => void;
 
   constructor(opts: RoomOptions = {}) {
     this.id = opts.roomId ?? randomRoomCode();
@@ -706,11 +704,6 @@ export class Room {
   // Gameplay
   // -------------------------------------------------------------------
 
-  private notifyRoundCompleted(): void {
-    const humans = [...this.players.values()].filter((p) => p.kind === 'human').map((p) => p.id);
-    if (humans.length > 0) this.onRoundCompleted?.(this, humans);
-  }
-
   handleGameAction(playerId: string, action: GameAction): void {
     if (!this.players.has(playerId)) throw new RoomError('spectators cannot act');
     if (!this.engine) throw new RoomError('no game running');
@@ -728,7 +721,6 @@ export class Room {
         this.scoreboard[pid] = (this.scoreboard[pid] ?? 0) + pts;
       }
       this.maybeAnnounceSeriesWinner();
-      this.notifyRoundCompleted();
     }
   }
 
@@ -748,7 +740,6 @@ export class Room {
         this.scoreboard[id] = (this.scoreboard[id] ?? 0) + score;
       }
       this.maybeAnnounceSeriesWinner();
-      this.notifyRoundCompleted();
     }
   }
 

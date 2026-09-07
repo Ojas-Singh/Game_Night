@@ -19,10 +19,9 @@ export function PrivacyPage() {
       <h2>What we collect</h2>
       <ul>
         <li><strong>Gameplay data</strong>: room codes, chat messages, and game moves while you play. Chat is ephemeral — it lives with the room and expires when the room does.</li>
-        <li><strong>Cosmetics profile</strong>: a random token stored in your browser plus your owned/equipped cosmetics and rounds-played count. No email, no name, no phone number.</li>
+        <li><strong>Cosmetics profile</strong>: a random token stored in your browser plus your equipped table style. No email, no name, no phone number.</li>
         <li><strong>Voice &amp; video</strong>: peer-to-peer only. Audio/video flows directly between players' browsers and is never recorded, stored, or relayed through our servers — our server only helps browsers find each other.</li>
         <li><strong>Anonymous analytics</strong> (optional, self-hosted): page views and funnel events, no cross-site tracking, no ad networks.</li>
-        <li><strong>Payments</strong>: handled entirely by Stripe. We never see card numbers; we store only the fact that an entitlement was granted.</li>
       </ul>
       <h2>What we don't do</h2>
       <ul>

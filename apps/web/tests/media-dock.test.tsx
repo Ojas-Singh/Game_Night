@@ -20,6 +20,7 @@ function fakeMedia(overrides: Partial<MediaChat> = {}): MediaChat {
     camOn: false,
     error: null,
     peers: [],
+    localStream: null,
     join: async () => true,
     leave: () => undefined,
     setMic: () => undefined,

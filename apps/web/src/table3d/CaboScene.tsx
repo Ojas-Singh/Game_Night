@@ -18,6 +18,8 @@ import { easing } from 'maath';
 import type { CaboPlayerView } from '@cabo/views.js';
 import type { Rank, Suit } from '@shared/cards.js';
 import { feltStyle } from '../cosmetics.js';
+import type { MediaChat } from '../useMediaChat.js';
+import AvatarCam from '../table/AvatarCam.js';
 import type { RoomApi, CardFlight } from '../useRoom.js';
 import Avatar from '../table/Avatar.js';
 import FloatingEmote from '../table/FloatingEmote.js';
@@ -53,6 +55,8 @@ export interface CaboSceneProps {
   onFlightDone: (id: string) => void;
   /** Equipped cosmetics per player (server-verified). */
   loadouts?: Record<string, { cardBack?: string; feltTheme?: string }>;
+  /** Live media — when a seat's camera is on, their pill shows the feed. */
+  media?: MediaChat;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +139,7 @@ function CardMesh({
       ? faceTexture(revealedRank, revealedSuit)
       : null;
 
-  const targetX = instance.faceUp && frontMap ? 0 : Math.PI;
+  const targetX = (instance.faceUp && frontMap ? 0 : Math.PI) + (instance.tiltX ?? 0);
   const lift = instance.lifted || highlight ? CARD_H * 0.3 : hover && selectable ? CARD_H * 0.12 : 0;
 
   useFrame((_, delta) => {
@@ -333,6 +337,8 @@ function SeatPill({
   isHostMe,
   humanSeat,
   caboCaller,
+  media,
+  myPlayerId,
   onClick,
   onKick,
   onReport,
@@ -346,6 +352,8 @@ function SeatPill({
   isHostMe: boolean;
   humanSeat: boolean;
   caboCaller: boolean;
+  media?: MediaChat;
+  myPlayerId?: string | null;
   onClick: () => void;
   onKick?: () => void;
   onReport: () => void;
@@ -359,7 +367,11 @@ function SeatPill({
           </button>
         )}
         <button className={`seat-who seat-who-3d ${isTurn ? 'is-turn-pill' : ''} ${glowing ? 'glow' : ''}`} onClick={onClick}>
-          <Avatar avatar={avatar} size={42} crown={isTurn} ring={isTurn} cabo={caboCaller} />
+          {media ? (
+            <AvatarCam media={media} playerId={seat.playerId} myPlayerId={myPlayerId} avatar={avatar} size={42} crown={isTurn} ring={isTurn} cabo={caboCaller} />
+          ) : (
+            <Avatar avatar={avatar} size={42} crown={isTurn} ring={isTurn} cabo={caboCaller} />
+          )}
           <span className="seat-name">{name}</span>
         </button>
         {!isHostMe && (
@@ -381,11 +393,17 @@ function SeatPill({
 // Camera: gentle cabo push-in
 // ---------------------------------------------------------------------------
 
+const HOME_CAM: [number, number, number] = [0, 8.4, 7.2];
+const LOOK_AT: [number, number, number] = [0, 0, 0.4];
+
 function CameraRig({ pushUntil }: { pushUntil: number }) {
   const { camera } = useThree();
   useFrame((_, delta) => {
     const pushing = performance.now() < pushUntil;
-    easing.damp3(camera.position, pushing ? [0, 4.9, 4.1] : [0, 6.4, 5.4], pushing ? 0.5 : 1.2, delta);
+    easing.damp3(camera.position, pushing ? [0, 6.2, 5.2] : HOME_CAM, pushing ? 0.5 : 1.2, delta);
+    // Keep the aim pinned so the whole table (including my near-edge hand)
+    // stays in frame; position-only damping would drift the look direction.
+    camera.lookAt(...LOOK_AT);
   });
   return null;
 }
@@ -542,6 +560,8 @@ function SceneContents(props: CaboSceneProps) {
             isHostMe={room.lobby?.hostId === myId}
             humanSeat={lobbyPlayer?.kind !== 'ai'}
             caboCaller={view.cabo?.callerId === seat.playerId}
+            media={props.media}
+            myPlayerId={myId}
             onClick={() => props.onOpponentClick(seat.playerId)}
             onKick={room.lobby?.hostId === myId && lobbyPlayer?.kind !== 'ai' ? () => room.kickLive(seat.playerId) : undefined}
             onReport={() => room.reportPlayer(seat.playerId, 'reported at table')}
@@ -565,7 +585,7 @@ export default function CaboScene(props: CaboSceneProps) {
       <Canvas
         dpr={[1, 1.75]}
         gl={{ alpha: true, antialias: true }}
-        camera={{ position: [0, 6.4, 5.4], fov: 42 }}
+        camera={{ position: [0, 8.4, 7.2], fov: 46 }}
         onPointerMissed={() => {
           document.body.style.cursor = 'auto';
         }}

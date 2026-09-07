@@ -98,8 +98,10 @@ describe('buildSceneLayout', () => {
     });
     const lifted = layout.myCards.find((c) => c.cardId === 'c-1')!;
     const flat = layout.myCards.find((c) => c.cardId === '__slot__1')!;
-    expect(lifted.pos.y).toBeGreaterThan(CARD_H * 0.3);
-    expect(flat.pos.y).toBeLessThan(0.1);
+    // My cards rest raised (0.3) and tilted toward the camera; lifted ones
+    // float clearly above that rest height.
+    expect(flat.pos.y).toBeCloseTo(0.3, 5);
+    expect(lifted.pos.y).toBeGreaterThan(flat.pos.y + CARD_H * 0.3);
   });
 
   it('keeps deck and discard piles apart and reports the deck size', () => {
@@ -129,7 +131,7 @@ describe('3D capability gate', () => {
     expect(canRun3d()).toBe(false); // no window in the test env
   });
 
-  it('persists an explicit preference over the capability default', () => {
+  it('keeps the 3D table opt-in: default OFF, explicit "on" enables', () => {
     const store = new Map<string, string>();
     const g = globalThis as unknown as Record<string, unknown>;
     g.localStorage = {
@@ -140,13 +142,13 @@ describe('3D capability gate', () => {
     g.matchMedia = () => ({ matches: false }) as MediaQueryList;
     g.window = { matchMedia: g.matchMedia };
     Object.defineProperty(g, 'navigator', { value: { hardwareConcurrency: 8 }, configurable: true });
-    expect(load3dPref()).toBe(true); // capable default
-    save3dPref(false);
-    expect(load3dPref()).toBe(false); // explicit off wins
-    store.set('game-night:table3d', 'on');
-    expect(load3dPref()).toBe(true);
+    expect(load3dPref()).toBe(false); // classic table by default
+    save3dPref(true);
+    expect(load3dPref()).toBe(true); // explicit opt-in wins
+    store.set('game-night:table3d', 'off');
+    expect(load3dPref()).toBe(false);
     store.set('game-night:table3d', 'garbage');
-    expect(load3dPref()).toBe(true); // falls back to capability
+    expect(load3dPref()).toBe(false); // anything else stays default
     delete g.localStorage;
     delete g.matchMedia;
     delete g.window;

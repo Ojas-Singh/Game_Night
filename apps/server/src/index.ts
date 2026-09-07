@@ -19,7 +19,6 @@ import { log } from './log.js';
 import { RoomManager } from './roomManager.js';
 import { registerSocketHandlers } from './socket.js';
 import { ShopService, RedisShopStore, MemoryShopStore } from './shop.js';
-import { shopRouter } from './shopRoutes.js';
 import { initServerObservability } from './observability.js';
 
 const app = express();
@@ -46,32 +45,19 @@ if (config.redisUrl) {
 await rooms.restoreAll();
 rooms.startSweeper();
 
-// Cosmetics shop: entitlements live server-side; Stripe checkout activates
-// only when STRIPE_SECRET_KEY + APP_ORIGIN are configured.
+// Cosmetics: free style profiles (card backs + felt themes). Monetization
+// was deferred — the Stripe plumbing was removed; the profile/loadout model
+// is kept so a store can return without touching renderers or protocol.
 let shop: ShopService;
 if (config.redisUrl) {
   const { Redis } = await import('ioredis');
   const redis = new Redis(config.redisUrl, { lazyConnect: false, maxRetriesPerRequest: 3 });
   redis.on('error', (err: Error) => log.error('shop_redis_error', { error: err.message }));
-  shop = new ShopService({
-    store: new RedisShopStore(redis),
-    stripeSecretKey: process.env.STRIPE_SECRET_KEY,
-    appOrigin: process.env.APP_ORIGIN,
-  });
+  shop = new ShopService(new RedisShopStore(redis));
 } else {
-  shop = new ShopService({
-    store: new MemoryShopStore(),
-    stripeSecretKey: process.env.STRIPE_SECRET_KEY,
-    appOrigin: process.env.APP_ORIGIN,
-  });
+  shop = new ShopService(new MemoryShopStore());
 }
 rooms.setLoadoutProvider((playerIds) => shop.loadoutsFor(playerIds));
-
-// Stripe webhook needs the RAW body — mount before express.json().
-app.use(
-  '/api/shop',
-  shopRouter(shop, { webhookSecret: process.env.STRIPE_WEBHOOK_SECRET }),
-);
 
 app.use(express.json());
 // Game Lab is a product feature: mount unconditionally (S33 caps are

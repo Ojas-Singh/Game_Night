@@ -14,12 +14,9 @@ be verified before a public launch.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `REDIS_URL` | recommended | Room + shop profile persistence across restarts (falls back to in-memory single-node). |
+| `REDIS_URL` | recommended | Room + cosmetics profile persistence across restarts (falls back to in-memory single-node). |
 | `SESSION_SECRET` | yes | Socket/session signing. |
 | `DOMAIN`, `ACME_EMAIL` | for TLS | Caddy profile: automatic Let's Encrypt certs. |
-| `STRIPE_SECRET_KEY` | for paid cosmetics | Activates Stripe Checkout. |
-| `STRIPE_WEBHOOK_SECRET` | for paid cosmetics | Verifies `POST /api/shop/webhook` signatures. |
-| `APP_ORIGIN` | for paid cosmetics | Success/cancel redirect origin (e.g. `https://play.example.com`). |
 | `SENTRY_DSN` / `VITE_SENTRY_DSN` | optional | Error tracking (server / web build). No-ops when unset. |
 | `VITE_UMAMI_SRC`, `VITE_UMAMI_WEBSITE_ID` | optional | Self-hosted analytics at build time. No-ops when unset. |
 | `VITE_ICE_SERVERS` | optional | JSON array of RTCIceServer dicts. STUN-only default works for most home networks; add TURN for restrictive corporate NATs. |
@@ -38,10 +35,10 @@ docker compose --profile proxy up -d --build
 - Redis starts automatically as a dependency of the app service.
 - Health check: `GET /healthz` returns `{ ok: true }`.
 
-**Stripe webhook:** after the first deploy, add a webhook endpoint in the
-Stripe dashboard pointing at `https://$DOMAIN/api/shop/webhook` with event
-`checkout.session.completed`, and set `STRIPE_WEBHOOK_SECRET` from the signing
-secret.
+**Monetization:** cosmetics are currently all free and no payment provider is
+configured. When a store returns, the server-side catalog/profile model is
+already in place (`apps/server/src/shop.ts`); wire a payment provider + webhook
+route there and re-add the client purchase surface.
 
 ## 4. Voice & video
 
@@ -69,8 +66,7 @@ Mic/camera access **requires HTTPS** — do not launch without the proxy profile
 ## 6. Operations notes
 
 - **Logs**: structured JSON (`log.info/warn/error`) — ship stdout to your
-  log platform. `player_report` and `shop_purchase` are the moderation/business
-  events to alert on.
+  log platform. `player_report` is the moderation event to alert on.
 - **Backups**: Redis persistence covers rooms and cosmetics profiles; snapshot
   Redis at your usual cadence. Nothing else is durable.
 - **Scaling**: rooms are single-node in memory; for multi-node, move to the

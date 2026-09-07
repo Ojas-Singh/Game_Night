@@ -91,7 +91,7 @@ beforeAll(async () => {
   http = createServer();
   io = new SocketServer(http, { cors: { origin: true } });
   const rooms = new RoomManager(3_600_000);
-  const shop = new ShopService({ store: new MemoryShopStore() });
+  const shop = new ShopService(new MemoryShopStore());
   rooms.setLoadoutProvider((playerIds) => shop.loadoutsFor(playerIds));
   registerSocketHandlers(io, rooms, { shop });
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
@@ -374,7 +374,7 @@ describe('socket integration', () => {
     guest.close();
   }, 90_000);
 
-  it('attaches a cosmetics profile, enforces entitlements, and broadcasts loadouts', async () => {
+  it('attaches a free cosmetics profile, equips styles, and broadcasts loadouts', async () => {
     const sock = await connect();
     // Hello before seating: profile token is issued and persisted client-side.
     const hello = await new Promise<{ ok: boolean; token: string; profile: { owned: string[] } }>((resolve) => {
@@ -394,28 +394,28 @@ describe('socket integration', () => {
     const created = await createRoom(sock, 'Host');
     expect(created.playerId).toBeTruthy();
 
-    // Server refuses to equip an unowned item.
-    const refused = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+    // Everything is free: equipping any catalog sku just works.
+    const equipped = await new Promise<{ ok: boolean }>((resolve) => {
       sock.emit('shop:equip', { sku: 'back-royale' }, resolve);
     });
-    expect(refused.ok).toBe(false);
+    expect(equipped.ok).toBe(true);
 
-    // Equipping an owned item broadcasts the loadout in the lobby state.
+    // The equip broadcast lands in the lobby state loadouts.
     const states: Array<{ loadouts?: Record<string, { cardBack?: string }> }> = [];
     sock.on('room:state', (state) => states.push(state));
-    const equipped = await new Promise<{ ok: boolean }>((resolve) => {
+    const equipped2 = await new Promise<{ ok: boolean }>((resolve) => {
       sock.emit('shop:equip', { sku: 'back-classic' }, resolve);
     });
-    expect(equipped.ok).toBe(true);
+    expect(equipped2.ok).toBe(true);
     await new Promise((r) => setTimeout(r, 60));
     const mine = states.find((s) => s.loadouts?.[created.playerId!]?.cardBack === 'back-classic');
     expect(mine).toBeTruthy();
 
-    // Paid checkout is refused cleanly when Stripe is not configured.
-    const purchase = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
-      sock.emit('shop:purchase', { sku: 'back-midnight' }, resolve);
+    // Unknown skus are refused.
+    const unknown = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      sock.emit('shop:equip', { sku: 'not-a-sku' }, resolve);
     });
-    expect(purchase).toEqual({ ok: false, error: 'store_unavailable' });
+    expect(unknown.ok).toBe(false);
 
     sock.close();
   });

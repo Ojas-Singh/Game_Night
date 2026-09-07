@@ -84,9 +84,6 @@ importers:
       socket.io:
         specifier: ^4.8.1
         version: 4.8.3
-      stripe:
-        specifier: ^22.6.1
-        version: 22.6.1(@types/node@22.20.1)
     devDependencies:
       '@types/express':
         specifier: ^4.17.21
@@ -2108,15 +2105,6 @@ packages:
   std-env@3.10.0:
     resolution: {integrity: sha512-5GS12FdOZNliM5mAOxFRg7Ir0pWz8MdpYm6AY6VPkGpbA7ZzmbzNcBJQ0GPvvyWgcY7QAhCgf9Uy89I03faLkg==}
 
-  stripe@22.6.1:
-    resolution: {integrity: sha512-hAKSkGeVt2u46TRYhmnvwmVHxBNtOCJnPjc+SH5sP2B2ypElYzAAY3Ljx0Ar8C2w8nfpFQiZ95qoDCDsFkXMTA==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      '@types/node': '>=18'
-    peerDependenciesMeta:
-      '@types/node':
-        optional: true
-
   suspend-react@0.1.3:
     resolution: {integrity: sha512-aqldKgX9aZqpoDp3e8/BZ8Dm7x1pJl+qI3ZKxDN0i/IQTWUwBx/ManmlVJ3wowqbno6c2bmiIfs+Um6LbsjJyQ==}
     peerDependencies:
@@ -4091,10 +4079,6 @@ snapshots:
   statuses@2.0.2: {}
 
   std-env@3.10.0: {}
-
-  stripe@22.6.1(@types/node@22.20.1):
-    optionalDependencies:
-      '@types/node': 22.20.1
 
   suspend-react@0.1.3(react@18.3.1):
     dependencies:

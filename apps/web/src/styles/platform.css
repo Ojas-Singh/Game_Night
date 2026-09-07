@@ -731,3 +731,68 @@ button, .button-link { min-height: 44px; }
   cursor: pointer;
 }
 .report-btn:hover { background: rgba(224, 108, 90, 0.18); }
+
+/* Live camera inside avatar slots (voice + video seats). */
+.avatar-cam {
+  display: inline-block;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid rgba(127, 191, 122, 0.75);
+  box-shadow: 0 0 0 2px rgba(116, 214, 138, 0.25);
+  background: #000;
+  flex: none;
+}
+.avatar-cam.is-turn { border-color: rgba(255, 216, 138, 0.9); }
+.avatar-cam video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scaleX(-1); /* mirror selfie-style for self view comfort */
+}
+
+/* Free style picker in the lobby (card backs + felt themes). */
+.style-panel {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 216, 138, 0.14);
+  border-radius: 12px;
+  background: rgba(26, 20, 16, 0.55);
+  display: grid;
+  gap: 8px;
+}
+.style-panel-title {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ffd88a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.style-free {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(127, 191, 122, 0.16);
+  color: #a9e3a3;
+  letter-spacing: 0.12em;
+}
+.style-row { display: flex; align-items: center; gap: 10px; }
+.style-row-label { font-size: 11px; color: rgba(238, 230, 216, 0.55); width: 38px; }
+.style-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.style-chip {
+  width: 34px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1.5px solid rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+  color: #ffd88a;
+  font-size: 13px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.style-chip:hover { transform: translateY(-1px); border-color: rgba(255, 216, 138, 0.5); }
+.style-chip.equipped { border-color: #ffd88a; box-shadow: 0 0 0 1.5px rgba(255, 216, 138, 0.35); }

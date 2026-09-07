@@ -16,6 +16,7 @@ import EmotePicker from '../EmotePicker.js';
 import FloatingEmote from './FloatingEmote.js';
 import InfoModal from './InfoModal.js';
 import Avatar from './Avatar.js';
+import AvatarCam from './AvatarCam.js';
 import DebugControls from './DebugControls.js';
 import MediaDock from './MediaDock.js';
 import { seriesWinner } from '../lobby/series.js';
@@ -591,6 +592,7 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
                 onDiscardDrawn={mode === 'draw-decision' ? () => act({ type: 'DISCARD_DRAWN' }) : null}
                 onFlightDone={dropFlight}
                 loadouts={room.lobby?.loadouts}
+                media={media}
               />
             </Suspense>
             {mode === 'turn-end' && (
@@ -664,7 +666,10 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
               style={style}
               onClick={() => onOpponentClick(p.id)}
             >
-              <Avatar
+              <AvatarCam
+                media={media}
+                playerId={p.id}
+                myPlayerId={room.myPlayerId}
                 avatar={avatarOf(p.id)}
                 size={42}
                 crown={isTurn}
@@ -679,7 +684,10 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
         {/* my avatar/name — pinned below my deck, outside the felt at the bottom
             edge of the screen */}
         <div className="seat-who me-who">
-          <Avatar
+          <AvatarCam
+            media={media}
+            playerId={me.id}
+            myPlayerId={room.myPlayerId}
             avatar={avatarOf(me.id)}
             size={42}
             crown={isMyTurn}

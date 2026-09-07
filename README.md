@@ -46,7 +46,7 @@ docker compose --profile analytics up -d   # UI on :3001
 Point the web build at it with `VITE_UMAMI_SRC=https://<host>/script.js` and
 `VITE_UMAMI_WEBSITE_ID=<id>`; without them analytics is a compiled-in no-op
 (see `apps/web/src/analytics.ts`). See `docs/LAUNCH_CHECKLIST.md` for the full
-publication checklist (naming/trademark, Stripe, moderation, funnels).
+publication checklist (naming/trademark, moderation, funnels).
 
 ### Rules → Play compiler
 
@@ -84,21 +84,28 @@ apps/web                # React client (round-table Cabo, memory-grid Pair One, 
 
 ## Live voice & webcam
 
-- **Cosmetics shop** (`/shop`): card backs and table felts — starter items free,
-  some unlock by rounds played (server-awarded, capped), paid items through
-  Stripe Checkout. Entitlements are server-owned (a sku not in your inventory
-  can never be equipped); identity is a random bearer token in your browser —
-  no account, no email, no tracking. Equipped loadouts broadcast to the room
-  and render on the 3D table (per-player card backs, host's felt theme) and
-  the 2D felt. Configure with `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
-  (webhook: `POST /api/shop/webhook`), and `APP_ORIGIN`. Plain-language
-  `/privacy` and `/tos` pages ship with the client.
+- **Voice + video at the table**: a full-mesh WebRTC call (server is a
+  signaling relay only — media never touches it). Join from the lobby MediaDock
+  or the in-game sound toggle. When someone's camera is on, their **live feed
+  replaces their avatar** — lobby roster, 2D seat pills, and 3D seat pills all
+  show the face, so reactions are part of the game. STUN-only by default;
+  add a TURN relay via `VITE_ICE_SERVERS` for restrictive NATs.
 
-- **3D table (opt-in)**: the Cabo table can render as a real three.js scene —
-  felt, fanned card hands, deck/discard piles, flight ghosts, turn rings — via
-  a `✦ 3D` toggle. It lazy-loads as its own bundle (three.js never enters the
-  main chunk), respects reduced-motion/low-core devices, and the classic 2D
-  table remains one click away as the fallback. Both renderers share the same
+- **Cosmetics (all free)**: card backs and felt themes — pick them in the
+  lobby's **Table style** panel. Profiles are server-owned with a random
+  bearer token in your browser (no account, no email, no tracking); equipped
+  loadouts broadcast to the room and render on the 3D table (per-player card
+  backs, host's felt theme) and the 2D felt. Monetization was deferred — the
+  Stripe plumbing was removed, and the catalog/profile model kept so a store
+  can return without touching renderers or protocol. Plain-language `/privacy`
+  and `/tos` pages ship with the client.
+
+- **3D table (strictly opt-in)**: the Cabo table can render as a real
+  three.js scene — felt, fanned card hands, deck/discard piles, flight ghosts,
+  turn rings — via a `✦ 3D` toggle. The classic 2D table is the **default**;
+  3D stays off until a player turns it on (and the choice persists). It
+  lazy-loads as its own bundle (three.js never enters the main chunk) and
+  respects reduced-motion/low-core devices. Both renderers share the same
   layout math and the same click-intent logic, so gameplay is identical.
 
 - **Peer-to-peer media mesh** for seated players in the lobby and at the table

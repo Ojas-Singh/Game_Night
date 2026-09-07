@@ -56,29 +56,6 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opt
     }
   };
 
-  // Shop: credit completed rounds, push unlocks, and refresh loadouts so the
-  // next lobbyState() carries fresh cosmetics.
-  if (shop) {
-    rooms.setOnRoundCompleted((room, playerIds) => {
-      void shop
-        .creditPlayers(playerIds)
-        .then(async (awards) => {
-          const pids = Object.keys(awards);
-          if (pids.length === 0) return;
-          await shop.refreshLoadouts([...room.players.keys()]);
-          broadcastLobby(room);
-          for (const pid of pids) {
-            const p = room.participant(pid);
-            if (!p) continue;
-            for (const sid of p.sockets) {
-              io.to(sid).emit('shop:granted', { skus: awards[pid]! });
-            }
-          }
-        })
-        .catch((err) => log.warn('shop_credit_failed', { error: msg(err) }));
-    });
-  }
-
   const broadcastGame = async (room: Room): Promise<void> => {
     if (!room.engine) return;
     if (room.engine instanceof RuleZeroEngine) {
@@ -686,9 +663,8 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opt
         ack?.({
           ok: false,
           token: '',
-          profile: { userId: '', gamesPlayed: 0, owned: [], equipped: {} },
+          profile: { userId: '', owned: [], equipped: {} },
           catalog: [],
-          stripeEnabled: false,
         } satisfies ShopHelloResult);
         return;
       }
@@ -701,38 +677,15 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opt
           token: resolved.token,
           profile: resolved.profile,
           catalog: shop.catalogFor(resolved.profile),
-          stripeEnabled: shop.stripeEnabled,
         });
       } catch (err) {
         log.warn('shop_hello_failed', { error: msg(err) });
         ack?.({
           ok: false,
           token: '',
-          profile: { userId: '', gamesPlayed: 0, owned: [], equipped: {} },
+          profile: { userId: '', owned: [], equipped: {} },
           catalog: [],
-          stripeEnabled: false,
         });
-      }
-    });
-
-    socket.on('shop:purchase', async ({ sku }, ack) => {
-      if (!shop) {
-        ack?.({ ok: false, error: 'store_unavailable' });
-        return;
-      }
-      const userId = shop.userForSocket(socket.id);
-      if (!userId) {
-        ack?.({ ok: false, error: 'unknown_item' });
-        return;
-      }
-      const result = await shop.purchase(userId, sku);
-      ack?.(result);
-      if (result.ok && result.granted && data.roomId) {
-        const room = rooms.getRoom(data.roomId);
-        if (room) {
-          await shop.refreshLoadouts([...room.players.keys()]);
-          broadcastLobby(room);
-        }
       }
     });
 

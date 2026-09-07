@@ -18,15 +18,15 @@ external accounts/decisions only you can do; everything else is code in this rep
 - [ ] Privacy Policy page (what is stored: names, avatars, chat, room state in
       Redis; voice/video are peer-to-peer and **never recorded or relayed
       through the server**; analytics is cookieless/self-hosted).
-- [ ] **owner** Stripe account (business entity details, bank account); decide
-      price points for cosmetic SKUs.
+- [ ] **owner** Payment provider decision (monetization DEFERRED: cosmetics are
+      currently all free and no payment code ships — see `docs/DEPLOY.md`).
 - [ ] **owner** OAuth provider apps if used for accounts (Google / Discord):
       client ids + secrets, redirect URLs.
 
 ## 1. Infrastructure
 
 - [x] Optional Caddy TLS proxy in `docker-compose.yaml` (`--profile proxy`):
-      automatic HTTPS, required for getUserMedia (mic/cam) and Stripe webhooks.
+      automatic HTTPS, required for getUserMedia (mic/cam).
 - [x] Optional self-hosted analytics in `docker-compose.yaml`
       (`--profile analytics`, Umami + Postgres). Cookieless; funnel events are
       emitted by `apps/web/src/analytics.ts`.
@@ -34,12 +34,12 @@ external accounts/decisions only you can do; everything else is code in this rep
       deployed with `docker compose --profile proxy up -d`, DNS pointed.
 - [ ] Verify `https://<domain>/healthz` returns ok and the socket connects.
 
-## 2. Payments (Phase 4)
+## 2. Payments (deferred)
 
-- [ ] **owner** Stripe webhook endpoint created → `https://<domain>/api/stripe/webhook`,
-      secret into `STRIPE_WEBHOOK_SECRET`.
-- [ ] Test-mode purchase of every SKU; verify inventory grant + equip.
-- [ ] Refund/cancellation procedure documented.
+Monetization was deferred before launch: the cosmetics catalog is free, the
+Stripe dependency was removed, and no purchase surface exists. Revisit this
+section if/when a store returns (the server-side catalog/profile model in
+`apps/server/src/shop.ts` is kept intact for that).
 
 ## 3. Moderation & safety
 

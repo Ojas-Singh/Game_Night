@@ -26,17 +26,10 @@ export class RoomManager {
 
   /** Cosmetics provider applied to every room (see Room.loadoutProvider). */
   private loadoutProvider?: (playerIds: string[]) => Record<string, PlayerLoadout>;
-  private roundCompletedHandler?: (room: Room, playerIds: string[]) => void;
 
   setLoadoutProvider(provider: (playerIds: string[]) => Record<string, PlayerLoadout>): void {
     this.loadoutProvider = provider;
     for (const room of this.rooms.values()) room.loadoutProvider = provider;
-  }
-
-  /** Round-completion hook applied to every room (shop crediting, etc.). */
-  setOnRoundCompleted(handler: (room: Room, playerIds: string[]) => void): void {
-    this.roundCompletedHandler = handler;
-    for (const room of this.rooms.values()) room.onRoundCompleted = handler;
   }
 
   /** Restore persisted rooms after an app restart. */
@@ -79,7 +72,6 @@ export class RoomManager {
     } while (this.rooms.has(code) && guard < 100);
     const room = new Room({ roomId: code });
     room.loadoutProvider = this.loadoutProvider;
-    room.onRoundCompleted = this.roundCompletedHandler;
     this.rooms.set(code, room);
     this.persist(room);
     log.info('room_created', { roomId: code });

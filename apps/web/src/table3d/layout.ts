@@ -22,6 +22,8 @@ export interface CardInstance {
   pos: Vec3;
   /** Y rotation (radians): 0 = facing me, opponents' fans rotate with them. */
   rotationY: number;
+  /** X tilt (radians) — my cards lean up toward the camera. */
+  tiltX?: number;
   /** Card is face-up from MY point of view. */
   faceUp: boolean;
   /** Lifted above the table plane (draw decision, peek target, selection). */
@@ -130,8 +132,8 @@ export function buildSceneLayout(args: BuildArgs): SceneLayout {
   const me: SeatLayout = {
     playerId: myId,
     angleDeg: 180,
-    pos: { x: 0, y: 0, z: FELT_B * 1.35 },
-    handCenter: { x: 0, y: 0, z: FELT_B * 1.55 },
+    pos: { x: 0, y: 0, z: FELT_B * 0.9 },
+    handCenter: { x: 0, y: 0, z: FELT_B * 1.05 },
     rotationY: 0,
   };
 
@@ -165,8 +167,10 @@ export function buildSceneLayout(args: BuildArgs): SceneLayout {
     return {
       cardId,
       seatIndex: -1,
-      pos: { ...slot, y: lifted.has(cardId) ? CARD_H * 0.35 : 0.04 },
+      pos: { ...slot, y: lifted.has(cardId) ? 0.3 + CARD_H * 0.4 : 0.3 },
       rotationY: 0,
+      // Tilt my cards up toward the camera so they read like held cards.
+      tiltX: -0.62,
       // My cards render face-up whenever I know them (initial peek ships the
       // bottom two; knowledge grows from there). Unknown own cards show backs.
       faceUp: Boolean(known) && !emptySlot,
@@ -222,14 +226,12 @@ export function canRun3d(): boolean {
 const PREF_KEY = 'game-night:table3d';
 
 export function load3dPref(): boolean {
+  // The 3D table is strictly opt-in — the classic 2D table is the default.
   try {
-    const raw = localStorage.getItem(PREF_KEY);
-    if (raw === 'on') return true;
-    if (raw === 'off') return false;
+    return localStorage.getItem(PREF_KEY) === 'on';
   } catch {
-    /* private mode */
+    return false;
   }
-  return canRun3d();
 }
 
 export function save3dPref(on: boolean): void {

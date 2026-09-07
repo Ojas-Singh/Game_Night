@@ -7,9 +7,11 @@ import DebugPanel from '../DebugPanel.js';
 import { loadName } from '../session.js';
 import { funnel } from '../analytics.js';
 import Avatar from '../table/Avatar.js';
+import AvatarCam from '../table/AvatarCam.js';
 import InfoModal from '../table/InfoModal.js';
 import MediaDock from '../table/MediaDock.js';
 import { seriesStandings, seriesWinner } from './series.js';
+import { StylePanel } from './StylePanel.js';
 import { loadAvatar, randomAvatar, saveAvatar } from '../avatar.js';
 import { AVATAR_COLORS, EYE_STYLES, MOUTH_STYLES, HAT_STYLES } from '../avatar.js';
 import type { Avatar as AvatarModel, RoomLobbyState } from '../server-protocol.js';
@@ -211,7 +213,7 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
               {lobby.players.map((p) => (
                 <li key={p.id} className={`player-row ${p.connected ? '' : 'disconnected'} ${p.isYou ? 'is-you' : ''}`}>
                   <div className="player-avatar-wrap">
-                    <Avatar avatar={p.avatar ?? { color: 0, eyes: 0, mouth: 0, hat: 0 }} size={42} ring={p.isYou} />
+                    <AvatarCam media={media} playerId={p.id} myPlayerId={room.myPlayerId} avatar={p.avatar ?? { color: 0, eyes: 0, mouth: 0, hat: 0 }} size={42} ring={p.isYou} />
                     {p.kind === 'ai' && <span className="player-ai-mark" title="AI player"><Icon name="bot" /></span>}
                   </div>
                   <div className="player-identity">
@@ -339,6 +341,7 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
               />
             </div>
             <SeriesPanel lobby={lobby} isHost={isHost} onSetTarget={(target) => room.setSeriesTarget(target)} />
+            <StylePanel socket={room.socket} />
             {isHost ? (
               <div className="host-controls">
                 <Link className="ghost gamelab-host-link" to="/gamelab" title="Open the RuleZero Game Lab">

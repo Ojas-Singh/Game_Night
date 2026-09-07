@@ -29,6 +29,8 @@ export interface MediaChat {
   camOn: boolean;
   error: string | null;
   peers: MediaPeer[];
+  /** My own outbound stream when joined (for self-view in avatar slots). */
+  localStream: MediaStream | null;
   /** Resolves true when the call was actually joined. */
   join(opts: { mic: boolean; cam: boolean }): Promise<boolean>;
   leave(): void;
@@ -67,6 +69,7 @@ export function useMediaChat(
     [],
   );
   const [joined, setJoined] = useState(false);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [micOn, setMicOn] = useState(false);
   const [camOn, setCamOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -182,6 +185,7 @@ export function useMediaChat(
     analysersRef.current.clear();
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
+    setLocalStream(null);
     audioTrackRef.current = null;
     videoTrackRef.current = null;
     speakingRef.current.clear();
@@ -304,6 +308,7 @@ export function useMediaChat(
         video: opts.cam ? VIDEO_CONSTRAINTS : false,
       });
       localStreamRef.current = stream;
+      setLocalStream(stream);
       audioTrackRef.current = stream.getAudioTracks()[0] ?? null;
       videoTrackRef.current = stream.getVideoTracks()[0] ?? null;
       if (audioTrackRef.current) audioTrackRef.current.enabled = true;
@@ -348,6 +353,12 @@ export function useMediaChat(
           for (const transceivers of transceiversRef.current.values()) {
             if (transceivers.video) void transceivers.video.sender.replaceTrack(track);
           }
+          // Self-view: swap in a stream that carries the new video track.
+          setLocalStream((cur) => {
+            const next = new MediaStream(cur ? cur.getAudioTracks() : []);
+            next.addTrack(track);
+            return next;
+          });
         }
       }
       if (videoTrackRef.current) videoTrackRef.current.enabled = on;
@@ -366,6 +377,7 @@ export function useMediaChat(
     micOn,
     camOn,
     error,
+    localStream,
     peers: useMemo(() => [...peerMap.values()], [peerMap]),
     join,
     leave,

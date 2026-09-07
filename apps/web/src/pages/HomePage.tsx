@@ -56,7 +56,6 @@ export default function HomePage({ room }: { room: RoomApi }) {
           </Link>
           <nav className="home-nav-links" aria-label="Main navigation">
             <a href="#games">Games</a>
-            <Link to="/shop">Shop</Link>
             <Link to="/gamelab">Game Lab</Link>
             <span className="home-nav-status"><i /> No account needed</span>
           </nav>
@@ -139,7 +138,7 @@ export default function HomePage({ room }: { room: RoomApi }) {
             </div>
           </section>
         </main>
-        <footer className="home-footer"><span>Game Night</span><span>Private rooms · Shareable links · No accounts</span><span><Link to="/shop">Shop</Link> · <Link to="/privacy">Privacy</Link> · <Link to="/tos">Terms</Link></span></footer>
+        <footer className="home-footer"><span>Game Night</span><span>Private rooms · Shareable links · No accounts</span><span><Link to="/privacy">Privacy</Link> · <Link to="/tos">Terms</Link></span></footer>
       </div>
     </div>
   );
