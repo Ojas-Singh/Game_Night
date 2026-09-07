@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { useRoom } from './useRoom.js';
+import { useMediaChat } from './useMediaChat.js';
 import HomePage from './pages/HomePage.js';
 import GamePage from './pages/GamePage.js';
 import RuleZeroDemo from './rulezero/RuleZeroDemo.js';
@@ -8,6 +9,8 @@ import SharedGamePage from './pages/SharedGamePage.js';
 
 export default function App() {
   const room = useRoom();
+  // One media owner for the whole app: join once, talk in lobby AND table.
+  const media = useMediaChat(room.socket, room.myPlayerId, room.roomId);
   return (
     <>
       <Routes>
@@ -19,7 +22,7 @@ export default function App() {
           path="/game/:roomId"
           element={
             <RequireRoom room={room}>
-              <GamePage room={room} />
+              <GamePage room={room} media={media} />
             </RequireRoom>
           }
         />

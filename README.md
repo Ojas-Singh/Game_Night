@@ -82,6 +82,21 @@ apps/web                # React client (round-table Cabo, memory-grid Pair One, 
 - Per-player filtered views: hidden card values never leave the server.
 - Debug endpoints (`/debug/*`) and the 🛠 overlay exist only in non-production builds.
 
+## Live voice & webcam
+
+- **Peer-to-peer media mesh** for seated players in the lobby and at the table
+  (full mesh WebRTC: ≤5 up/down streams per player; Opus audio ~32 kbps, video
+  320×240@15fps only while the camera is on).
+- The server is a **signaling relay only** (`media:join` / `media:signal` /
+  `media:peers`): audio and video flow directly between browsers and are never
+  recorded or proxied. Cameras are opt-in per join; everyone sees mic/cam
+  states; kicked players leave the mesh with the room.
+- Signaling is rate-limited per socket. ICE defaults to a public STUN server;
+  set `VITE_ICE_SERVERS` (JSON array of RTCIceServer dicts) at build time to
+  add a TURN relay later — some symmetric-NAT players (rare on home Wi-Fi,
+  common on corporate networks) need it for direct links.
+- HTTPS is required for microphone/camera access — see the Caddy profile above.
+
 ## AI players & self-play
 
 - **AI seats in live games**: the host clicks "Seat AI" in the lobby and picks a

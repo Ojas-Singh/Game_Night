@@ -293,19 +293,58 @@ describe('socket integration', () => {
     host.emit('room:set_ai_debug', { enabled: true });
     expect((await startGame(host)).ok).toBe(true);
 
-    await new Promise<void>((resolve, reject) => {
-      // The agent loop waits a human-ish 0.7–2.2s before deciding; under
-      // parallel test workers that can stretch well past a 10s wait.
-      const timer = setTimeout(() => reject(new Error('timed out waiting for AI trace')), 25_000);
-      const check = (trace: { status: string }) => {
-        if (trace.status === 'executed') {
-          clearTimeout(timer);
-          host.off('room:ai_thought', check);
-          resolve();
-        }
-      };
-      host.on('room:ai_thought', check);
-    });
+    // The opening player is random. While a human owns the turn, drive a safe
+    // turn from that human's own view until the AI seat takes its first
+    // decision — otherwise the AI (correctly) waits forever for the humans.
+    const hostTrack = new ViewTracker(host);
+    const guestTrack = new ViewTracker(guest);
+    const acting = async (
+      track: ViewTracker,
+      sock: TestSocket,
+      myId: string,
+      inFlight: { value: boolean },
+    ): Promise<void> => {
+      const view = track.latest;
+      if (!view || inFlight.value) return;
+      if (view.players.find((p) => p.isCurrentTurn)?.id !== myId) return;
+      const own = (view.handCardIds[myId] ?? []).find((id) => !id.startsWith('__slot__'));
+      const aiView = view.players.find((p) => p.id === ai.playerId);
+      const target = aiView && (view.handCardIds[aiView.id] ?? []).find((id) => !id.startsWith('__slot__'));
+      let action: Record<string, unknown> | null = null;
+      if (view.phase === 'TURN_DRAW') action = { type: 'DRAW', playerId: myId };
+      else if (view.phase === 'DRAW_DECISION') action = { type: 'DISCARD_DRAWN', playerId: myId };
+      else if (view.phase === 'POWER_PENDING' && view.pendingPower && own) {
+        const power = view.pendingPower.power;
+        const payload =
+          power === 'PEEK_OWN'
+            ? { power, cardId: own }
+            : power === 'PEEK_OTHER' && target
+              ? { power, targetPlayerId: ai.playerId, cardId: target }
+              : power === 'BLIND_SWAP' && target
+                ? { power, ownCardId: own, targetPlayerId: ai.playerId, targetCardId: target }
+                : null;
+        if (payload) action = { type: 'POWER_APPLY', playerId: myId, payload };
+      } else if (view.phase === 'TRANSFER_PENDING' && own) {
+        action = { type: 'TRANSFER_CARD', playerId: myId, cardId: own };
+      } else if (view.phase === 'TURN_END') {
+        action = { type: 'END_TURN', playerId: myId };
+      }
+      if (action) {
+        inFlight.value = true;
+        await gameAction(sock, action);
+        inFlight.value = false;
+      }
+    };
+
+    const deadline = Date.now() + 30_000;
+    const hostFlight = { value: false };
+    const guestFlight = { value: false };
+    while (Date.now() < deadline && !hostTraces.some((trace) => trace.status === 'executed')) {
+      await acting(hostTrack, host, created.playerId, hostFlight);
+      await acting(guestTrack, guest, joined.playerId!, guestFlight);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    expect(hostTraces.some((trace) => trace.status === 'executed')).toBe(true);
 
     expect(guestTraces).toHaveLength(0);
     expect(new Set(hostTraces.map((trace) => trace.id)).size).toBe(1);
@@ -331,6 +370,57 @@ describe('socket integration', () => {
     host.close();
     guest.close();
   }, 40_000);
+
+  it('relays WebRTC signaling across the media mesh and bars spectators', async () => {
+    const p = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const a = await connect();
+    const b = await connect();
+    const created = await createRoom(a, 'Host');
+    const joined = await joinRoom(b, { roomId: created.roomId, name: 'Guest' });
+    expect(joined.ok).toBe(true);
+
+    const rosterA: Array<Array<{ playerId: string }>> = [];
+    const rosterB: Array<Array<{ playerId: string }>> = [];
+    const signalsA: Array<{ from: string; data: { type: string } }> = [];
+    a.on('media:peers', ({ peers }) => rosterA.push(peers));
+    b.on('media:peers', ({ peers }) => rosterB.push(peers));
+    a.on('media:signal', (s) => signalsA.push(s));
+
+    a.emit('media:join', { mic: true, cam: false });
+    await p(40);
+    expect(rosterA.at(-1)).toHaveLength(1);
+
+    b.emit('media:join', { mic: true, cam: true });
+    await p(40);
+    expect(rosterA.at(-1)).toHaveLength(2);
+    expect(rosterB.at(-1)).toHaveLength(2);
+
+    // Offer relay lands with the sender's player id attached.
+    b.emit('media:signal', { to: created.playerId, data: { type: 'offer', sdp: 'x' } });
+    await p(40);
+    expect(signalsA.at(-1)).toMatchObject({
+      from: joined.playerId,
+      data: { type: 'offer', sdp: 'x' },
+    });
+
+    // A spectator cannot join the mesh: the roster stays at two.
+    const spectator = await connect();
+    await new Promise((resolve) => {
+      spectator.emit('room:join', { roomId: created.roomId, spectator: true }, resolve);
+    });
+    spectator.emit('media:join', { mic: true, cam: true });
+    await p(40);
+    expect(rosterA.at(-1)).toHaveLength(2);
+
+    a.emit('media:leave');
+    await p(40);
+    // The leaver no longer receives rosters; the remaining member sees one peer.
+    expect(rosterB.at(-1)).toHaveLength(1);
+
+    a.close();
+    b.close();
+    spectator.close();
+  }, 15_000);
 
   it('reconnects with token after disconnect and restores the same seat', async () => {
     const host = await connect();

@@ -10,7 +10,8 @@ import { takeRulezeroSpec } from './gameLab.js';
 import type { Server as SocketServer, Socket } from 'socket.io';
 import type { RoomManager } from './roomManager.js';
 import { Room, RoomError } from './room.js';
-import type { ChatMessage, JoinResult, RoomLobbyState } from './protocol.js';
+import type { ChatMessage, JoinResult, RoomLobbyState, MediaMemberInfo } from './protocol.js';
+import { MediaMesh } from './media.js';
 import { log } from './log.js';
 
 interface SocketData {
@@ -73,6 +74,17 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
   };
 
   // AI seats are driven here: the loop re-enters through afterChange.
+  // Peer-to-peer voice/video mesh membership. The server only tracks who is
+  // connected and relays signaling — media never touches the server.
+  const mediaMesh = new MediaMesh();
+  const broadcastMediaPeers = (roomId: string): void => {
+    const members = mediaMesh.members(roomId);
+    const peers: MediaMemberInfo[] = members.map(({ playerId, mic, cam }) => ({ playerId, mic, cam }));
+    for (const member of members) {
+      for (const sid of member.socketIds) io.to(sid).emit('media:peers', { peers });
+    }
+  };
+
   const agents = new AgentLoops(io, {
     afterChange: (room) => afterChange(room),
     aiThought: (room, thought) => {
@@ -283,6 +295,8 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         const { room, playerId } = requireRoom();
         room.kickInGame(playerId, targetId);
         ack?.({ ok: true });
+        // The seat went to the AI: its live human leaves the media mesh.
+        if (mediaMesh.removeMember(room.id, targetId)) broadcastMediaPeers(room.id);
         afterChange(room);
       } catch (err) {
         ack?.({ ok: false, error: msg(err) });
@@ -343,6 +357,8 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         if (!target) throw new RoomError('not in room');
         room.kickPlayer(playerId, targetId);
         ack?.({ ok: true });
+        // A kicked player leaves the media mesh with the room.
+        if (mediaMesh.removeMember(room.id, targetId)) broadcastMediaPeers(room.id);
         const kickedSockets = [...target.sockets];
         for (const sid of kickedSockets) {
           const s = io.sockets.sockets.get(sid);
@@ -510,12 +526,66 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
     });
 
     // -----------------------------------------------------------------
+    // Peer-to-peer media mesh (voice + webcam, signaling relay only)
+    // -----------------------------------------------------------------
+
+    const leaveMedia = (): void => {
+      if (!data.roomId || !data.playerId) return;
+      const fullyLeft = mediaMesh.leaveSocket(data.roomId, data.playerId, socket.id);
+      mediaMesh.forgetSocket(socket.id);
+      if (fullyLeft) broadcastMediaPeers(data.roomId);
+    };
+
+    socket.on('media:join', ({ mic, cam }) => {
+      try {
+        const { room, playerId } = requireRoom();
+        // Seated players only: spectators watch the table but stay off the
+        // mesh (one less live-media moderation surface).
+        if (!room.players.has(playerId)) throw new RoomError('spectators cannot join the media mesh');
+        mediaMesh.join(room.id, playerId, socket.id, { mic: !!mic, cam: !!cam });
+        broadcastMediaPeers(room.id);
+      } catch (err) {
+        log.warn('media_join_failed', { error: msg(err) });
+      }
+    });
+
+    socket.on('media:signal', ({ to, data: signal }) => {
+      try {
+        const { room, playerId } = requireRoom();
+        if (typeof to !== 'string' || signal == null) return;
+        // Token bucket per socket: runaway clients cannot flood relays.
+        if (!mediaMesh.allowSignal(socket.id)) return;
+        const member = mediaMesh.members(room.id).find((m) => m.playerId === to);
+        if (!member) return;
+        for (const sid of member.socketIds) io.to(sid).emit('media:signal', { from: playerId, data: signal });
+      } catch (err) {
+        log.warn('media_signal_failed', { error: msg(err) });
+      }
+    });
+
+    socket.on('media:update', ({ mic, cam }) => {
+      try {
+        const { room, playerId } = requireRoom();
+        mediaMesh.update(room.id, playerId, { mic: !!mic, cam: !!cam });
+        broadcastMediaPeers(room.id);
+      } catch {
+        /* ignore */
+      }
+    });
+
+    socket.on('media:leave', () => {
+      leaveMedia();
+    });
+
+    // -----------------------------------------------------------------
     // Disconnect
     // -----------------------------------------------------------------
 
     socket.on('room:leave', () => {
       try {
         const { room, playerId } = requireRoom();
+        leaveMedia();
+        mediaMesh.removeMember(room.id, playerId);
         room.detachSocket(playerId, socket.id);
         room.removePlayer(playerId);
         socket.leave(room.id + ':players');
@@ -538,6 +608,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
     socket.on('disconnect', () => {
       log.debug('socket_disconnected', { socketId: socket.id });
       try {
+        leaveMedia();
         const roomId = data.roomId;
         const playerId = data.playerId;
         if (!roomId || !playerId) return;

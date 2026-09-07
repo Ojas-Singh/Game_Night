@@ -13,6 +13,7 @@ import { seriesStandings, seriesWinner } from './series.js';
 import { loadAvatar, randomAvatar, saveAvatar } from '../avatar.js';
 import { AVATAR_COLORS, EYE_STYLES, MOUTH_STYLES, HAT_STYLES } from '../avatar.js';
 import type { Avatar as AvatarModel, RoomLobbyState } from '../server-protocol.js';
+import type { MediaChat } from '../useMediaChat.js';
 
 const AI_PERSONA_LABELS: Record<string, string> = {
   balanced: 'Balanced',
@@ -30,7 +31,7 @@ const AI_PERSONA_OPTIONS = [
   { id: 'baiter', label: 'Baiter', description: 'Sets traps with discards and deceptive plays.' },
 ] as const;
 
-export default function LobbyView({ room }: { room: RoomApi }) {
+export default function LobbyView({ room, media }: { room: RoomApi; media: MediaChat }) {
   const lobby = room.lobby!;
   const me = lobby.players.find((p) => p.isYou);
   const isHost = me?.isHost ?? false;
@@ -360,7 +361,7 @@ export default function LobbyView({ room }: { room: RoomApi }) {
 
       <aside className="lobby-side">
         <DebugPanel room={room} />
-        <MediaDock compact />
+        <MediaDock media={media} players={lobby.players} myPlayerId={room.myPlayerId} compact />
         <div className="lobby-panel avatar-panel">
           <div className="avatar-panel-head">
             <div>

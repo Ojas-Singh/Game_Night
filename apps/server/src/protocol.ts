@@ -72,6 +72,12 @@ export interface ClientEvents {
   'room:restart_game': (payload: {}, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:play_again': (payload: {}, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:set_ai_debug': (payload: { enabled: boolean }) => void;
+  /** Join the room's peer-to-peer voice/video mesh. */
+  'media:join': (payload: { mic: boolean; cam: boolean }) => void;
+  /** WebRTC signaling relay to one mesh member (offers, answers, ICE). */
+  'media:signal': (payload: { to: string; data: unknown }) => void;
+  'media:update': (payload: { mic: boolean; cam: boolean }) => void;
+  'media:leave': () => void;
 }
 
 export interface JoinResult {
@@ -188,4 +194,15 @@ export interface ServerEvents {
   'game:view': (view: AnyGameView | { spectator: true }) => void;
   'room:closed': (payload: { reason: string }) => void;
   'room:ai_thought': (trace: AiDecisionTrace) => void;
+  /** Full mesh roster, sent to media members after any membership change. */
+  'media:peers': (payload: { peers: MediaMemberInfo[] }) => void;
+  /** Relayed WebRTC signaling from another member. */
+  'media:signal': (payload: { from: string; data: unknown }) => void;
+}
+
+/** Subset of the mesh roster clients see (never socket ids). */
+export interface MediaMemberInfo {
+  playerId: string;
+  mic: boolean;
+  cam: boolean;
 }

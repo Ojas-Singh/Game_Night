@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { RoomApi } from '../useRoom.js';
+import type { MediaChat } from '../useMediaChat.js';
 import LobbyView from '../lobby/LobbyView.js';
 import TableView from '../table/TableView.js';
 import PairOneTable from '../pairone/PairOneTable.js';
@@ -9,7 +10,7 @@ import SeepTable from '../seep/SeepTable.js';
 import TableShell from '../table/TableShell.js';
 import ActionBar from '../table/ActionBar.js';
 
-export default function GamePage({ room }: { room: RoomApi }) {
+export default function GamePage({ room, media }: { room: RoomApi; media: MediaChat }) {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
   const joinedRef = useRef(false);
@@ -87,7 +88,7 @@ export default function GamePage({ room }: { room: RoomApi }) {
         </TableShell>
       );
     }
-    return <TableView room={room} view={view} />;
+    return <TableView room={room} view={view} media={media} />;
   }
-  return <LobbyView room={room} />;
+  return <LobbyView room={room} media={media} />;
 }

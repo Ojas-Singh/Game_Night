@@ -18,6 +18,7 @@ import Avatar from './Avatar.js';
 import DebugControls from './DebugControls.js';
 import MediaDock from './MediaDock.js';
 import { seriesWinner } from '../lobby/series.js';
+import type { MediaChat } from '../useMediaChat.js';
 
 /**
  * The round-table experience. The local player always sits at the bottom;
@@ -25,7 +26,7 @@ import { seriesWinner } from '../lobby/series.js';
  * positions derive from the seat angle so animations read as physical
  * movement around the table.
  */
-export default function TableView({ room, view }: { room: RoomApi; view: CaboPlayerView }) {
+export default function TableView({ room, view, media }: { room: RoomApi; view: CaboPlayerView; media: MediaChat }) {
   const me = view.players.find((p) => p.id === room.myPlayerId) ?? view.players[0]!;
   // Rotate the seat-ordered roster around the local player so the visual
   // left-to-right arc is also the next-player-to-previous-player circle.
@@ -535,7 +536,7 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
         </button>
       )}
       <SoundToggle />
-      <MediaDock compact />
+      <MediaDock media={media} players={room.lobby?.players ?? []} myPlayerId={room.myPlayerId} compact />
       <EmotePicker room={room} />
       <button
         className="info-toggle"
