@@ -84,6 +84,13 @@ apps/web                # React client (round-table Cabo, memory-grid Pair One, 
 
 ## Live voice & webcam
 
+- **3D table (opt-in)**: the Cabo table can render as a real three.js scene —
+  felt, fanned card hands, deck/discard piles, flight ghosts, turn rings — via
+  a `✦ 3D` toggle. It lazy-loads as its own bundle (three.js never enters the
+  main chunk), respects reduced-motion/low-core devices, and the classic 2D
+  table remains one click away as the fallback. Both renderers share the same
+  layout math and the same click-intent logic, so gameplay is identical.
+
 - **Peer-to-peer media mesh** for seated players in the lobby and at the table
   (full mesh WebRTC: ≤5 up/down streams per player; Opus audio ~32 kbps, video
   320×240@15fps only while the camera is on).

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { RoomApi, CardFlight } from '../useRoom.js';
 import type { FlightPos } from './CardFlights.js';
@@ -19,6 +19,10 @@ import DebugControls from './DebugControls.js';
 import MediaDock from './MediaDock.js';
 import { seriesWinner } from '../lobby/series.js';
 import type { MediaChat } from '../useMediaChat.js';
+import { load3dPref, save3dPref } from '../table3d/layout.js';
+
+// The 3D table loads as its own chunk — three.js never enters the main bundle.
+const CaboScene = lazy(() => import('../table3d/CaboScene.js'));
 
 /**
  * The round-table experience. The local player always sits at the bottom;
@@ -81,6 +85,14 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
   const seats = useMemo(() => SeatPlanner(others.length), [others.length]);
 
   const [infoOpen, setInfoOpen] = useState(false);
+  // 3D table preference (persisted; defaults to a capability check).
+  const [use3d, setUse3d] = useState<boolean>(() => load3dPref());
+  const toggle3d = () => {
+    setUse3d((cur) => {
+      save3dPref(!cur);
+      return !cur;
+    });
+  };
 
   // ---- Pixel-accurate flight anchors -----------------------------------
   // Every flight source/destination is MEASURED from the real DOM (deck pile,
@@ -536,6 +548,13 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
         </button>
       )}
       <SoundToggle />
+      <button
+        className="scene3d-toggle"
+        onClick={toggle3d}
+        title={use3d ? 'Switch to the classic 2D table' : 'Switch to the 3D table'}
+      >
+        {use3d ? '✦ 3D' : '▢ 2D'}
+      </button>
       <MediaDock media={media} players={room.lobby?.players ?? []} myPlayerId={room.myPlayerId} compact />
       <EmotePicker room={room} />
       <button
@@ -549,6 +568,37 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
 
       {/* the table */}
       <div className="table-ellipse" ref={tableRef}>
+        {use3d ? (
+          <>
+            <Suspense fallback={<div className="scene3d-loading" aria-label="Loading the 3D table">✦</div>}>
+              <CaboScene
+                view={view}
+                room={room}
+                myId={me.id}
+                opponentIds={others.map((p) => p.id)}
+                flights={flights}
+                mode={mode}
+                selectedOwn={selectedOwn}
+                targetPlayer={targetPlayer}
+                myCardsLifted={mode === 'draw-decision' || mode === 'power-peek-own' || mode === 'transfer'}
+                onMyCardClick={onMyCardClick}
+                onOpponentCardClick={onOpponentCardClick}
+                onOpponentClick={onOpponentClick}
+                opponentSelectable={opponentCardsSelectable}
+                onDraw={isMyTurn && phase === 'TURN_DRAW' && myLiveCount > 0 ? () => act({ type: 'DRAW' }) : null}
+                onCallCabo={isMyTurn && phase === 'TURN_END' && !view.cabo ? () => act({ type: 'CALL_CABO' }) : null}
+                onDiscardDrawn={mode === 'draw-decision' ? () => act({ type: 'DISCARD_DRAWN' }) : null}
+                onFlightDone={dropFlight}
+              />
+            </Suspense>
+            {mode === 'turn-end' && (
+              <button className="end-turn-btn" onClick={() => act({ type: 'END_TURN' })}>
+                {view.cabo ? 'Finish round ▸' : 'End turn ▸'}
+              </button>
+            )}
+          </>
+        ) : (
+          <>
         <div className="table-felt" />
 
         {/* opponents around the arc */}
@@ -725,6 +775,8 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
             </div>
           )}
         </div>
+          </>
+        )}
       </div>
 
       {/* round-over overlay */}
