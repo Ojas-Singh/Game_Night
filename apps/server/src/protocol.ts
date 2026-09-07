@@ -97,6 +97,9 @@ export interface LobbyPlayer {
 }
 
 export interface RoomLobbyState {
+  spectator?: boolean;
+  spectatorCount?: number;
+  allowSpectators?: boolean;
   roomId: string;
   gameId: string;
   players: LobbyPlayer[];

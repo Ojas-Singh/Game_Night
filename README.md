@@ -26,6 +26,23 @@ docker compose up -d
 
 Coolify: point a new Docker Compose resource at this repo; set `SESSION_SECRET`; expose port 3000.
 
+### Rules → Play compiler
+
+Game Lab keeps model access on the server and sends only validated GameSpec data
+to the runtime. For a generic OpenAI-compatible gateway set
+`RULEZERO_COMPILER_URL`, `RULEZERO_COMPILER_MODEL`, and optionally
+`RULEZERO_COMPILER_API_KEY`. OpenCode Go is supported directly: set
+`OPENCODE_API_KEY` (and optionally `OPENCODE_GO_MODEL`, default
+`mimo-v2.5`). The adapter uses OpenCode Go's OpenAI-compatible endpoint at
+`https://opencode.ai/zen/go/v1`, sends a stable `x-opencode-session` per compile
+job, and identifies itself as `gamenight-rulezero/1.0`. Set
+`RULEZERO_COMPILER_PROVIDER=opencode-go` to select Go explicitly when using a
+custom base URL (`OPENCODE_GO_BASE_URL`). The same key automatically enables
+OpenCode Go for Cabo's optional live LLM seats; explicit `AGENT_*` settings take
+precedence (`AGENT_PROVIDER=opencode-go` preserves Go session routing when a
+custom `AGENT_API_URL` is supplied). The CPU Torch learner remains the
+trainable checkpoint path.
+
 ## Architecture
 
 ```

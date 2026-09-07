@@ -41,7 +41,7 @@ export function buildPlayerView(
   // Normal play: only flipped (remembered) cards carry values. revealAll
   // (Test Mode) exposes every card on the table + collected piles.
   const revealAll = opts?.revealAll === true;
-  const knownIds = new Set(state.knowledge[viewerId] ?? []);
+  const knownIds = new Set(viewerId === '__spectator__' ? Object.values(state.knowledge).flat() : state.knowledge[viewerId] ?? []);
   const tableCards: Card[] = state.grid.filter((c): c is Card => !!c);
   const collectedCards: Card[] = state.players.flatMap((p) => state.collections[p.id] ?? []);
   for (const card of [...tableCards, ...collectedCards]) {

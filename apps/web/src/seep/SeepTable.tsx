@@ -366,7 +366,7 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
                 } else {
                   if (!window.confirm('Leave this room entirely and go home?')) return;
                   room.leaveRoom();
-                  window.location.hash = '#/';
+                  window.location.assign('/');
                 }
               }}
               aria-label={isHost ? 'Back to lobby (end current game)' : 'Leave the room'}

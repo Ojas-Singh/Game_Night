@@ -190,6 +190,10 @@ export class CaboEngine {
     };
   }
 
+  getSpectatorView(): ReturnType<typeof buildPlayerView> {
+    return buildPlayerView(this.getState(), '__spectator__');
+  }
+
   getPlayerState(viewerId: string, opts?: { revealAll?: boolean }): import('./views.js').CaboPlayerView {
     return buildPlayerView(this.getState(), viewerId, opts);
   }

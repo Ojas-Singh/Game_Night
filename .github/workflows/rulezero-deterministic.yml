@@ -37,14 +37,25 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11.22.0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install RuleZero runtime for integration/browser gates
+        run: python -m pip install "open_spiel==2.0.2" "numpy>=1.26,<3"
       - name: Typecheck + unit tests + build
         run: |
-          pnpm -w --filter '*' exec tsc -b || pnpm -w typecheck
+          pnpm -w typecheck
           pnpm -w test
-          pnpm --filter web build
+          pnpm -r build
+      - name: Install Chromium for browser gates
+        run: pnpm --filter @game-night/web exec playwright install --with-deps chromium
+      - name: Browser journeys
+        env:
+          RULEZERO_PYTHON: python
+        run: pnpm --filter @game-night/web test:e2e

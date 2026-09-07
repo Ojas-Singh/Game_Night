@@ -511,7 +511,7 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
               } else {
                 if (!window.confirm('Leave this room entirely and go home?')) return;
                 room.leaveRoom();
-                window.location.hash = '#/';
+                window.location.assign('/');
               }
             }}
             aria-label={backToLobby ? 'Back to lobby (end current game)' : 'Leave the room'}

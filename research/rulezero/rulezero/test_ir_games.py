@@ -146,6 +146,7 @@ CLAIM = {
     "vars": [
         {"id": "pot", "init": 2},
         {"id": "claimHigh", "init": 0},
+        {"id": "cardval", "init": 0},
         {"id": "score0", "init": -1},
         {"id": "score1", "init": -1},
     ],

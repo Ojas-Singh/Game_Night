@@ -5,7 +5,7 @@ line-JSON (same transport pattern as the cabo differential bridge). It is
 NEVER exposed to browsers. TS learns NOTHING about generated game rules —
 it forwards opaque spec JSON and renders whatever views this service emits.
 
-Protocol `game-service/v1` — requests (one JSON object per line):
+Protocol `game-service/v2` — requests (one JSON object per line):
   {"op":"create","spec":{...GameSpec IR...},"seed":123}
   {"op":"view","player":0}
   {"op":"legalActions","player":0}
@@ -26,9 +26,9 @@ import random
 import sys
 
 from .gamespec_ir import ir_hash, load_ir
-from .gamespec_runtime import IRGame
+from .gamespec_runtime import IRGame, RUNTIME_VERSION
 
-PROTOCOL = "game-service/v1"
+PROTOCOL = "game-service/v2"
 
 
 class Session:
@@ -46,6 +46,10 @@ class Session:
         # §14 post-game review log: every human-visible decision, with the
         # actor's own information state and labeled candidates.
         self.review_log: list[dict] = []
+        self.trajectory: list[dict] = []
+        self.revision = 0
+        self.commands: dict[str, dict] = {}
+        self._agents: dict[str, object] = {}
 
     def _record_decision(self):
         st = self.state
@@ -54,12 +58,14 @@ class Session:
         player = st.current_player()
         legal = sorted(st.legal_actions(player))
         self.review_log.append({
+            "t": len(self.review_log),
+            "kind": "decision",
             "player": int(player),
             "infoState": st.information_state_string(player),
             "candidates": [
-                {"environmentActionId": a,
+                {"candidateId": f"A{i}", "environmentActionId": a,
                  "label": st.action_to_string(player, a)}
-                for a in legal
+                for i, a in enumerate(legal)
             ],
         })
 
@@ -69,6 +75,11 @@ class Session:
             outs = self.state.chance_outcomes()
             cards, probs = zip(*outs)
             card = self._rng.choices(cards, weights=probs)[0]
+            self.trajectory.append({
+                "t": len(self.trajectory), "kind": "chance", "player": -1,
+                "outcomes": [{"environmentActionId": int(a), "probability": float(p)} for a, p in outs],
+                "chosenEnvironmentActionId": int(card),
+            })
             self.state.apply_action(int(card))
             guard += 1
             assert guard < 1000, "chance loop runaway"
@@ -77,10 +88,14 @@ class Session:
         st = self.state
         return {
             "protocol": PROTOCOL,
+            "runtimeVersion": RUNTIME_VERSION,
+            "revision": self.revision,
             "specHash": self.spec_hash,
             "zones": {k: list(v) for k, v in st.zones.items()},
             "zoneVis": dict(st.zone_vis),
             "vars": dict(st.vars),
+            "varVis": dict(st.var_vis),
+            "varOwner": dict(st.var_owner),
             "phase": st.phase_idx,
             "actor": st.actor,
             "rotatePtr": st.rotate_ptr,
@@ -92,15 +107,24 @@ class Session:
                 "i": st.window["i"],
                 "resume": st.window["resume"]},
             "history": [[int(p), int(a)] for p, a in st.full_history()],
+            "recall": st._recall,
+            "rngState": self._rng.getstate(),
+            "reviewLog": self.review_log,
+            "trajectory": self.trajectory,
+            "commands": self.commands,
         }
 
     def restore(self, snap: dict):
         if snap.get("specHash") != self.spec_hash:
             raise ValueError("snapshot/specHash mismatch")
+        if snap.get("runtimeVersion") != RUNTIME_VERSION:
+            raise ValueError("incompatible runtime snapshot")
         st = self.game.new_initial_state()
         st.zones = {k: list(v) for k, v in snap["zones"].items()}
         st.zone_vis = dict(snap["zoneVis"])
         st.vars = dict(snap["vars"])
+        st.var_vis = dict(snap.get("varVis", {k: "public" for k in st.vars}))
+        st.var_owner = dict(snap.get("varOwner", {k: None for k in st.vars}))
         st.phase_idx = int(snap["phase"])
         st.actor = snap["actor"]
         st.rotate_ptr = int(snap["rotatePtr"])
@@ -113,7 +137,71 @@ class Session:
             "resume": int(w["resume"])}
         for p, a in snap.get("history", []):
             st.add_transition(int(p), int(a))
+        st._recall = [list(h) for h in snap["recall"]]
+        def tuples(value):
+            return tuple(tuples(x) for x in value) if isinstance(value, list) else value
+        self._rng.setstate(tuples(snap["rngState"]))
+        self.revision = snap["revision"]
+        self.review_log = list(snap["reviewLog"])
+        self.trajectory = list(snap.get("trajectory", []))
+        self.commands = dict(snap["commands"])
         self.state = st
+
+    def apply(self, msg: dict) -> dict:
+        player = msg.get("player")
+        if type(player) is not int or not 0 <= player < self.game.num_players():
+            raise ValueError("authenticated player required")
+        command_id = msg.get("commandId")
+        key = f"{player}:{command_id}" if command_id else None
+        signature = [msg.get("action"), msg.get("expectedRevision")]
+        if key in self.commands:
+            cached = self.commands[key]
+            if cached["signature"] != signature:
+                raise ValueError("command id reused with different payload")
+            return cached["result"]
+        if player != self.state.current_player():
+            raise ValueError("not your turn")
+        if msg.get("expectedRevision", self.revision) != self.revision:
+            raise ValueError("stale revision")
+        action = msg.get("action")
+        if type(action) is not int or action not in self.state.legal_actions(player):
+            raise ValueError("illegal action")
+        snap = json.loads(json.dumps(self.snapshot()))
+        try:
+            self._record_decision()
+            self.review_log[-1]["chosenAction"] = action
+            self.review_log[-1]["chosenEnvironmentActionId"] = action
+            self.review_log[-1]["chosenCandidateId"] = f"A{action}"
+            decision = self.review_log[-1]
+            self.state.apply_action(action)
+            self.trajectory.append({
+                "t": len(self.trajectory), "kind": "decision",
+                "player": int(player), "infoState": decision["infoState"],
+                "candidates": decision["candidates"],
+                "legalEnvironmentActions": [c["environmentActionId"] for c in decision["candidates"]],
+                "chosenCandidateId": f"A{action}",
+                "chosenEnvironmentActionId": int(action),
+                "policy": None, "valueTarget": None, "teacherPolicy": None,
+            })
+            self._resolve_chance()
+            self.revision += 1
+            if self.state.is_terminal():
+                from .artifacts import ArtifactStore
+                import os
+                from pathlib import Path
+                root = Path(os.environ.get('RULEZERO_TRAJECTORIES', Path(__file__).resolve().parent.parent / 'artifacts' / 'trajectories'))
+                record = {'schemaVersion': 2, 'game': {'id': 'gamespec:' + self.spec_hash, 'specHash': self.spec_hash, 'numPlayers': self.game.num_players()},
+                          'completed': True, 'returns': self.state.returns(), 'transitions': self.trajectory,
+                          'provenance': {'runner': 'rulezero.service/v2', 'runtimeVersion': RUNTIME_VERSION}}
+                ArtifactStore(root).put_json(record, kind='live-trajectory')
+            result = {"ok": True, "isTerminal": self.state.is_terminal(),
+                      "revision": self.revision}
+            if key:
+                self.commands[key] = {"signature": signature, "result": result}
+            return result
+        except Exception:
+            self.restore(snap)
+            raise
 
     def view(self, player: int) -> dict:
         """Structured per-player view. Zone contents are filtered by
@@ -121,8 +209,10 @@ class Session:
         zones only to their owner, public zones to everyone. The browser
         can therefore render exactly what it receives — no string parsing,
         no way to leak what was never sent."""
+        if type(player) is not int or not -1 <= player < self.game.num_players():
+            raise ValueError("invalid viewer")
         st = self.state
-        table = [] if (st.is_terminal() or st.is_chance_node()) \
+        table = [] if (st.is_terminal() or st.is_chance_node() or player != st.current_player()) \
             else st._action_table()
         candidates = [{"candidateId": f"A{i}", "environmentActionId": i,
                        "label": st.action_to_string(player, i)}
@@ -134,17 +224,19 @@ class Session:
             digits = ''.join(ch for ch in zid if ch.isdigit())
             owner = int(digits) if digits else None
             if vis == "public" or (vis == "owner" and owner == player) \
-                    or st.is_terminal():
+                    or (st.is_terminal() and player >= 0):
                 return {"id": zid, "visibility": vis, "owner": owner,
                         "cards": list(cards)}
             return {"id": zid, "visibility": vis, "owner": owner,
                     "count": len(cards)}
 
         zones = [zone_entry(zid) for zid in sorted(st.zones)]
-        scores = {k[5:]: v for k, v in sorted(st.vars.items())
+        scores = {k[5:]: v for k, v in sorted(st.visible_vars(player).items())
                   if k.startswith("score")}
         return {
             "protocol": PROTOCOL,
+            "runtimeVersion": RUNTIME_VERSION,
+            "revision": self.revision,
             "specHash": self.spec_hash,
             "player": player,
             "phase": st.ir["phases"][st.phase_idx]["id"],
@@ -162,6 +254,12 @@ class Session:
 def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
     op = msg.get("op")
     # --- Game Lab ops (§15/§12): stateless, no session required ---------
+    if op == "labCheckpoints":
+        from .checkpoint_registry import list_checkpoints
+        return session, {"ok": True, "checkpoints": list_checkpoints()}
+    if op == "labLearningRuns":
+        from .checkpoint_registry import registry_root
+        return session, {"ok": True, "runs": [json.loads(p.read_text()) for p in registry_root().glob('run-*.json')]}
     if op == "labCatalog":
         from .gallery import catalog
 
@@ -276,13 +374,32 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
             player = st.current_player()
             info = st.information_state_string(player)
             legal = sorted(st.legal_actions(player))
-            if kind == "cfr":
-                agent = CFRAgent(session.ir, int(msg.get("iterations", 300)))
+            if kind == 'cfr':
+                from .solver_agents import choose_agent_for_game
+                if 'chosenKind' not in session._agents:
+                    session._agents['chosenKind'] = choose_agent_for_game(session.ir)
+                kind = session._agents['chosenKind']
+            if kind.startswith('checkpoint:'):
+                from .checkpoint_registry import load_checkpoint
+                from .selfplay import render_policy_input
+                checkpoint = session._agents.get(kind)
+                if checkpoint is None:
+                    checkpoint = load_checkpoint(kind.split(':', 1)[1])
+                    session._agents[kind] = checkpoint
+                prompt, candidates = render_policy_input(json.dumps(session.ir, sort_keys=True, separators=(',', ':')), st, player)
+                selected = checkpoint.sample(prompt, [c['candidateId'] for c in candidates])
+                pick = next(c['environmentActionId'] for c in candidates if c['candidateId'] == selected)
+            elif kind == "cfr":
+                agent = session._agents.get("cfr")
+                if agent is None:
+                    agent = CFRAgent(session.ir, int(msg.get("iterations", 300)), seed=session._rng.randrange(2**31))
+                    session._agents["cfr"] = agent
+                agent.rng = session._rng
                 pick = agent.act(info, legal)
             elif kind == "random":
                 import random as _r
 
-                pick = _r.Random(int(msg.get("seed", 0)) + len(info)).choice(legal)
+                pick = session._rng.choice(legal)
             else:
                 return session, {"ok": False, "error": f"unknown agent {kind}"}
             return session, {"ok": True, "player": player,
@@ -308,7 +425,18 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
             else:
                 # Inline custom spec (e.g. freshly compiled): stored as pure
                 # data like any other share record.
-                spec = dict(msg["spec"])
+                if msg.get("compileJobId"):
+                    from .compile_jobs import read_job
+                    accepted = read_job(msg["compileJobId"])
+                    if accepted["status"] != "ready":
+                        raise ValueError("game revision has not been accepted")
+                    spec = accepted["spec"]
+                else:
+                    spec = dict(msg["spec"])
+                    from .compiler import _semantic_smoke
+                    smoke = _semantic_smoke(spec)
+                    if smoke["reached_terminal"] != smoke["episodes"]:
+                        raise ValueError("game failed validation")
                 title = str(spec.get("title") or "Custom game")
             doc = load_ir(spec)
             h = ir_hash(doc)
@@ -318,6 +446,7 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
                 rec.update({"galleryId": gid, "params": params})
             else:
                 rec["spec"] = doc
+                rec["runtimeVersion"] = RUNTIME_VERSION
             root = os.environ.get(
                 "RULEZERO_SHARES",
                 os.path.join(os.path.dirname(os.path.dirname(
@@ -351,7 +480,9 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
             return session, {"ok": False, "error": "unknown share"}
         try:
             rec = _json.load(open(path))
-            if "galleryId" in rec:
+            if "spec" in rec:
+                spec = rec["spec"]
+            elif "galleryId" in rec:
                 from .gallery import GALLERY
 
                 spec = GALLERY[rec["galleryId"]].variant(**rec.get("params") or {})
@@ -399,37 +530,38 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
                              "review": out}
         except Exception as e:  # noqa: BLE001
             return session, {"ok": False, "error": str(e)}
-    if op == "labCompile":
-        """Natural-language -> GameSpec through the gated compiler chain
-        (static validation + semantic smoke). Returns the full disclosure
-        report either way; never a silently accepted draft (S4/S13)."""
-        from .compiler import DeterministicStubCompiler, compile_and_verify
-
-        text = str(msg.get("text") or "")
-        if not text.strip():
-            return session, {"ok": False, "stage": "input",
-                             "diagnostics": ["rules text is empty"]}
-        res = compile_and_verify(DeterministicStubCompiler(), text)
-        if isinstance(res, dict) or hasattr(res, "definition"):
-            from .gamespec_ir import ir_hash
-
-            doc = load_ir(res.definition.spec)
-            return session, {
-                "ok": True,
-                "spec": doc,
-                "specHash": ir_hash(doc),
-                "report": {
-                    "assumptions": res.report.assumptions,
-                    "ambiguities": res.report.ambiguities,
-                    "unsupported": res.report.unsupported_mechanics,
-                    "smoke": res.smoke,
-                    "players": len((doc.get("players") or {}).get("seats", [])
-                                   or doc.get("players", [])),
-                    "phases": [p.get("id") for p in doc.get("phases", [])],
-                },
-            }
-        return session, {"ok": False, "stage": res.stage,
-                         "diagnostics": res.diagnostics}
+    if op in ("labCompile", "labCompileStart", "labJobGet", "labCompileRevise", "labCompileAccept", "labSimulateStart", "labTrainStart", "labJobCancel"):
+        from .compile_jobs import LabJobs, read_job, accept
+        global _JOBS
+        if _JOBS is None:
+            _JOBS = LabJobs()
+        if op == "labTrainStart":
+            return session, {"ok": True, "job": _JOBS.submit("training", msg.get("config", {}))}
+        if op == "labJobCancel":
+            from .compile_jobs import save_job
+            job = read_job(msg["id"]); job["cancelRequested"] = True; save_job(job)
+            return session, {"ok": True, "job": job}
+        if op == "labJobGet":
+            return session, {"ok": True, "job": read_job(msg["id"])}
+        if op == "labCompileAccept":
+            return session, {"ok": True, "job": accept(msg["id"], msg.get("acknowledged") is True)}
+        if op == "labSimulateStart":
+            payload = {"spec": msg["spec"], "agent_specs": msg["agents"],
+                       "episodes": min(2000, max(1, int(msg.get("episodes", 100)))), "seed": int(msg.get("seed", 42))}
+            return session, {"ok": True, "job": _JOBS.submit("simulate", payload)}
+        from .compiler_backend import compiler_is_configured
+        if not compiler_is_configured():
+            return session, {"ok": False, "error": "Compiler unavailable: configure RULEZERO_COMPILER_URL and RULEZERO_COMPILER_MODEL, or set OPENCODE_API_KEY for OpenCode Go"}
+        payload = {"text": str(msg.get("text", "")), "answers": msg.get("answers", {})}
+        if op == "labCompileRevise":
+            previous = read_job(msg["id"])
+            payload["text"] = msg.get("text") or previous["payload"]["text"]
+            payload["answers"] = {**previous["payload"].get("answers", {}), **payload["answers"]}
+            payload["priorHistory"] = previous.get("history", [])
+            payload["diagnostics"] = previous.get("diagnostics", [])
+        if not 1 <= len(payload["text"].strip()) <= 16000:
+            raise ValueError("Rules must contain 1..16000 characters")
+        return session, {"ok": True, "job": _JOBS.submit("compile", payload, msg.get("id"))}
     if op == "create":
         seed = msg.get("seed")
         session = Session(msg["spec"], None if seed is None else int(seed))
@@ -445,15 +577,10 @@ def handle(session: Session | None, msg: dict) -> tuple[Session | None, dict]:
         if op == "legalActions":
             st = session.state
             acts = [] if st.is_terminal() or st.is_chance_node() \
-                else st.legal_actions(st.current_player())
+                else st.legal_actions(msg.get("player", -1))
             return session, {"ok": True, "actions": acts}
         if op == "apply":
-            if msg.get("review"):
-                session._record_decision()
-            session.state.apply_action(int(msg["action"]))
-            session._resolve_chance()
-            return session, {"ok": True,
-                             "isTerminal": session.state.is_terminal()}
+            return session, session.apply(msg)
         if op == "snapshot":
             return session, {"ok": True, "snap": session.snapshot()}
         if op == "restore":
@@ -482,12 +609,18 @@ def serve(stdin=sys.stdin, stdout=sys.stdout):  # noqa: ANN001
             resp = {"ok": False, "error": f"bad json: {e}"}
         else:
             global _SESSION
-            _SESSION, resp = handle(_SESSION, msg)
+            try:
+                _SESSION, resp = handle(_SESSION, msg)
+            except Exception as e:
+                resp = {"ok": False, "error": str(e)}
+            if "requestId" in msg:
+                resp["requestId"] = msg["requestId"]
         stdout.write(json.dumps(resp) + "\n")
         stdout.flush()
 
 
 _SESSION: Session | None = None
+_JOBS = None
 
 
 if __name__ == "__main__":

@@ -52,7 +52,7 @@ export default function LobbyView({ room }: { room: RoomApi }) {
     if (!editingName) setNameDraft(me?.name ?? loadName());
   }, [editingName, me?.name]);
 
-  const inviteLink = `${window.location.origin}${window.location.pathname}#/game/${lobby.roomId}`;
+  const inviteLink = `${window.location.origin}/game/${lobby.roomId}`;
 
   const copyLink = async () => {
     try {
@@ -91,7 +91,7 @@ export default function LobbyView({ room }: { room: RoomApi }) {
 
   const leaveRoom = () => {
     room.leaveRoom();
-    window.location.hash = '#/';
+    window.location.assign('/');
   };
 
   const startGame = async () => {

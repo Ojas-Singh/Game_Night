@@ -16,6 +16,9 @@ export interface ChatOptions {
   temperature?: number;
   maxTokens?: number;
   timeoutMs?: number;
+  /** Provider-specific routing metadata (OpenCode Go uses this session id). */
+  sessionId?: string;
+  userAgent?: string;
 }
 
 export interface ChatResult {
@@ -42,6 +45,8 @@ export async function chat(opts: ChatOptions): Promise<ChatResult> {
       signal: ctrl.signal,
       headers: {
         'content-type': 'application/json',
+        'user-agent': opts.userAgent ?? 'gamenight-agent/1.0',
+        ...(opts.sessionId ? { 'x-opencode-session': opts.sessionId } : {}),
         ...(opts.apiKey ? { authorization: `Bearer ${opts.apiKey}` } : {}),
       },
       body: JSON.stringify({

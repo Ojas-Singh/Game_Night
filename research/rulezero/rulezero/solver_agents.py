@@ -18,7 +18,7 @@ from typing import Any
 from .gamespec_ir import ir_hash
 from .gamespec_runtime import IRGame
 
-SOLVER_VERSION = 2  # bump when information_state_string format changes
+SOLVER_VERSION = 3  # bump when information_state_string format changes
 
 # ---------------------------------------------------------------------------
 # Policy cache (§11)
@@ -93,7 +93,11 @@ def _remember_legals(
     labels: dict[str, list[str]] = {}
     game = IRGame(spec)
     stack = [game.new_initial_state()]
+    visited = 0
     while stack:
+        visited += 1
+        if visited > 10000:
+            raise ValueError("solver tree exceeds 10000-node budget")
         s = stack.pop()
         if s.is_terminal():
             continue
@@ -136,6 +140,7 @@ def solve_game_cfr(
                     "states": len(pol), "solveSeconds": 0.0}
 
     t0 = time.time()
+    _remember_legals(spec)  # refuse oversized trees before OpenSpiel allocates its policy
     game = IRGame(spec)
     solver = osp_cfr.CFRSolver(game)
     for _ in range(iterations):
@@ -180,7 +185,9 @@ class CFRAgent:
 
     kind = "cfr"
 
-    def __init__(self, spec: dict[str, Any], iterations: int = 300) -> None:
+    def __init__(self, spec: dict[str, Any], iterations: int = 300, seed: int = 0) -> None:
+        import random
+        self.rng = random.Random(seed)
         self.legals, self.labels = _remember_legals(spec)
         sol = solve_game_cfr(spec, iterations)
         self.policy = sol["policy"]
@@ -208,12 +215,8 @@ class CFRAgent:
         if not row:
             # Unseen info state: fall back to middle candidate deterministically.
             return env_actions[len(env_actions) // 2]
-        best, best_p = env_actions[0], -1.0
-        for a in env_actions:
-            p = float(row.get(a, 0.0))
-            if p > best_p:
-                best, best_p = a, p
-        return best
+        weights = [max(0.0, row.get(a, 0.0)) for a in env_actions]
+        return self.rng.choices(env_actions, weights=weights if sum(weights) else None)[0]
 
     def probs_for(self, info_state: str) -> tuple[list[int], list[float]]:
         """(envActions, probs) for the strategy inspector (§13).
@@ -242,7 +245,9 @@ def choose_agent_for_game(spec: dict[str, Any]) -> str:
         dec = ph.get("decision")
         if dec:
             max_branches = max(max_branches, len(dec["actions"]))
-    return "cfr" if max_branches <= 8 else "random"
+    if max_branches > 8 or spec.get('utilities', {}).get('type', 'zero_sum') != 'zero_sum':
+        return 'random'
+    return 'cfr'
 
 
 AGENT_LABELS = {

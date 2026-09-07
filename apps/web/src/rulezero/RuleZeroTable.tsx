@@ -1,7 +1,7 @@
 /**
  * Generic RuleZero game renderer (Phase-2 §15).
  *
- * Renders ANY GameSpec game from a `game-service/v1` structured view:
+ * Renders ANY GameSpec game from a `game-service/v2` structured view:
  * zones (public cards / owned hands / hidden piles), the current actor,
  * dense candidate action buttons, scores, and a terminal banner. Generated
  * games work immediately with zero custom React; polished games may later
@@ -62,8 +62,10 @@ export default function RuleZeroTable({
       distribution: [string, number][];
     }[];
   };
-  onAction?: (envActionId: number) => void;
+  onAction?: (envActionId: number) => void | Promise<{ ok: boolean; error?: string }>;
 }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const [showInfo, setShowInfo] = useState(false);
   const myTurn =
     !view.isTerminal &&
@@ -111,9 +113,14 @@ export default function RuleZeroTable({
               <button
                 key={c.candidateId}
                 className="rz-action"
-                onClick={() => onAction?.(c.environmentActionId)}
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true); setError('');
+                  try { const result = await onAction?.(c.environmentActionId); if (result && !result.ok) setError(result.error ?? 'Action rejected'); }
+                  catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+                }}
               >
-                <span className="rz-aid">{c.candidateId}</span> {c.label}
+                <span className="rz-aid">{c.candidateId}</span> {c.label.replace(/^A\d+:/, '').replaceAll('_', ' ')}
               </button>
             ))}
         </section>
@@ -128,6 +135,7 @@ export default function RuleZeroTable({
         </footer>
       )}
 
+      {error && <p role="alert">{error}</p>}
       <button
         className="ghost rz-info-toggle"
         onClick={() => setShowInfo((s) => !s)}

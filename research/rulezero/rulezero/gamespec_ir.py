@@ -17,6 +17,7 @@ Effect op reference (v1):
   {"op":"set","var":V,"value":E}          E = number | {"sumRank":zoneExpr}
   {"op":"move","from":Z,"to":Z2,"n":K}    move K cards (top) Z -> Z2
   {"op":"reveal","zone":Z}                zone becomes public knowledge
+  {"op":"revealVar","var":V}              variable becomes public knowledge
   {"op":"compareGoto","a":A,"b":B,
    "gt":P,"lt":P,"eq":P}                  compare rank sums, jump phases
 Zone expressions: "deck", "prizes", "hand@p", "won@i", "@actor", "@other",
@@ -27,11 +28,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
 
 _PHASE_KINDS = {"chance", "decision", "reaction", "award", "terminal"}
 _VIS = {"hidden", "owner", "public"}
 _OPS = {"incr", "dec", "set", "move", "reveal", "clear",
-        "compareGoto"}
+        "revealVar", "compareGoto"}
 _ACTOR_SPECS = {"allOthersAfterLastActor", "rotate"}
 
 
@@ -43,7 +46,7 @@ def _err(msg):  # raise helper keeping validate() readable
     raise IRValidationError(msg)
 
 
-def validate_ir(doc: dict) -> list[str]:
+def _validate_ir(doc: dict) -> list[str]:
     """Static validation (§11 subset). Returns [] or raises with all problems."""
     errs: list[str] = []
 
@@ -161,6 +164,9 @@ def validate_ir(doc: dict) -> list[str]:
                     elif eff["op"] == "reveal":
                         need(zone_ref_ok(eff.get("zone", "")),
                              f"phase {pid}/{aid}: reveal zone undefined")
+                    elif eff["op"] == "revealVar":
+                        need(eff.get("var") in var_ids,
+                             f"phase {pid}/{aid}: var undefined")
                     elif eff["op"] == "clear":
                         need(zone_ref_ok(eff.get("zone", "")),
                              f"phase {pid}/{aid}: clear zone undefined")
@@ -178,6 +184,52 @@ def validate_ir(doc: dict) -> list[str]:
                  f"phase {pid}: only seatOrder priority defined in v1")
             acts = rx.get("actions", [])
             need(bool(acts), f"phase {pid}: reaction needs actions")
+            ids_seen = set()
+            for a in acts:
+                aid = a.get("id")
+                need(isinstance(aid, str) and aid and aid not in ids_seen,
+                     f"phase {pid}: bad/duplicate action id {aid!r}")
+                ids_seen.add(aid)
+                req = a.get("requires")
+                if req is not None and "cardInHand" in req:
+                    cih = req["cardInHand"]
+                    need(zone_ref_ok(cih.get("zone", "")),
+                         f"phase {pid}/{aid}: cardInHand.zone undefined")
+                    need(isinstance(cih.get("rank"), int),
+                         f"phase {pid}/{aid}: cardInHand.rank must be int")
+                elif req is not None:
+                    need("var" in req,
+                         f"phase {pid}/{aid}: requires needs var or cardInHand")
+                for eff in a.get("effects", []):
+                    need(eff.get("op") in _OPS,
+                         f"phase {pid}/{aid}: unknown op {eff.get('op')!r}")
+                    if eff.get("op") in ("incr", "dec"):
+                        need(eff.get("var") in var_ids,
+                             f"phase {pid}/{aid}: var undefined")
+                        need(isinstance(eff.get("by"), (int, float)),
+                             f"phase {pid}/{aid}: numeric 'by' required")
+                    elif eff.get("op") == "set":
+                        need(eff.get("var") in var_ids,
+                             f"phase {pid}/{aid}: var undefined")
+                        need(expr_ok(eff.get("value")),
+                             f"phase {pid}/{aid}: bad set value")
+                    elif eff.get("op") == "move":
+                        need(zone_ref_ok(eff.get("from", "")) and zone_ref_ok(eff.get("to", "")),
+                             f"phase {pid}/{aid}: move zones undefined")
+                        need(isinstance(eff.get("n", 1), int),
+                             f"phase {pid}/{aid}: move.n must be int")
+                    elif eff.get("op") in ("reveal", "clear"):
+                        need(zone_ref_ok(eff.get("zone", "")),
+                             f"phase {pid}/{aid}: zone undefined")
+                    elif eff.get("op") == "revealVar":
+                        need(eff.get("var") in var_ids,
+                             f"phase {pid}/{aid}: var undefined")
+                    elif eff.get("op") == "compareGoto":
+                        need(expr_ok(eff.get("a")) and expr_ok(eff.get("b")),
+                             f"phase {pid}/{aid}: compare operands invalid")
+                        for g in (eff.get("gt"), eff.get("lt"), eff.get("eq")):
+                            check_goto(g)
+                check_goto(a.get("goto"))
         elif kind == "award":
             aw = ph.get("award", {})
             need(aw.get("to") in ("compareZones", "lastActor", "otherOfLast",
@@ -282,6 +334,105 @@ def validate_ir(doc: dict) -> list[str]:
     if errs:
         raise IRValidationError("; ".join(errs))
     return []
+
+
+def validate_ir(doc: dict) -> list[str]:
+    """Bound untrusted documents before traversing their semantic graph."""
+    try:
+        if not isinstance(doc, dict):
+            _err("spec must be an object")
+        if len(json.dumps(doc, allow_nan=False)) > 128_000:
+            _err("spec exceeds 128 KB")
+        def check(value, depth=0):
+            if depth > 24:
+                _err("spec nesting exceeds 24")
+            if isinstance(value, float) and not math.isfinite(value):
+                _err("numbers must be finite")
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key in {"code", "python", "javascript", "eval"}:
+                        _err("executable fields are unsupported")
+                    check(item, depth + 1)
+            elif isinstance(value, list):
+                if len(value) > 512:
+                    _err("collection exceeds 512 entries")
+                for item in value:
+                    check(item, depth + 1)
+        check(doc)
+        for field in ("zones", "vars", "phases"):
+            if not isinstance(doc.get(field), list):
+                _err(f"{field} must be an array")
+        if not 1 <= len(doc["phases"]) <= 128:
+            _err("phases must contain 1..128 entries")
+        entities = doc["entities"]
+        ranks = entities["cardRanks"]
+        if not isinstance(ranks, list) or any(type(r) is not int or not 0 <= r <= 1000 for r in ranks):
+            _err("card ranks must be integers in 0..1000")
+        copies = entities.get("copiesPerRank", 1)
+        if type(copies) is not int or not 1 <= copies <= 16 or len(ranks) * copies > 256:
+            _err("invalid deck size")
+        for field in ("zones", "vars", "phases"):
+            ids = [x["id"] for x in doc[field]]
+            if len(ids) != len(set(ids)) or any(not isinstance(x, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", x) for x in ids):
+                _err(f"invalid or duplicate {field} ids")
+        public = {z["id"] for z in doc["zones"] if z["visibility"] == "public"}
+        zone_visibility = {z["id"]: z["visibility"] for z in doc["zones"]}
+        private_vars = {
+            v["id"] for v in doc["vars"]
+            if v.get("visibility", "public") != "public"
+        }
+
+        def private_reference(expr) -> bool:
+            """Whether an expression reads state that is not public.
+
+            A public variable or indexed public zone cannot be assigned from a
+            private value: the next filtered view would otherwise reveal that
+            value to every seat. Private expressions remain valid for the
+            acting seat's own candidates and for terminal utility formulas.
+            """
+            if not isinstance(expr, dict):
+                return False
+            if "var" in expr:
+                return expr["var"] in private_vars
+            if "sumRank" in expr:
+                return zone_visibility.get(str(expr["sumRank"]).split("@", 1)[0], "hidden") != "public"
+            if "cell" in expr:
+                cell = expr["cell"]
+                return zone_visibility.get(str(cell.get("zone", "")).split("@", 1)[0], "hidden") != "public" or private_reference(cell.get("index"))
+            return any(private_reference(item) for item in expr.values() for item in (item if isinstance(item, list) else [item]))
+
+        for ph in doc["phases"]:
+            actions = list(ph.get("decision", ph.get("reaction", {})).get("actions", []))
+            if doc.get("schemaVersion") == 2 and ph.get("kind") == "chance":
+                actions.extend(ph.get("chance", {}).get("outcomes", []))
+            for action in actions:
+                visible = set(public)
+                for effect in action.get("effects", []):
+                    if effect.get("op") == "reveal":
+                        visible.add(effect["zone"].split("@")[0])
+                    if effect.get("op") == "set" and isinstance(effect.get("value"), dict) and "sumRank" in effect["value"]:
+                        ref = effect["value"].get("sumRank", "").split("@")[0]
+                        if ref not in visible:
+                            _err("public variable cannot expose a private zone; reveal it first")
+                    if effect.get("op") == "move" and (type(effect.get("n", 1)) is not int or effect.get("n", 1) < 1):
+                        _err("move.n must be positive")
+                    if doc.get("schemaVersion") == 2 and effect.get("op") == "set":
+                        target = next((v for v in doc["vars"] if v["id"] == effect.get("var")), None)
+                        if target and target.get("visibility", "public") == "public" and private_reference(effect.get("value")):
+                            _err("public variable cannot expose a private expression")
+                    if doc.get("schemaVersion") == 2 and effect.get("op") == "setCell":
+                        if zone_visibility.get(str(effect.get("zone", "")).split("@", 1)[0], "hidden") == "public" and (private_reference(effect.get("index")) or private_reference(effect.get("value"))):
+                            _err("public indexed zone cannot expose a private expression")
+                    if doc.get("schemaVersion") == 2 and effect.get("op") == "compareGoto" and (private_reference(effect.get("a")) or private_reference(effect.get("b"))):
+                        _err("phase transitions cannot branch on a private expression")
+        if doc.get("schemaVersion") == 2:
+            from .strategy_validation import lower_for_validation
+            return _validate_ir(lower_for_validation(doc))
+        return _validate_ir(doc)
+    except IRValidationError:
+        raise
+    except (ValueError, TypeError, KeyError, AttributeError, RecursionError) as exc:
+        raise IRValidationError(f"malformed GameSpec: {exc}") from exc
 
 
 def canonical_ir(doc: dict) -> str:

@@ -4,6 +4,7 @@ import HomePage from './pages/HomePage.js';
 import GamePage from './pages/GamePage.js';
 import RuleZeroDemo from './rulezero/RuleZeroDemo.js';
 import GameLabPage from './pages/GameLabPage.js';
+import SharedGamePage from './pages/SharedGamePage.js';
 
 export default function App() {
   const room = useRoom();
@@ -12,7 +13,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={<HomePage room={room} />} />
         <Route path="/rulezero-demo" element={<RuleZeroDemo />} />
-            <Route path="/gamelab" element={<GameLabPage />} />
+            <Route path="/shared/:shareId" element={<SharedGamePage room={room} />} />
+        <Route path="/gamelab" element={<GameLabPage room={room} />} />
         <Route
           path="/game/:roomId"
           element={
@@ -43,7 +45,7 @@ function RequireRoom({ room, children }: { room: ReturnType<typeof useRoom>; chi
       {room.joinError && (
         <div className="overlay-msg error">
           {room.joinError}
-          <a href="#/"> ← back home</a>
+          <a href="/"> ← back home</a>
         </div>
       )}
     </>

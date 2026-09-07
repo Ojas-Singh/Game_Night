@@ -36,6 +36,7 @@ export class RoomManager {
         continue;
       }
       const room = Room.fromSnapshot(snap);
+      await room.whenReady().catch(() => {});
       this.rooms.set(room.id, room);
       restored++;
     }
@@ -49,8 +50,8 @@ export class RoomManager {
   }
 
   /** Public hook for the transport layer: snapshot after meaningful changes. */
-  persistNow(room: Room): void {
-    this.persist(room);
+  async persistNow(room: Room): Promise<void> {
+    if (this.store) await this.store.save(room);
   }
 
   createRoom(): Room {
@@ -77,6 +78,7 @@ export class RoomManager {
   }
 
   delete(roomId: string, reason: string): void {
+    this.rooms.get(roomId)?.dispose();
     if (this.rooms.delete(roomId)) {
       if (this.store) void this.store.delete(roomId);
       log.info('room_deleted', { roomId, reason });

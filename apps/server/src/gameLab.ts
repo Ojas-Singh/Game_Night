@@ -5,17 +5,9 @@
  * (catalog / variant / simulate). Live game play still uses per-room
  * sessions through rulezeroEngine — this module is read-only research UI.
  */
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { createInterface } from 'node:readline';
+import { randomUUID } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const here = path.dirname(fileURLToPath(import.meta.url));
-const HOME = process.env.RULEZERO_HOME ??
-  path.resolve(here, '../../../research/rulezero');
-const PY = process.env.RULEZERO_PYTHON ??
-  path.resolve(HOME, '.venv/bin/python');
+import { RuleZeroClient } from './rulezeroClient.js';
 
 export interface GalleryCard {
   id: string;
@@ -37,86 +29,19 @@ interface SimStats {
   wallSeconds: number;
 }
 
-class LabClient {
-  private proc: ChildProcessWithoutNullStreams | null = null;
-  private rl: ReturnType<typeof createInterface> | null = null;
-  private queue: Promise<unknown> = Promise.resolve();
-  private failures = 0;
-
-  private ensure(): ChildProcessWithoutNullStreams {
-    if (!this.proc) {
-      const proc = spawn(PY, ['-m', 'rulezero.service'], {
-        cwd: HOME,
-        env: { ...process.env, PYTHONPATH: HOME },
-      }) as ChildProcessWithoutNullStreams;
-      // CRITICAL: an unhandled 'error' event (e.g. ENOENT when the python
-      // service is unavailable in a deployment) would throw and take down
-      // the whole game server. Record it and let in-flight asks reject.
-      proc.on('error', (err: Error) => {
-        console.error('[lab-service] spawn/pipe error:', err.message);
-        this.failures++;
-      });
-      this.rl = createInterface(proc.stdout);
-      proc.stderr.on('data', (d: Buffer) =>
-        console.error('[lab-service]', d.toString().trim()));
-      proc.on('exit', () => {
-        this.proc = null;
-        this.rl = null;
-      });
-      this.proc = proc;
-    }
-    return this.proc;
-  }
-
-  /** Strictly-ordered request/response; restarts once on a dead pipe. */
-  ask<T>(msg: Record<string, unknown>): Promise<T> {
-    const run = async (): Promise<T> => {
-      const proc = this.ensure();
-      return await new Promise<T>((resolve, reject) => {
-        const timeout = setTimeout(
-          () => reject(new Error('lab service timeout')), 120_000);
-        const rl = this.rl!;
-        const fail = (e: Error) => {
-          clearTimeout(timeout);
-          rl.off('line', onLine);
-          proc.off('error', fail);
-          reject(e);
-        };
-        proc.on('error', fail);
-        const onLine = (line: string) => {
-          clearTimeout(timeout);
-          rl.off('line', onLine);
-          proc.off('error', fail);
-          try {
-            const parsed = JSON.parse(line);
-            if (parsed.ok === false) reject(new Error(parsed.error ?? 'error'));
-            else resolve(parsed as T);
-          } catch (e) {
-            reject(e as Error);
-          }
-        };
-        rl.on('line', onLine);
-        proc.stdin.write(JSON.stringify(msg) + '\n');
-      });
-    };
-    const next = this.queue.then(run, run);
-    this.queue = next.catch(() => {});
-    next.catch(() => { this.failures++; });
-    return next;
-  }
-}
-
-const lab = new LabClient();
+const lab = new RuleZeroClient(15_000);
 
 /**
  * One-shot tokens for launching a live RuleZero room with a gallery
  * (possibly mutated) spec. Tokens are consumed exactly once at deal time.
  */
-const pendingSpecs = new Map<string, object>();
+const pendingSpecs = new Map<string, { spec: object; expires: number }>();
 
 export function stageRulezeroSpec(spec: object): string {
-  const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
-  pendingSpecs.set(token, spec);
+  for (const [key, value] of pendingSpecs) if (value.expires < Date.now()) pendingSpecs.delete(key);
+  if (pendingSpecs.size >= 1000) throw new Error('Too many pending launches');
+  const token = randomUUID();
+  pendingSpecs.set(token, { spec, expires: Date.now() + 600_000 });
   return token;
 }
 
@@ -124,7 +49,7 @@ export function takeRulezeroSpec(token: string | undefined): object | undefined 
   if (!token) return undefined;
   const spec = pendingSpecs.get(token);
   pendingSpecs.delete(token);
-  return spec;
+  return spec && spec.expires > Date.now() ? spec.spec : undefined;
 }
 
 async function specFor(
@@ -149,6 +74,14 @@ function wrap(fn: (req: Request) => Promise<unknown>) {
 
 export function gameLabRouter(): Router {
   const r = Router();
+  r.get('/checkpoints', wrap(async () => lab.ask({ op: 'labCheckpoints' })));
+  r.get('/learning/runs', wrap(async () => lab.ask({ op: 'labLearningRuns' })));
+  const operator = (req: Request) => {
+    const token = process.env.RULEZERO_OPERATOR_TOKEN;
+    if (!token || req.headers.authorization !== `Bearer ${token}`) throw new Error('Operator access required');
+  };
+  r.post('/learning/runs', wrap(async (req) => { operator(req); return lab.ask({ op: 'labTrainStart', config: req.body }); }));
+  r.post('/jobs/:id/cancel', wrap(async (req) => { operator(req); return lab.ask({ op: 'labJobCancel', id: req.params.id }); }));
   // GET /api/lab/games → gallery cards
   r.get('/games', wrap(async () => {
     const res = await lab.ask<{ games: GalleryCard[] }>({ op: 'labCatalog' });
@@ -182,11 +115,12 @@ export function gameLabRouter(): Router {
     return { ok: true, token };
   }));
 
-  // POST /api/lab/compile { text } -> gated NL->GameSpec compile report
-  r.post('/compile', wrap(async (req) => {
-    const { text } = req.body as { text?: string };
-    return await lab.ask<Record<string, unknown>>({ op: 'labCompile', text });
-  }));
+  r.post('/compile/jobs', wrap(async (req) => lab.ask({ op: 'labCompileStart', text: req.body?.text })));
+  r.get('/jobs/:id', wrap(async (req) => lab.ask({ op: 'labJobGet', id: req.params.id })));
+  r.post('/compile/jobs/:id/revise', wrap(async (req) => lab.ask({ op: 'labCompileRevise', id: req.params.id, text: req.body?.text, answers: req.body?.answers })));
+  r.post('/compile/jobs/:id/accept', wrap(async (req) => lab.ask({ op: 'labCompileAccept', id: req.params.id, acknowledged: req.body?.acknowledged })));
+  // Compatibility route starts the same asynchronous production compiler.
+  r.post('/compile', wrap(async (req) => lab.ask({ op: 'labCompileStart', text: req.body?.text })));
 
   // POST /api/lab/shared { galleryId, params } → persistent share id
   r.post('/shared', wrap(async (req) => {
@@ -194,13 +128,13 @@ export function gameLabRouter(): Router {
       galleryId: string; params?: Record<string, unknown>;
     };
     const body = req.body as {
-      galleryId?: string; spec?: object; params?: Record<string, unknown>;
+      galleryId?: string; spec?: object; compileJobId?: string; params?: Record<string, unknown>;
     };
     return await lab.ask<{ shareId: string; specHash: string }>({
       op: 'labShare',
       galleryId: body.galleryId,
       params: body.params ?? {},
-      ...(body.spec ? { spec: body.spec } : {}),
+      ...(body.compileJobId ? { compileJobId: body.compileJobId } : {}),
     });
   }));
 
@@ -260,14 +194,14 @@ export function gameLabRouter(): Router {
     const agents = body.agents ?? [
       { agent: 'random' }, { agent: 'first' },
     ];
-    const res = await lab.ask<{ stats: SimStats }>({
-      op: 'labSimulate',
+    const res = await lab.ask<{ job: object }>({
+      op: 'labSimulateStart',
       spec,
       agents,
       episodes: Math.min(Math.max(1, Number(body.episodes ?? 100)), 20_000),
       seed: Number(body.seed ?? 42),
     });
-    return res.stats;
+    return res;
   }));
   return r;
 }

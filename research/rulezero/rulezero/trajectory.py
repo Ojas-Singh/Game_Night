@@ -104,9 +104,10 @@ def record_episode(
         state.apply_action(action)
 
     n = num_players if num_players is not None else game.num_players()
-    rets = list(state.returns()) if state.is_terminal() else [0.0] * n
+    rets = list(state.returns()) if state.is_terminal() else None
     return {
         "schemaVersion": 1,
+        "completed": state.is_terminal(),
         "trajectoryId": f"traj-{time.time_ns()}",
         "game": {
             "id": game_id,
@@ -115,7 +116,7 @@ def record_episode(
             "parameters": {},
         },
         "provenance": {
-            "producingCommit": "recorded-at-runtime",
+            "producingCommit": __import__("rulezero.artifacts", fromlist=["_git_commit"])._git_commit(),
             "runner": "rulezero.trajectory@v1",
             "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         },

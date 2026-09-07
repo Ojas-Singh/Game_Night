@@ -197,3 +197,20 @@ class JobController:
     def _emit(self, job_id: str, line: str) -> None:
         for fn in self.log_listeners:
             fn(job_id, line)
+
+
+class LearningWorker:
+    """Real CPU worker for the existing controller; mock remains a test fixture."""
+    def __init__(self, config: dict):
+        self.config = config
+
+    def run(self, job: Job, store: ArtifactStore) -> str:
+        from .learning import run_training
+        job.status = 'running'
+        def progress(manifest):
+            job.logs.append(f"checkpoint {len(manifest['checkpoints']) - 1}")
+            if manifest['checkpoints'][-1]['metrics']:
+                job.metrics.append(manifest['checkpoints'][-1]['metrics'])
+        result = run_training(self.config, progress=progress, cancelled=lambda: job.cancelRequested)
+        job.status = result['status']
+        return store.put_json(result, kind='learning-run', config_hash=job.experimentId)

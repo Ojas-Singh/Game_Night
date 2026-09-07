@@ -312,7 +312,7 @@ export default function PairOneTable({ room, view }: Props) {
         className="leave-toggle"
         onClick={() => {
           room.leaveRoom();
-          window.location.hash = '#/';
+          window.location.assign('/');
         }}
         aria-label="Leave the game"
         title="Leave the game and go home"

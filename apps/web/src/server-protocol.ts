@@ -24,7 +24,7 @@ export interface RuleZeroPlayerView {
   };
   gameId: 'rulezero';
   rz: {
-    protocol: string;
+    protocol: string; revision: number; runtimeVersion: number;
     specHash: string;
     player: number;
     phase?: string;
@@ -80,6 +80,9 @@ export interface LobbyPlayer {
 }
 
 export interface RoomLobbyState {
+  spectator?: boolean;
+  spectatorCount?: number;
+  allowSpectators?: boolean;
   roomId: string;
   gameId: string;
   players: LobbyPlayer[];

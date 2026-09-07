@@ -35,7 +35,7 @@ const DEFAULT_MAX_THINK_MS = 2200;
 
 export interface AgentBroadcaster {
   /** Re-broadcast lobby + game views + persist (same as human actions). */
-  afterChange(room: Room): void;
+  afterChange(room: Room): void | Promise<void>;
 }
 
 export interface AgentLoopOptions {
@@ -157,12 +157,13 @@ export class AgentLoops {
         const pick = await engine.chooseAiAction(actor);
         if (pick === null) return;
         if (pick === -1) continue; // chance resolved; keep pumping
-        const res = await engine.handleActionAsync(actor, pick);
-        if (!res.ok) {
-          log.warn('illegal_action', { roomId: room.id, playerId: actor, type: 'RZ_AI', error: res.error });
-          return;
-        }
-        this.broadcaster.afterChange(room);
+        await room.runCommand(async () => {
+          if (room.engine !== engine) return;
+          await room.applyGameAction(actor, { type: 'RZ_APPLY', playerId: actor,
+            actionIndex: pick, expectedRevision: engine.getState().snapshot.revision,
+            commandId: randomBytes(16).toString('hex') } as any);
+          await this.broadcaster.afterChange(room);
+        });
         await this.sleep(200);
       }
     } catch (err) {
@@ -178,13 +179,19 @@ export class AgentLoops {
     if (existing) return existing;
     let agent: GameAgent;
     if (config.agentApiUrl && room.gameId === 'cabo') {
+      const configuredModel = config.agentModel.startsWith('opencode-go/')
+        ? config.agentModel.slice('opencode-go/'.length)
+        : config.agentModel;
       agent = new LlmAgent({
         baseUrl: config.agentApiUrl,
         apiKey: config.agentApiKey || undefined,
-        model: config.agentModel,
+        model: configuredModel,
         persona: room.players.get(playerId)?.persona,
         idSuffix: `:${room.id.slice(0, 4)}`,
         timeoutMs: 15_000,
+        sessionId: config.agentProvider === 'opencode-go'
+          ? `room-${room.id}-seat-${playerId}`
+          : undefined,
       });
     } else {
       agent =

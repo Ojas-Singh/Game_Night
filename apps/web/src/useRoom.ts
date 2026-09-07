@@ -352,8 +352,10 @@ export interface RoomApi {
     name: string,
     rulezeroSpecToken?: string,
     autoAi?: boolean,
+    watch?: boolean,
+    checkpointId?: string,
   ) => Promise<JoinResult>;
-  joinRoom: (roomId: string, name?: string) => Promise<JoinResult>;
+  joinRoom: (roomId: string, name?: string, spectator?: boolean) => Promise<JoinResult>;
   setName: (name: string) => void;
   /** Customize my avatar (persisted locally; broadcast to the room). */
   setAvatar: (avatar: Avatar) => void;
@@ -501,7 +503,7 @@ export function useRoom(): RoomApi {
           'room:join',
           { roomId: rid, playerToken: stored?.playerToken },
           (res: JoinResult) => {
-            if (res.ok) persistSession(res);
+            if (res.ok) { setJoinError(null); persistSession(res); }
           },
         );
       }
@@ -699,12 +701,12 @@ export function useRoom(): RoomApi {
   }, []);
 
   const createRoom = useCallback(
-    (name: string, rulezeroSpecToken?: string, autoAi?: boolean) =>
+    (name: string, rulezeroSpecToken?: string, autoAi?: boolean, watch?: boolean, checkpointId?: string) =>
       new Promise<JoinResult>((resolve) => {
         saveName(name);
         socketRef.current?.emit(
           'room:create',
-          rulezeroSpecToken ? { name, rulezeroSpecToken } : { name },
+          rulezeroSpecToken ? { name, rulezeroSpecToken, autoAi: !!autoAi, watch, checkpointId } : { name },
           (res: JoinResult) => {
             if (!res.ok) {
               setJoinError(res.error ?? 'failed to create room');
@@ -712,20 +714,7 @@ export function useRoom(): RoomApi {
               return;
             }
             persistSession(res);
-            if (!rulezeroSpecToken) {
-              resolve(res);
-              return;
-            }
-            // Staged RuleZero launch: pin the game, optionally seat an AI,
-            // and auto-start so the player lands straight at the table.
-            socketRef.current?.emit('room:select_game', { gameId: 'rulezero' });
-            if (!autoAi) {
-              socketRef.current?.emit('room:start_game', {}, () => resolve(res));
-            } else {
-              socketRef.current?.emit('room:add_ai', {}, () => {
-                socketRef.current?.emit('room:start_game', {}, () => resolve(res));
-              });
-            }
+            resolve(res);
           },
         );
       }),
@@ -733,16 +722,17 @@ export function useRoom(): RoomApi {
   );
 
   const joinRoom = useCallback(
-    (targetRoomId: string, name?: string) =>
+    (targetRoomId: string, name?: string, spectator?: boolean) =>
       new Promise<JoinResult>((resolve) => {
         const stored = loadSession(targetRoomId);
         const payload = {
           roomId: targetRoomId,
+          spectator,
           name: name ?? stored?.name ?? (loadName() || undefined),
           playerToken: stored?.playerToken,
         };
         socketRef.current?.emit('room:join', payload, (res: JoinResult) => {
-          if (res.ok) persistSession(res);
+          if (res.ok) { setJoinError(null); persistSession(res); }
           else setJoinError(res.error ?? 'failed to join room');
           resolve(res);
         });
@@ -805,7 +795,9 @@ export function useRoom(): RoomApi {
       sendChat: (text: string) => socketRef.current?.emit('room:chat', { text }),
       sendAction: (action) =>
         new Promise((resolve) => {
-          socketRef.current?.emit('game:action', { action }, resolve);
+          if (lobby?.spectator) { resolve({ ok: false, error: 'Spectators cannot act' }); return; }
+          const sent = view?.gameId === 'rulezero' ? { ...action, expectedRevision: view.rz.revision, commandId: crypto.randomUUID() } : action;
+          socketRef.current?.emit('game:action', { action: sent }, resolve);
         }),
       playAgain: () =>
         new Promise((resolve) => {

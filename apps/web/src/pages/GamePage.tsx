@@ -6,6 +6,8 @@ import TableView from '../table/TableView.js';
 import PairOneTable from '../pairone/PairOneTable.js';
 import RuleZeroTable from '../rulezero/RuleZeroTable.js';
 import SeepTable from '../seep/SeepTable.js';
+import TableShell from '../table/TableShell.js';
+import ActionBar from '../table/ActionBar.js';
 
 export default function GamePage({ room }: { room: RoomApi }) {
   const { roomId } = useParams<{ roomId: string }>();
@@ -31,7 +33,8 @@ export default function GamePage({ room }: { room: RoomApi }) {
       <div className="overlay-msg">
         <div className="home-card compact">
           <h2 className="font-display">Game in progress</h2>
-          <p className="home-sub">This seat is taken — join as a new player when the round ends.</p>
+          <p className="home-sub">The game is underway. Watch the public table while your friends play.</p>
+          <button onClick={() => void room.joinRoom(roomId!, undefined, true).then(r => { if (r.ok) setNamePrompt(null); })}>Watch table</button>
           <button className="ghost" onClick={() => navigate('/')}>
             Back home
           </button>
@@ -69,16 +72,19 @@ export default function GamePage({ room }: { room: RoomApi }) {
     }
     if (view.gameId === 'rulezero') {
       return (
+        <TableShell room={room} title="Game Night · Custom table" actor={view.rz.currentActor}>
         <RuleZeroTable
           view={view.rz}
           review={view.review}
           onAction={(envActionId) =>
-            void room.sendAction({
+            room.sendAction({
               type: 'RZ_APPLY',
               actionIndex: envActionId,
             } as never)
           }
         />
+        {view.rz.isTerminal && room.lobby.hostId === room.myPlayerId && <ActionBar actions={[{ id: "again", label: "Play again", run: room.playAgain }]} />}
+        </TableShell>
       );
     }
     return <TableView room={room} view={view} />;

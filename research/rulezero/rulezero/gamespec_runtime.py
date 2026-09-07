@@ -23,9 +23,17 @@ Zone expressions in effects/scoring: "deck", "prizes", "hand@p" (= actor),
 
 from __future__ import annotations
 
+import json
+from collections import Counter
+from itertools import product
+from copy import deepcopy
+
 import pyspiel
 
 from .gamespec_ir import ir_hash, load_ir
+
+
+RUNTIME_VERSION = 2
 
 
 def _resolve(ref: str, actor: int | None, n: int) -> str:
@@ -64,9 +72,13 @@ class IRState(pyspiel.State):
                     self.zones[pid] = []
                     self.zone_vis[pid] = vis
             elif zid != "deck":
-                self.zones[zid] = []
+                self.zones[zid] = list(z.get("initial", []))
         self.vars: dict[str, float] = {v["id"]: v.get("init", 0)
                                        for v in self.ir.get("vars", [])}
+        self.var_vis: dict[str, str] = {v["id"]: v.get("visibility", "public")
+                                        for v in self.ir.get("vars", [])}
+        self.var_owner: dict[str, int | None] = {v["id"]: v.get("owner")
+                                                  for v in self.ir.get("vars", [])}
         self.phase_idx = 0
         self.actor = None
         self.rotate_ptr = 0
@@ -74,7 +86,9 @@ class IRState(pyspiel.State):
         self.chance_actor = 0
         self.chance_left = 0
         self.window = None  # {"queue": tuple, "i": int, "resume": phase_idx}
+        self._recall: list[list[str]] = [[] for _ in range(self.n + 1)]
         self._enter_phase(0)
+        self._remember()
 
     # ---------- phase machine --------------------------------------------
     def _phase(self):
@@ -86,6 +100,9 @@ class IRState(pyspiel.State):
         kind = ph["kind"]
         if kind == "chance":
             ch = ph["chance"]
+            if "outcomes" in ch:
+                self.chance_left = 1
+                return
             self.chance_actor = 0
             reps = self.n if ch.get("roundRobin", True) else 1
             self.chance_left = int(ch.get("count", 1)) * reps
@@ -100,8 +117,7 @@ class IRState(pyspiel.State):
             return
         if kind == "reaction":
             after = (self.last_actor + 1) if self.last_actor is not None else 1
-            queue = tuple(sorted({(after + k) % self.n
-                                  for k in range(self.n)}))
+            queue = tuple((after + k) % self.n for k in range(self.n - 1))
             if queue:
                 self.window = {"queue": queue, "i": 0, "resume": idx}
                 self.actor = queue[0]
@@ -126,6 +142,9 @@ class IRState(pyspiel.State):
             self._enter_phase(ids.index(target))
 
     def _zone_sum(self, expr):
+        if self.ir["schemaVersion"] == 2:
+            from .expressions import evaluate
+            return evaluate(expr, self)
         if isinstance(expr, (int, float)):
             return float(expr)
         if isinstance(expr, dict) and "sumRank" in expr:
@@ -158,6 +177,16 @@ class IRState(pyspiel.State):
             elif op == "reveal":
                 zid = _resolve(eff["zone"], actor, self.n)
                 self.zone_vis[zid] = "public"
+            elif op == "revealVar":
+                if eff["var"] not in self.vars:
+                    raise ValueError(f"unknown variable {eff['var']}")
+                self.var_vis[eff["var"]] = "public"
+            elif op == "setCell":
+                zone = self.zones[_resolve(eff["zone"], actor, self.n)]
+                index = self._zone_sum(eff["index"])
+                if type(index) is not int or not 0 <= index < len(zone):
+                    raise ValueError("cell index out of range")
+                zone[index] = self._zone_sum(eff["value"])
             elif op == "clear":
                 self.zones[_resolve(eff["zone"], actor, self.n)] = []
             elif op == "compareGoto":
@@ -186,7 +215,7 @@ class IRState(pyspiel.State):
         elif mode == "splitAll":
             for p in range(self.n):
                 self.vars[f"score{p}"] += amount / self.n
-            self._goto(ph.get("goto"))
+            self._goto(aw.get("goto"))
             return
         if winner is not None:
             self.vars[f"score{winner}"] += amount
@@ -198,6 +227,8 @@ class IRState(pyspiel.State):
         ph = self._phase()
         if ph["kind"] != "chance" or self.chance_left <= 0:
             return False
+        if "outcomes" in ph["chance"]:
+            return True
         src = _resolve(ph["chance"]["from"],
                        self.chance_actor if ph["chance"].get("roundRobin", True)
                        else 0, self.n)
@@ -206,12 +237,16 @@ class IRState(pyspiel.State):
     def chance_outcomes(self):
         assert self.is_chance_node()
         ph = self._phase()
+        if "outcomes" in ph["chance"]:
+            outcomes = ph["chance"]["outcomes"]
+            total = sum(x['weight'] for x in outcomes)
+            return [(x['id'], x['weight'] / total) for x in outcomes]
         src = _resolve(ph["chance"]["from"],
                        self.chance_actor if ph["chance"].get("roundRobin", True)
                        else 0, self.n)
-        cards = sorted(set(self.zones[src]))
-        p = 1.0 / len(cards)
-        return [(c, p) for c in cards]
+        counts = Counter(self.zones[src])
+        total = sum(counts.values())
+        return [(c, counts[c] / total) for c in sorted(counts)]
 
     def current_player(self):
         if self.is_terminal():
@@ -220,20 +255,37 @@ class IRState(pyspiel.State):
             return pyspiel.PlayerId.CHANCE
         return self.actor if self.actor is not None else 0
 
-    def _action_table(self):
+    def _action_defs(self):
         ph = self._phase()
-        if ph["kind"] == "reaction":
-            return [a["id"] for a in ph["reaction"]["actions"]]
-        out = []
-        for a in ph.get("decision", {}).get("actions", []):
-            if self._action_allowed(a):
-                out.append(a["id"])
-        return out
+        actions = ph.get('decision', ph.get('reaction', {})).get('actions', [])
+        expanded = []
+        for action in actions:
+            params = action.get('parameters', {})
+            for values in product(*params.values()):
+                bindings = dict(zip(params, values))
+                def substitute(value):
+                    if isinstance(value, dict):
+                        if set(value) == {'param'}:
+                            return bindings[value['param']]
+                        return {k: substitute(v) for k, v in value.items()}
+                    if isinstance(value, list):
+                        return [substitute(v) for v in value]
+                    return value
+                concrete = substitute(action)
+                if bindings:
+                    concrete['id'] += '[' + ','.join(f'{k}={v}' for k, v in bindings.items()) + ']'
+                expanded.append(concrete)
+        return expanded
+
+    def _action_table(self):
+        return [a['id'] for a in self._action_defs() if self._action_allowed(a)]
 
     def _action_allowed(self, a: dict) -> bool:
         req = a.get("requires")
         if req is None:
             return True
+        if "expr" in req:
+            return bool(self._zone_sum(req["expr"]))
         if "var" in req:
             return self.vars.get(req["var"]) == req.get("eq")
         cih = req.get("cardInHand")
@@ -256,12 +308,45 @@ class IRState(pyspiel.State):
             return []
         return list(range(len(self._action_table())))
 
+    def _remember(self, event: str | None = None, private_actor: int | None = None):
+        for p in range(-1, self.n):
+            entry = self.observation_string(p)
+            if event and (private_actor is None or p == private_actor):
+                entry = event + " " + entry
+            self._recall[p + 1].append(entry)
+
     def apply_action(self, action: int):
+        if type(action) is not int or action not in self.legal_actions():
+            raise ValueError(f"illegal action {action}")
+        if len(self._hist) >= 512:
+            raise ValueError("transition budget exceeded")
+        before = self.clone()
+        actor = self.current_player()
+        private = None
+        if not self.is_chance_node():
+            action_def = next(a for a in self._action_defs() if a["id"] == self._action_table()[action])
+            private = actor if action_def.get("visibility") == "owner" else None
+        event = None if self.is_chance_node() else (
+            f"p{self.current_player()}:{self._action_table()[action]}")
+        try:
+            self._apply_action(action)
+            self._remember(event, private)
+        except Exception:
+            self.__dict__.update(before.__dict__)
+            raise
+
+    def _apply_action(self, action: int):
         self._hist.append(int(action))
         self._hist_pairs.append((self.current_player(), int(action)))
         if self.is_chance_node():
             ph = self._phase()
             ch = ph["chance"]
+            if 'outcomes' in ch:
+                outcome = next(x for x in ch['outcomes'] if x['id'] == action)
+                jump = self._run_effects(self.actor or 0, outcome.get('effects', []))
+                self.chance_left = 0
+                self._goto(jump or ph.get('goto'))
+                return
             rr = ch.get("roundRobin", True)
             who = self.chance_actor if rr else 0
             src = _resolve(ch["from"], who, self.n)
@@ -288,8 +373,7 @@ class IRState(pyspiel.State):
         ph = self._phase()
 
         if ph["kind"] == "reaction":
-            act_def = next(a for a in ph["reaction"]["actions"]
-                           if a["id"] == aid)
+            act_def = next(a for a in self._action_defs() if a["id"] == aid)
             w = self.window
             self.window = None
             jump = self._run_effects(actor, act_def.get("effects"))
@@ -301,7 +385,7 @@ class IRState(pyspiel.State):
                 self.actor = w["queue"][w["i"] + 1]
             return
 
-        act_def = next(a for a in ph["decision"]["actions"] if a["id"] == aid)
+        act_def = next(a for a in self._action_defs() if a["id"] == aid)
         jump = self._run_effects(actor, act_def.get("effects"))
         self._goto(jump if jump else act_def.get("goto"))
 
@@ -309,7 +393,11 @@ class IRState(pyspiel.State):
         return self._phase()["kind"] == "terminal"
 
     def returns(self):
+        if self.ir.get('utilities', {}).get('values') is not None:
+            return [float(self._zone_sum(v)) for v in self.ir['utilities']['values']]
         scores = [self.vars.get(f"score{p}", 0.0) for p in range(self.n)]
+        if self.ir.get("utilities", {}).get("type", "zero_sum") != "zero_sum":
+            return scores
         mean = sum(scores) / self.n
         return [s - mean for s in scores]
 
@@ -318,6 +406,11 @@ class IRState(pyspiel.State):
         vs = ",".join(f"{k}={v}" for k, v in sorted(self.vars.items()))
         return (f"IR({self.ir['name']}) {self._phase()['id']} "
                 f"actor={self.actor} zones[{zs}] vars[{vs}]")
+
+    def visible_vars(self, player):
+        return {k: v for k, v in self.vars.items() if
+                self.var_vis.get(k, 'public') == 'public' or
+                (self.var_vis.get(k) == 'owner' and self.var_owner.get(k) == player)}
 
     def observation_string(self, player: int):
         parts = [f"phase={self._phase()['id']}"]
@@ -333,18 +426,17 @@ class IRState(pyspiel.State):
                              (str(cards) if mine else f"hidden({len(cards)})"))
             else:
                 parts.append(f"{zid}=hidden({len(cards)})")
-        vs = ",".join(f"{k}={v}" for k, v in sorted(self.vars.items()))
+        vs = ",".join(f"{k}={v}" for k, v in sorted(self.visible_vars(player).items()))
         parts.append(f"vars[{vs}]")
         return " ".join(parts)
 
     def information_state_string(self, player=None):
         if player is None:
             player = self.current_player()
-        # Only announced decision actions are public; chance outcomes are
-        # private and enter the info state solely through zone visibility.
-        hist = "".join(f"p{_p}:{a} " for _p, a in self._hist_pairs
-                       if isinstance(_p, int) and _p >= 0)
-        return f"[p{player}] {self.observation_string(player)} hist={hist}"
+        if not -1 <= player < self.n:
+            raise ValueError("invalid viewer")
+        return (f"[p{player}] {self.observation_string(player)} hist="
+                + json.dumps(self._recall[player + 1], separators=(",", ":")))
 
     def action_to_string(self, player, action):
         try:
@@ -357,6 +449,8 @@ class IRState(pyspiel.State):
         st.zones = {k: list(v) for k, v in self.zones.items()}
         st.zone_vis = dict(self.zone_vis)
         st.vars = dict(self.vars)
+        st.var_vis = dict(self.var_vis)
+        st.var_owner = dict(self.var_owner)
         st.phase_idx = self.phase_idx
         st.actor = self.actor
         st.rotate_ptr = self.rotate_ptr
@@ -366,6 +460,7 @@ class IRState(pyspiel.State):
         st.window = None if self.window is None else {
             "queue": tuple(self.window["queue"]), "i": self.window["i"],
             "resume": self.window["resume"]}
+        st._recall = [list(h) for h in self._recall]
         st._hist = list(self._hist)
         st._hist_pairs = list(self._hist_pairs)
         return st
@@ -421,9 +516,9 @@ class IRGame(pyspiel.Game):
             short_name="ir_" + self.ir["name"],
             long_name=f"GameSpec IR: {self.ir['name']}",
             dynamics=pyspiel.GameType.Dynamics.SEQUENTIAL,
-            chance_mode=pyspiel.GameType.ChanceMode.EXPLICIT_STOCHASTIC,
+            chance_mode=(pyspiel.GameType.ChanceMode.EXPLICIT_STOCHASTIC if any(p["kind"] == "chance" for p in self.ir["phases"]) else pyspiel.GameType.ChanceMode.DETERMINISTIC),
             information=pyspiel.GameType.Information.IMPERFECT_INFORMATION,
-            utility=pyspiel.GameType.Utility.ZERO_SUM,
+            utility=(pyspiel.GameType.Utility.ZERO_SUM if self.ir.get("utilities", {}).get("type", "zero_sum") == "zero_sum" else pyspiel.GameType.Utility.GENERAL_SUM),
             reward_model=pyspiel.GameType.RewardModel.TERMINAL,
             max_num_players=6,
             min_num_players=2,
@@ -435,12 +530,12 @@ class IRGame(pyspiel.Game):
         )
         ranks = self.ir.get("entities", {}).get("cardRanks", [2])
         game_info = pyspiel.GameInfo(
-            num_distinct_actions=16,
-            max_chance_outcomes=max(2, len(ranks)),
+            num_distinct_actions=max(1, max((sum(__import__("math").prod(len(v) for v in a.get("parameters", {}).values()) for a in ph.get("decision", ph.get("reaction", {})).get("actions", [])) for ph in self.ir["phases"])), max(ranks) + 1, max((o["id"] + 1 for ph in self.ir["phases"] for o in ph.get("chance", {}).get("outcomes", [])), default=1)),
+            max_chance_outcomes=max(2, len(ranks), max((len(ph.get("chance", {}).get("outcomes", [])) for ph in self.ir["phases"]), default=0)),
             num_players=self._n,
-            min_utility=-10000.0,
-            max_utility=10000.0,
-            utility_sum=0.0,
+            min_utility=float(self.ir.get("utilities", {}).get("min", -10000)),
+            max_utility=float(self.ir.get("utilities", {}).get("max", 10000)),
+            utility_sum=0.0 if self.ir.get("utilities", {}).get("type", "zero_sum") == "zero_sum" else None,
             max_game_length=512,
         )
         super().__init__(game_type, game_info, params)

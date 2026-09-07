@@ -49,6 +49,18 @@ describe('Room', () => {
     expect(room.players.size).toBe(2);
   });
 
+  it('keeps spectators outside seats and rejects spectator actions', () => {
+    const room = new Room({ roomId: 'SPEC01' });
+    const { player: host } = room.addPlayer('Host');
+    room.addPlayer('Guest');
+    const { player: spectator } = room.addSpectator('Audience');
+    expect(room.players.has(spectator.id)).toBe(false);
+    expect(room.spectators.has(spectator.id)).toBe(true);
+    room.startGame(host.id);
+    expect(() => room.handleGameAction(spectator.id, { type: 'DRAW', playerId: spectator.id } as never)).toThrow(/spectators/);
+    expect(room.gameView(spectator.id)).not.toBeNull();
+  });
+
   it('reassigns host when the host leaves', () => {
     const room = new Room({ roomId: 'TEST04' });
     const { player: p1 } = room.addPlayer('First');

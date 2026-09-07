@@ -169,6 +169,10 @@ export class PairOneEngine {
     };
   }
 
+  getSpectatorView(): ReturnType<typeof buildPlayerView> {
+    return buildPlayerView(this.getState(), '__spectator__');
+  }
+
   getPlayerState(viewerId: string, opts?: { revealAll?: boolean }): import('./views.js').PairOnePlayerView {
     return buildPlayerView(this.getState(), viewerId, opts);
   }

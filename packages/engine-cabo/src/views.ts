@@ -36,6 +36,9 @@ export function buildPlayerView(state: CaboState, viewerId: string, opts?: { rev
   // value so a tester can watch the full flow.
   const revealAll = opts?.revealAll === true;
   const knownIds = new Set(state.knowledge[viewerId] ?? []);
+  if (viewerId === '__spectator__') {
+    for (const card of state.discard) knownIds.add(card.id);
+  }
   // Starting-peek metadata is viewer-scoped presentation state. Re-add its
   // ids explicitly so a restored/coalesced round still ships both values.
   for (const id of state.initialPeekCardIds?.[viewerId] ?? []) knownIds.add(id);

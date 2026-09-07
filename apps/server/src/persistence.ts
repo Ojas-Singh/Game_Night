@@ -18,15 +18,7 @@ import type { SeepState } from '@game-night/engine-seep';
 const SNAPSHOT_VERSION = 1;
 const KEY_PREFIX = 'game-night:room:';
 
-/** Whichever engine's serialized state the room was running.
- * RuleZero rooms persist an opaque marker (live state lives in the
- * service; reconnect restores via snapshot/restore, §16). */
-export interface RuleZeroPersistedState {
-  stateVersion: 1;
-  gameId: 'rulezero';
-  phase: string;
-  specHash: string;
-}
+import type { RuleZeroPersistedState } from './rulezeroEngine.js';
 
 export type AnyEngineState =
   | CaboState
@@ -46,6 +38,11 @@ export interface RoomSnapshot {
   debug: Room['debug'];
   players: Array<Omit<RoomPlayer, 'sockets'> & { socketCount: number }>;
   engineState: AnyEngineState | null;
+  rulezeroSpec?: object;
+  roundScored?: boolean;
+  aiPolicies?: string[];
+  allowSpectators?: boolean;
+  spectators?: Array<Omit<RoomPlayer, 'sockets'> & { socketCount: number }>;
 }
 
 export function serializeRoom(room: Room): RoomSnapshot {
@@ -74,16 +71,12 @@ export function serializeRoom(room: Room): RoomSnapshot {
       disconnectedAt: p.disconnectedAt ?? room.createdAt,
       joinedAt: p.joinedAt,
     })),
-    engineState: room.engine
-        ? room.engine.gameId === 'rulezero'
-          ? {
-              stateVersion: 1 as const,
-              gameId: 'rulezero' as const,
-              phase: room.engine.getState().phase,
-              specHash: room.engine.getState().specHash,
-            }
-          : room.engine.getState()
-        : null,
+    aiPolicies: room.aiPolicies,
+    allowSpectators: room.allowSpectators,
+    spectators: [...room.spectators.values()].map(p => ({ ...p, sockets: undefined, socketCount: 0, connected: false })),
+    rulezeroSpec: room.rulezeroSpec,
+    roundScored: room.roundScored,
+    engineState: room.engine ? room.engine.getState() : null,
   };
 }
 

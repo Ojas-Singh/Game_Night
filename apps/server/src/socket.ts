@@ -6,6 +6,7 @@
  */
 
 import { RuleZeroEngine } from './rulezeroEngine.js';
+import { takeRulezeroSpec } from './gameLab.js';
 import type { Server as SocketServer, Socket } from 'socket.io';
 import type { RoomManager } from './roomManager.js';
 import { Room, RoomError } from './room.js';
@@ -24,9 +25,10 @@ const PRESENCE_DEBOUNCE_MS = 5_000;
 
 export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): void {
   // eslint note: AgentLoops imported statically below the io type import.
-  const persistRoom = (room: Room): void => rooms.persistNow(room);
+  const persistRoom = (room: Room): Promise<void> => rooms.persistNow(room);
   const lobbyOf = (room: Room, forPlayerId?: string): RoomLobbyState => {
     const state = room.lobbyState();
+    state.spectator = !!forPlayerId && room.spectators.has(forPlayerId);
     if (forPlayerId) {
       state.players = state.players.map((p) => ({ ...p, isYou: p.id === forPlayerId }));
     }
@@ -36,19 +38,19 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
   const broadcastLobby = (room: Room): void => {
     // Send each player a lobby view marked with their OWN player id, so the
     // host sees the Start button and everyone sees their own name highlighted.
-    for (const p of room.players.values()) {
+    for (const p of room.participants) {
       for (const sid of p.sockets) {
         io.to(sid).emit('room:state', lobbyOf(room, p.id));
       }
     }
   };
 
-  const broadcastGame = (room: Room): void => {
+  const broadcastGame = async (room: Room): Promise<void> => {
     if (!room.engine) return;
     if (room.engine instanceof RuleZeroEngine) {
       // Service-backed views are async — fan out per player.
-      for (const p of room.players.values()) {
-        void room
+      for (const p of room.participants) {
+        await room
           .gameViewAsync(p.id)
           .then((view) => {
             if (!view) return;
@@ -60,7 +62,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
       }
       return;
     }
-    for (const p of room.players.values()) {
+    for (const p of room.participants) {
       const view = room.gameView(p.id);
       if (!view) continue;
       for (const sid of p.sockets) {
@@ -71,10 +73,10 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
 
   // AI seats are driven here: the loop re-enters through afterChange.
   const agents = new AgentLoops(io, { afterChange: (room) => afterChange(room) });
-  const afterChange = (room: Room): void => {
+  const afterChange = async (room: Room): Promise<void> => {
+    await persistRoom(room);
     broadcastLobby(room);
-    broadcastGame(room);
-    persistRoom(room);
+    await broadcastGame(room);
     agents.notify(room);
   };
   const syncPlayer = (room: Room, playerId: string): void => {
@@ -96,7 +98,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
     const requireRoom = (): { room: Room; playerId: string } => {
       const room = data.roomId ? rooms.getRoom(data.roomId) : undefined;
       if (!room) throw new RoomError('room not found');
-      if (!data.playerId || !room.players.has(data.playerId)) throw new RoomError('not in room');
+      if (!data.playerId || !room.participant(data.playerId)) throw new RoomError('not in room');
       return { room, playerId: data.playerId };
     };
 
@@ -104,17 +106,34 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
     // Room lifecycle
     // -----------------------------------------------------------------
 
-    socket.on('room:create', ({ name, rulezeroSpecToken }, ack) => {
+    socket.on('room:create', async ({ name, rulezeroSpecToken, autoAi, watch, checkpointId }, ack) => {
       try {
         const room = rooms.createRoom();
         room.notifyHook = () => afterChange(room);
-        if (rulezeroSpecToken) room.rulezeroSpecToken = rulezeroSpecToken;
-        const { player } = room.addPlayer(name);
+        if (rulezeroSpecToken) {
+          const spec = takeRulezeroSpec(rulezeroSpecToken);
+          if (!spec) { rooms.delete(room.id, "invalid launch"); throw new RoomError("Launch expired; try again"); }
+          room.rulezeroSpec = spec;
+          room.gameId = "rulezero";
+        }
+        const { player } = watch ? room.addSpectator(name) : room.addPlayer(name);
+        if (watch) { room.hostId = player.id; socket.join(room.id + ':spectators'); }
+        else socket.join(room.id + ':players');
+        if (checkpointId) {
+          if (typeof checkpointId !== 'string' || !/^[a-f0-9]{64}$/.test(checkpointId)) throw new RoomError('Invalid checkpoint');
+          room.aiPolicies = ['checkpoint:' + checkpointId, 'random'];
+        }
         data.roomId = room.id;
         data.playerId = player.id;
         room.attachSocket(player.id, socket.id);
         socket.join(room.id);
         system(room, `${player.name} created the room`);
+        if (autoAi && rulezeroSpecToken) {
+          while (room.players.size < room.requiredPlayers) room.addAiPlayer(player.id, "balanced");
+          room.startGame(player.id);
+          await room.whenReady();
+        }
+        await persistRoom(room);
         ack({
           ok: true,
           roomId: room.id,
@@ -127,11 +146,13 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
       }
     });
 
-    socket.on('room:join', ({ roomId, name, playerToken }, ack) => {
+    socket.on('room:join', ({ roomId, name, playerToken, spectator }, ack) => {
       try {
         const room = rooms.getRoom(roomId);
         if (!room) throw new RoomError('room not found');
-        const { player, reconnected } = room.addPlayer(name, playerToken);
+        const { player, reconnected } = spectator ? room.addSpectator(name, playerToken) : room.addPlayer(name, playerToken);
+        if (room.spectators.has(player.id)) socket.join(room.id + ":spectators");
+        else socket.join(room.id + ':players');
         data.roomId = room.id;
         data.playerId = player.id;
         room.attachSocket(player.id, socket.id);
@@ -182,6 +203,25 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
       } catch {
         /* invalid avatar — ignored */
       }
+    });
+
+    socket.on('room:set_spectating', ({ enabled }) => {
+      const { room, playerId } = requireRoom();
+      if (playerId !== room.hostId) return;
+      room.allowSpectators = enabled === true;
+      if (!room.allowSpectators) {
+        for (const p of room.spectators.values()) for (const sid of p.sockets) {
+          io.to(sid).emit('room:closed', { reason: 'Spectating disabled by host' });
+          const viewer = io.sockets.sockets.get(sid);
+          viewer?.leave(room.id); viewer?.leave(room.id + ':spectators');
+        }
+        room.spectators.clear();
+      }
+      afterChange(room);
+    });
+    socket.on('room:move_seat', ({ playerId: target, seat }, ack) => {
+      try { const { room, playerId } = requireRoom(); room.moveSeat(playerId, target, seat); afterChange(room); ack?.({ ok: true }); }
+      catch (e) { ack?.(fail(e)); }
     });
 
     socket.on('room:set_ready', ({ ready }) => {
@@ -274,6 +314,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
             (s.data as SocketData).roomId = undefined;
             (s.data as SocketData).playerId = undefined;
             s.leave(room.id);
+            s.leave(room.id + ':players');
           }
           io.to(sid).emit('room:closed', { reason: 'kicked by the host' });
         }
@@ -289,11 +330,11 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
     // Self-healing sync: a client that suspects it fell behind (window focus,
     // periodic check) asks for a fresh view; the server only sends one when
     // the client's revision is stale, so nothing replays unnecessarily.
-    socket.on('game:sync', (clientRevision: unknown) => {
+    socket.on('game:sync', async (clientRevision: unknown) => {
       try {
         const { room, playerId } = requireRoom();
         if (!room.engine) return;
-        const view = room.gameView(playerId);
+        const view = await room.gameViewAsync(playerId);
         if (!view) return;
         if (
           typeof clientRevision === 'number' &&
@@ -308,10 +349,14 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
     });
 
     // Host restarts the round at any time (fresh deal, scoreboard kept).
-    socket.on('room:restart_game', (_payload, ack) => {
+    socket.on('room:restart_game', async (_payload, ack) => {
       try {
         const { room, playerId } = requireRoom();
-        room.restartGame(playerId);
+        await room.runCommand(async () => {
+          room.restartGame(playerId);
+          await room.whenReady();
+          await persistRoom(room);
+        });
         ack?.({ ok: true });
         const last = room.chat[room.chat.length - 1]!;
         io.to(room.id).emit('room:chat', last);
@@ -321,10 +366,14 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
       }
     });
 
-    socket.on('room:start_game', (_payload, ack) => {
+    socket.on('room:start_game', async (_payload, ack) => {
       try {
         const { room, playerId } = requireRoom();
-        room.startGame(playerId);
+        await room.runCommand(async () => {
+          room.startGame(playerId);
+          await room.whenReady();
+          await persistRoom(room);
+        });
         ack?.({ ok: true });
         const last = room.chat[room.chat.length - 1]!;
         io.to(room.id).emit('room:chat', last);
@@ -347,10 +396,14 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
       }
     });
 
-    socket.on('room:play_again', (_payload, ack) => {
+    socket.on('room:play_again', async (_payload, ack) => {
       try {
         const { room, playerId } = requireRoom();
-        room.playAgain(playerId);
+        await room.runCommand(async () => {
+          room.playAgain(playerId);
+          await room.whenReady();
+          await persistRoom(room);
+        });
         ack?.({ ok: true });
         const last = room.chat[room.chat.length - 1]!;
         io.to(room.id).emit('room:chat', last);
@@ -381,7 +434,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
       try {
         const { room, playerId } = requireRoom();
         const chatMsg = room.playerChat(playerId, text);
-        if (chatMsg) io.to(room.id).emit('room:chat', chatMsg);
+        if (chatMsg) io.to(room.spectators.has(playerId) ? room.id + ':spectators' : room.id + ':players').emit('room:chat', chatMsg);
       } catch {
         /* ignore */
       }
@@ -390,6 +443,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
     socket.on('room:emote', ({ emote }) => {
       try {
         const { room, playerId } = requireRoom();
+        if (room.spectators.has(playerId)) return;
         const clean = typeof emote === 'string' ? emote.slice(0, 8) : '';
         if (!clean) return;
         io.to(room.id).emit('room:emote', {
@@ -406,12 +460,14 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
     // Gameplay — opaque envelope to the engine
     // -----------------------------------------------------------------
 
-    socket.on('game:action', ({ action }, ack) => {
+    socket.on('game:action', async ({ action }, ack) => {
       try {
         const { room, playerId } = requireRoom();
-        room.handleGameAction(playerId, action);
+        await room.runCommand(async () => {
+          await room.applyGameAction(playerId, action);
+          await afterChange(room);
+        });
         ack?.({ ok: true });
-        afterChange(room);
       } catch (err) {
         ack?.(fail(err));
       }
@@ -426,6 +482,8 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         const { room, playerId } = requireRoom();
         room.detachSocket(playerId, socket.id);
         room.removePlayer(playerId);
+        socket.leave(room.id + ':players');
+        socket.leave(room.id + ':spectators');
         const last = room.chat[room.chat.length - 1]!;
         io.to(room.id).emit('room:chat', last);
         if (room.players.size === 0) {
@@ -456,7 +514,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         setTimeout(() => {
           const now = rooms.getRoom(roomId);
           if (!now) return;
-          const p = now.players.get(playerId);
+          const p = now.participant(playerId);
           if (!p) return;
           if (p.sockets.size > 0) return; // already back
           now.markDisconnected(playerId);

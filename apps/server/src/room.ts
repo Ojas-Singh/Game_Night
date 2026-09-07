@@ -100,6 +100,51 @@ export function randomName(): string {
 export class Room {
   /** One-shot gallery spec token consumed by dealNewGame (§38 flow). */
   rulezeroSpecToken?: string;
+  aiPolicies: string[] = [];
+  rulezeroSpec?: object;
+  spectators = new Map<string, RoomPlayer>();
+  allowSpectators = true;
+  get participants(): RoomPlayer[] { return [...this.players.values(), ...this.spectators.values()]; }
+  participant(id: string): RoomPlayer | undefined { return this.players.get(id) ?? this.spectators.get(id); }
+  addSpectator(name?: string, token?: string): { player: RoomPlayer; reconnected: boolean } {
+    if (!this.allowSpectators) throw new RoomError('Spectating is disabled by the host');
+    const existing = this.participants.find(p => p.token === token);
+    if (existing) { existing.connected = true; return { player: existing, reconnected: true }; }
+    if (this.spectators.size >= 32) throw new RoomError('Spectator gallery is full');
+    const player: RoomPlayer = { id: randomUUID(), name: sanitizeName(name) ?? 'Spectator', avatar: randomAvatar(), kind: 'human',
+      token: randomBytes(24).toString('base64url'), ready: false, connected: true, sockets: new Set(), disconnectedAt: null, joinedAt: Date.now() };
+    this.spectators.set(player.id, player);
+    return { player, reconnected: false };
+  }
+  moveSeat(hostId: string, target: string, seat: number): void {
+    if (hostId !== this.hostId || this.engine) throw new RoomError('Host may arrange seats in the lobby');
+    const seats = [...this.players.values()];
+    const index = seats.findIndex(p => p.id === target);
+    if (index < 0 || !Number.isInteger(seat) || seat < 0 || seat >= seats.length) throw new RoomError('Invalid seat');
+    seats.splice(seat, 0, seats.splice(index, 1)[0]!);
+    this.players = new Map(seats.map(p => [p.id, p]));
+  }
+
+  roundScored = false;
+  get requiredPlayers(): number {
+    return this.gameId === "rulezero" ? Number((this.rulezeroSpec as { players?: { count?: number } })?.players?.count ?? 2) : GAME_REGISTRY[this.gameId].minPlayers;
+  }
+  private commandQueue: Promise<unknown> = Promise.resolve();
+
+  runCommand<T>(fn: () => Promise<T>): Promise<T> {
+    const run = () => { if (this.closed) throw new RoomError("room closed"); return fn(); };
+    const next = this.commandQueue.then(run, run);
+    this.commandQueue = next.catch(() => {});
+    return next;
+  }
+
+  async whenReady(): Promise<void> {
+    if (this.engine instanceof RuleZeroEngine) await this.engine.whenReady();
+  }
+
+  dispose(): void {
+    if (this.engine instanceof RuleZeroEngine) this.engine.dispose();
+  }
   /** Set by the socket layer: fired when an async engine session is ready
    * so views + agent pumps re-run (service spawn is not synchronous). */
   notifyHook?: () => void;
@@ -134,6 +179,11 @@ export class Room {
     room.gameId = (snap.gameId in GAME_REGISTRY ? snap.gameId : 'cabo') as GameId;
     room.chat = snap.chat;
     room.scoreboard = snap.scoreboard;
+    room.rulezeroSpec = snap.rulezeroSpec;
+    room.aiPolicies = snap.aiPolicies ?? [];
+    room.allowSpectators = snap.allowSpectators ?? true;
+    for (const p of snap.spectators ?? []) room.spectators.set(p.id, { ...p, sockets: new Set(), connected: false });
+    room.roundScored = snap.roundScored ?? false;
     room.testMode = snap.testMode ?? false;
     room.debug = snap.debug ?? {};
     for (const sp of snap.players) {
@@ -153,7 +203,18 @@ export class Room {
       });
     }
     if (snap.engineState) {
-      if (snap.gameId === 'pairone') {
+      if (snap.gameId === 'rulezero') {
+        const state = snap.engineState as import('./rulezeroEngine.js').RuleZeroPersistedState;
+        if (state.stateVersion === 2 && state.snapshot?.specHash) {
+          const engine = new RuleZeroEngine();
+          room.engine = engine;
+          room.rulezeroSpec = state.spec;
+          void engine.restoreState(state).catch(() => {
+            engine.dispose(); room.engine = null;
+            room.system('The saved game could not be restored. Start a fresh round.');
+          });
+        } else room.system('This older saved game cannot be resumed. Start a fresh round.');
+      } else if (snap.gameId === 'pairone') {
         const engine = new PairOneEngine();
         engine.restoreState(snap.engineState as import('@game-night/engine-pairone').PairOneState);
         room.engine = engine;
@@ -177,7 +238,7 @@ export class Room {
   addPlayer(name?: string, existingToken?: string): { player: RoomPlayer; reconnected: boolean } {
     // Reconnect: token maps back to an existing participant.
     if (existingToken) {
-      for (const p of this.players.values()) {
+      for (const p of this.participants) {
         if (p.token === existingToken) {
           const wasDisconnected = !p.connected;
           p.connected = true;
@@ -196,7 +257,7 @@ export class Room {
       // Mid-game join without a valid token → reject (bots/spectators later).
       throw new RoomError('game already in progress');
     }
-    if (this.players.size >= GAME_REGISTRY[this.gameId].maxPlayers) {
+    if (this.players.size >= (this.gameId === "rulezero" ? this.requiredPlayers : GAME_REGISTRY[this.gameId].maxPlayers)) {
       throw new RoomError('room is full');
     }
     const player: RoomPlayer = {
@@ -225,7 +286,7 @@ export class Room {
   addAiPlayer(hostId: string, persona?: string): RoomPlayer {
     if (hostId !== this.hostId) throw new RoomError('only the host can add AI players');
     if (this.engine) throw new RoomError('game already in progress');
-    if (this.players.size >= GAME_REGISTRY[this.gameId].maxPlayers) {
+    if (this.players.size >= (this.gameId === "rulezero" ? this.requiredPlayers : GAME_REGISTRY[this.gameId].maxPlayers)) {
       throw new RoomError('room is full');
     }
     const clean = sanitizeAiPersona(persona);
@@ -258,7 +319,8 @@ export class Room {
   }
 
   removePlayer(playerId: string, reason: 'left' | 'kicked by the host' = 'left'): void {
-    const p = this.players.get(playerId);
+    if (this.spectators.delete(playerId)) return;
+    const p = this.participant(playerId);
     if (!p) return;
     this.players.delete(playerId);
     this.system(`${p.name} ${reason}`);
@@ -272,7 +334,7 @@ export class Room {
   }
 
   markDisconnected(playerId: string): void {
-    const p = this.players.get(playerId);
+    const p = this.participant(playerId);
     if (!p) return;
     p.connected = false;
     p.disconnectedAt = Date.now();
@@ -290,6 +352,7 @@ export class Room {
   endGame(hostId: string): void {
     if (hostId !== this.hostId) throw new RoomError('only the host can end the game');
     if (!this.engine) throw new RoomError('no game is running');
+    this.dispose();
     this.engine = null;
     this.system('Host ended the game — back to the lobby');
   }
@@ -333,7 +396,7 @@ export class Room {
   }
 
   detachSocket(playerId: string, socketId: string): void {
-    const p = this.players.get(playerId);
+    const p = this.participant(playerId);
     if (!p) return;
     p.sockets.delete(socketId);
     // Note: presence marking is NOT done here — the caller decides (e.g.
@@ -346,14 +409,14 @@ export class Room {
 
   /** A player customizes their own avatar (validated server-side). */
   setAvatar(playerId: string, avatar: Avatar): void {
-    const p = this.players.get(playerId);
+    const p = this.participant(playerId);
     if (!p) throw new RoomError('not in room');
     if (!isValidAvatar(avatar)) throw new RoomError('invalid avatar');
     p.avatar = avatar;
   }
 
   setName(playerId: string, name: string): void {
-    const p = this.players.get(playerId);
+    const p = this.participant(playerId);
     if (!p) throw new RoomError('not in room');
     const clean = sanitizeName(name);
     if (!clean) throw new RoomError('invalid name');
@@ -364,7 +427,7 @@ export class Room {
   }
 
   setReady(playerId: string, ready: boolean): void {
-    const p = this.players.get(playerId);
+    const p = this.participant(playerId);
     if (!p) throw new RoomError('not in room');
     p.ready = ready;
   }
@@ -380,21 +443,22 @@ export class Room {
   private dealNewGame(): AnyGameEngine {
     const reg = GAME_REGISTRY[this.gameId];
     const seated = [...this.players.values()];
-    if (seated.length < reg.minPlayers) {
-      throw new RoomError(`needs at least ${reg.minPlayers} players`);
+    if (seated.length < this.requiredPlayers) {
+      throw new RoomError(`needs at least ${this.requiredPlayers} players`);
     }
     const seats = seated.map((p, i) => ({ id: p.id, name: p.name, seat: i }));
     if (reg.id === 'rulezero') {
       const rz = reg.create() as RuleZeroEngine;
-      const spec = takeRulezeroSpec(this.rulezeroSpecToken);
+      const spec = takeRulezeroSpec(this.rulezeroSpecToken) ?? this.rulezeroSpec;
+      if (spec) this.rulezeroSpec = spec;
       this.rulezeroSpecToken = undefined;
       // Persona → solver kind: strong/balanced personas get CFR.
       const SOLVER_PERSONAS = new Set(['balanced', 'strong', 'solver']);
       const aiSeats = seated
         .filter((p) => p.kind === 'ai')
-        .map((p) => ({
+        .map((p, i) => ({
           playerId: p.id,
-          kind: (SOLVER_PERSONAS.has(p.persona ?? '')
+          kind: this.aiPolicies[i] ?? (SOLVER_PERSONAS.has(p.persona ?? '')
             ? 'cfr'
             : 'random') as 'cfr' | 'random',
         }));
@@ -402,7 +466,9 @@ export class Room {
         .createGame(seats, { seed: this.debug.seed, spec, aiSeats })
         .then(() => this.notifyHook?.())
         .catch((err) => {
-          console.error('[rulezero] create failed:', err);
+          rz.dispose();
+          if (this.engine === rz) this.engine = null;
+          this.system('Could not start this game: ' + String(err));
           this.notifyHook?.();
         });
       return rz; // views arrive once the service session is live
@@ -444,9 +510,11 @@ export class Room {
   startGame(playerId: string): void {
     if (playerId !== this.hostId) throw new RoomError('only the host can start the game');
     if (this.engine) throw new RoomError('game already running');
+    this.roundScored = false;
     this.engine = this.dealNewGame();
     for (const p of this.players.values()) p.ready = false;
     const opener =
+      this.gameId === 'rulezero' ? 'Game started — choose an available action when it is your turn.' :
       this.gameId === 'pairone'
         ? 'Game started — Pair One! Flip two cards; match the numbers to collect the pair.'
         : this.gameId === 'seep'
@@ -467,9 +535,10 @@ export class Room {
   restartGame(playerId: string): void {
     if (playerId !== this.hostId) throw new RoomError('only the host can restart the game');
     const seated = [...this.players.values()];
-    if (seated.length < GAME_REGISTRY[this.gameId].minPlayers) {
-      throw new RoomError(`needs at least ${GAME_REGISTRY[this.gameId].minPlayers} players`);
+    if (seated.length < this.requiredPlayers) {
+      throw new RoomError(`needs at least ${this.requiredPlayers} players`);
     }
+    this.dispose();
     this.engine = null;
     this.startGame(playerId);
     this.system('Host restarted the game — fresh deal!');
@@ -477,6 +546,7 @@ export class Room {
 
   returnToLobby(playerId: string): void {
     if (playerId !== this.hostId) throw new RoomError('only the host can return to the lobby');
+    this.dispose();
     this.engine = null;
     this.system('Returned to the lobby');
   }
@@ -501,6 +571,7 @@ export class Room {
     if (this.engine && !this.engine.isGameFinished()) {
       throw new RoomError('current round is still in progress');
     }
+    this.dispose();
     this.engine = null;
     this.startGame(playerId);
     this.system(`Next round — ${label}!`);
@@ -516,6 +587,7 @@ export class Room {
   // -------------------------------------------------------------------
 
   handleGameAction(playerId: string, action: GameAction): void {
+    if (!this.players.has(playerId)) throw new RoomError('spectators cannot act');
     if (!this.engine) throw new RoomError('no game running');
     // The room stamps authority: the acting player comes from the socket,
     // never from client-supplied payloads.
@@ -524,10 +596,29 @@ export class Room {
       log.warn('illegal_action', { roomId: this.id, playerId, type: action.type, error: result.error });
       throw new RoomError(result.error ?? 'illegal action');
     }
-    if (this.engine.isGameFinished()) {
+    if (this.engine.isGameFinished() && !this.roundScored) {
+      this.roundScored = true;
       const scores = this.engine.calculateScore();
       for (const [pid, pts] of Object.entries(scores)) {
         this.scoreboard[pid] = (this.scoreboard[pid] ?? 0) + pts;
+      }
+    }
+  }
+
+  async applyGameAction(playerId: string, action: GameAction): Promise<void> {
+    if (!(this.engine instanceof RuleZeroEngine)) {
+      this.handleGameAction(playerId, action);
+      return;
+    }
+    const input = action as GameAction & { actionIndex?: number; expectedRevision?: number; commandId?: string };
+    if (input.type !== 'RZ_APPLY' || !Number.isInteger(input.actionIndex)) throw new RoomError('invalid game action');
+    if (!Number.isInteger(input.expectedRevision) || typeof input.commandId !== 'string' || input.commandId.length > 100) throw new RoomError('revision and command id required');
+    const result = await this.engine.handleActionAsync(playerId, input.actionIndex!, input.expectedRevision, input.commandId);
+    if (!result.ok) throw new RoomError(result.error ?? 'action rejected');
+    if (this.engine.isGameFinished() && !this.roundScored) {
+      this.roundScored = true;
+      for (const [id, score] of Object.entries(this.engine.calculateScore())) {
+        this.scoreboard[id] = (this.scoreboard[id] ?? 0) + score;
       }
     }
   }
@@ -540,6 +631,8 @@ export class Room {
     return {
       roomId: this.id,
       gameId: this.gameId,
+      allowSpectators: this.allowSpectators,
+      spectatorCount: this.spectators.size,
       players: [...this.players.values()]
         .sort((a, b) => a.joinedAt - b.joinedAt)
         .map((p): LobbyPlayer => ({
@@ -562,7 +655,10 @@ export class Room {
 
   gameView(playerId: string): AnyGameView | null {
     if (!this.engine) return null;
-    if (!this.players.has(playerId)) return null; // spectators: public state only (later)
+    if (this.spectators.has(playerId)) {
+      return this.engine instanceof RuleZeroEngine ? null : this.engine.getSpectatorView();
+    }
+    if (!this.participant(playerId)) return null;
     if (this.engine instanceof RuleZeroEngine) {
       // Service-backed: views are async; the socket layer uses
       // gameViewAsync for these rooms.
@@ -575,7 +671,7 @@ export class Room {
   /** Async variant for service-backed engines (rulezero). */
   async gameViewAsync(playerId: string): Promise<AnyGameView | null> {
     if (!this.engine) return null;
-    if (!this.players.has(playerId)) return null;
+    if (!this.participant(playerId)) return null;
     if (this.engine instanceof RuleZeroEngine) {
       try {
         return await this.engine.getPlayerStateAsync(playerId);
@@ -592,7 +688,7 @@ export class Room {
   // -------------------------------------------------------------------
 
   playerChat(playerId: string, text: string): ChatMessage | null {
-    const p = this.players.get(playerId);
+    const p = this.participant(playerId);
     if (!p) throw new RoomError('not in room');
     const clean = text.trim().slice(0, 500);
     if (!clean) return null;
@@ -604,7 +700,7 @@ export class Room {
       text: clean,
       timestamp: new Date().toISOString(),
     };
-    this.chat.push(msg);
+    if (!this.spectators.has(playerId)) this.chat.push(msg);
     if (this.chat.length > 200) this.chat.splice(0, this.chat.length - 200);
     return msg;
   }

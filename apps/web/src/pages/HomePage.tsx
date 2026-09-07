@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import type { RoomApi } from '../useRoom.js';
 import { loadName } from '../session.js';
 
@@ -10,7 +10,7 @@ export default function HomePage({ room }: { room: RoomApi }) {
   const [busy, setBusy] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
 
-  const createGame = async () => {
+  const createGame = async (gameId = 'cabo') => {
     if (!room.socket) return;
     setBusy(true);
     setJoinError(null);
@@ -28,7 +28,7 @@ export default function HomePage({ room }: { room: RoomApi }) {
     }
     const res = await room.createRoom(finalName ?? 'Host', rzToken, autoAi);
     setBusy(false);
-    if (res.ok && res.roomId) navigate(`/game/${res.roomId}`);
+    if (res.ok && res.roomId) { if (!rzToken) room.selectGame(gameId); navigate(`/game/${res.roomId}`); }
   };
 
   const joinGame = async () => {
@@ -55,8 +55,7 @@ export default function HomePage({ room }: { room: RoomApi }) {
         </div>
         <h1 className="font-display home-title">Game Night</h1>
         <p className="home-sub">
-          Sit around a table with friends — play <strong>Cabo</strong> or{' '}
-          <strong>Pair One</strong>. No accounts, just a link.
+          Sit around a table with friends — play <strong>Cabo</strong>, <strong>Seep</strong>, or a game of your own. No accounts, just a link.
         </p>
         <div className="home-form">
           <input
@@ -67,7 +66,7 @@ export default function HomePage({ room }: { room: RoomApi }) {
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !busy && createGame()}
           />
-          <button onClick={createGame} disabled={!room.socket || busy}>
+          <button onClick={() => void createGame()} disabled={!room.socket || busy}>
             {busy ? 'Setting the table…' : 'Create Game'}
           </button>
         </div>
@@ -101,6 +100,17 @@ export default function HomePage({ room }: { room: RoomApi }) {
           <p className="home-status">Connecting to server…</p>
         )}
       </div>
+      <section className="home-discovery" aria-label="Choose a game">
+        <p className="eyebrow">YOUR NEXT GREAT GAME NIGHT</p><h2>A seat for everyone.</h2>
+        <div className="discovery-grid">
+          {[{ id: 'cabo', title: 'Cabo', info: '2–6 players · Memory & misdirection', symbol: '♦' },
+            { id: 'seep', title: 'Seep', info: '4 players · Partners & strategy', symbol: '♠' },
+            { id: 'pairone', title: 'Pair One', info: '2–6 players · Find your match', symbol: '♥' }].map(g =>
+            <article className="discovery-card" key={g.id}><div className="game-card-art" aria-hidden>{g.symbol}</div><h3>{g.title}</h3><p>{g.info}</p>
+              <button disabled={busy || !room.socket} onClick={() => void createGame(g.id)}>Create {g.title} table</button></article>)}
+          <article className="discovery-card lab-discovery"><div className="game-card-art" aria-hidden>✦</div><h3>Game Lab</h3><p>Your rules. A new game. Ready to play.</p><Link className="button-link" to="/gamelab">Explore & create</Link></article>
+        </div>
+      </section>
       </div>
     </div>
   );

@@ -21,9 +21,17 @@ export const config = {
   debugEnabled: (process.env.NODE_ENV ?? 'development') !== 'production',
   /** LLM agent backend (OpenAI-compatible: vLLM / Ollama / cloud). When unset,
    *  AI seats play with built-in heuristic bots. */
-  agentApiUrl: process.env.AGENT_API_URL ?? '',
-  agentApiKey: process.env.AGENT_API_KEY ?? '',
-  agentModel: process.env.AGENT_MODEL ?? 'qwen3-8b',
+  agentApiUrl: process.env.AGENT_API_URL ||
+    (process.env.OPENCODE_API_KEY
+      ? (process.env.OPENCODE_GO_BASE_URL || 'https://opencode.ai/zen/go/v1')
+      : ''),
+  agentApiKey: process.env.AGENT_API_KEY || process.env.OPENCODE_API_KEY || '',
+  agentModel: process.env.AGENT_MODEL ||
+    (process.env.OPENCODE_API_KEY ? (process.env.OPENCODE_GO_MODEL || 'mimo-v2.5') : 'qwen3-8b'),
+  agentProvider: process.env.AGENT_PROVIDER ||
+    (process.env.OPENCODE_API_KEY || (process.env.AGENT_API_URL ?? '').includes('opencode.ai/zen/go')
+      ? 'opencode-go'
+      : 'endpoint'),
 };
 
 export type AppConfig = typeof config;

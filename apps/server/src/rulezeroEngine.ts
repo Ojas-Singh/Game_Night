@@ -2,19 +2,19 @@
  * RuleZero service adapter (Phase-2 Milestone 4).
  *
  * Bridges a Game Night room seat map to an internal `rulezero.service`
- * subprocess speaking `game-service/v1` line-JSON over stdio.
+ * subprocess speaking `game-service/v2` line-JSON over stdio.
  *
  * Architecture note (§0/§16): this adapter understands NOTHING about game
  * rules. The spec arrives as opaque JSON; views are forwarded untouched;
  * actions are forwarded as integers. All semantics live in the Python
  * service / OpenSpiel.
  */
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { createInterface } from 'node:readline';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
+import { RuleZeroClient, ServiceError } from './rulezeroClient.js';
 
 export interface RZServiceView {
+  revision: number;
+  runtimeVersion: number;
   protocol: string;
   specHash: string;
   player: number;
@@ -108,287 +108,135 @@ const KUHNISH_SPEC = {
   ],
 } as const;
 
-function pythonBin(): string {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  // <repo>/apps/server/src → repo root is three levels up (dist may differ)
-  const candidates = [
-    process.env.RULEZERO_PYTHON,
-    path.resolve(here, '../../../research/rulezero/.venv/bin/python'),
-    '/home/coder/Game_Night/research/rulezero/.venv/bin/python',
-  ].filter((x): x is string => Boolean(x));
-  const bin = candidates.find((x) => x.length > 0);
-  if (!bin) throw new Error('no rulezero python found (set RULEZERO_PYTHON)');
-  return bin;
-}
-
-function serviceHome(): string {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  return (
-    process.env.RULEZERO_HOME ??
-    path.resolve(here, '../../../research/rulezero')
-  );
+export interface RuleZeroPersistedState {
+  stateVersion: 2;
+  gameId: 'rulezero';
+  phase: string;
+  specHash: string;
+  spec: object;
+  seats: { id: string; name: string; seat: number }[];
+  aiSeats: { playerId: string; kind: string }[];
+  snapshot: Record<string, any>;
 }
 
 export class RuleZeroEngine {
   readonly gameId = 'rulezero' as const;
-
-  private proc: ChildProcessWithoutNullStreams | null = null;
-  private pending = new Map<number, (v: unknown) => void>();
-  private seq = 0;
-  private seatIndex = new Map<string, number>();
-  private playerCount = 2;
+  private client = new RuleZeroClient();
+  private seats: RuleZeroPersistedState['seats'] = [];
+  private aiSeats: RuleZeroPersistedState['aiSeats'] = [];
+  private spec: object = KUHNISH_SPEC;
+  private snapshot: Record<string, any> = {};
+  private views = new Map<number, RZServiceView>();
   private terminal = false;
-  private lastReturns: number[] | null = null;
-  private specHash = '';
-
-  /**
-   * Strictly-ordered request/response (the service answers one line per
-   * request in order). One in-flight request keeps the pairing trivial and
-   * is plenty for card-game action rates (§16).
-   */
-  private lastError: string | null = null;
+  private returns: number[] | null = null;
+  private ready: Promise<void> = Promise.resolve();
   private queue: Promise<unknown> = Promise.resolve();
-  private askOrdered<T = Record<string, unknown>>(
-    msg: Record<string, unknown>,
-  ): Promise<T> {
-    const run = async (): Promise<T> => {
-      if (!this.proc) throw new Error('rulezero service not running');
-      const proc = this.proc;
-      return await new Promise<T>((resolve, reject) => {
-        const timeout = setTimeout(
-          () => reject(new Error('rulezero service timeout')),
-          10_000,
-        );
-        const rl = this.readline!;
-        const onLine = (line: string) => {
-          clearTimeout(timeout);
-          rl.off('line', onLine);
-          try {
-            const parsed = JSON.parse(line);
-            if (parsed.ok === false) {
-              reject(new Error(String(parsed.error ?? 'service error')));
-            } else {
-              resolve(parsed as T);
-            }
-          } catch (e) {
-            reject(e as Error);
-          }
-        };
-        rl.on('line', onLine);
-        proc.stdin.write(JSON.stringify(msg) + '\n');
-      });
+
+  private async ask<T>(msg: Record<string, unknown>): Promise<T> {
+    try { return await this.client.ask<T>(msg); }
+    catch (e) {
+      if (e instanceof ServiceError || !this.snapshot.specHash) throw e;
+      // Recover only from a transport failure, using the last committed snapshot.
+      await this.client.ask({ op: 'create', spec: this.spec });
+      await this.client.ask({ op: 'restore', state: this.snapshot });
+      return this.client.ask<T>(msg);
+    }
+  }
+
+  private async refresh(): Promise<void> {
+    const snap = await this.ask<{ snap: Record<string, any> }>({ op: 'snapshot' });
+    const views = new Map<number, RZServiceView>();
+    for (let p = -1; p < this.seats.length; p++) {
+      const r = await this.ask<{ view: RZServiceView }>({ op: 'view', player: p });
+      views.set(p, r.view);
+    }
+    const r = await this.ask<{ returns: number[] | null }>({ op: 'returns' });
+    this.snapshot = snap.snap;
+    this.views = views;
+    this.terminal = views.get(0)?.isTerminal ?? false;
+    this.returns = r.returns;
+  }
+
+  setAiSeats(seats: RuleZeroPersistedState['aiSeats']): void { this.aiSeats = seats; }
+
+  createGame(seats: RuleZeroPersistedState['seats'], opts?: { seed?: number; spec?: object; aiSeats?: RuleZeroPersistedState['aiSeats'] }): Promise<void> {
+    this.seats = seats;
+    this.spec = opts?.spec ?? KUHNISH_SPEC;
+    this.aiSeats = opts?.aiSeats ?? [];
+    this.ready = (async () => {
+      const r = await this.client.ask<{ players: number }>({ op: 'create', spec: this.spec, seed: opts?.seed ?? 1 });
+      if (r.players !== seats.length) throw new Error(`game requires exactly ${r.players} seats`);
+      await this.refresh();
+    })();
+    return this.ready;
+  }
+
+  restoreState(state: RuleZeroPersistedState): Promise<void> {
+    this.spec = state.spec;
+    this.seats = state.seats;
+    this.aiSeats = state.aiSeats;
+    this.ready = (async () => {
+      await this.client.ask({ op: 'create', spec: this.spec });
+      await this.client.ask({ op: 'restore', state: state.snapshot });
+      await this.refresh();
+    })();
+    return this.ready;
+  }
+
+  whenReady(): Promise<void> { return this.ready; }
+
+  async currentPlayerId(): Promise<string | null> {
+    await this.ready;
+    const actor = this.views.get(0)?.currentActor;
+    return this.seats.find(s => s.seat === actor)?.id ?? null;
+  }
+
+  async chooseAiAction(playerId: string): Promise<number | null> {
+    await this.ready;
+    if (await this.currentPlayerId() !== playerId) return null;
+    const kind = this.aiSeats.find(a => a.playerId === playerId)?.kind ?? 'random';
+    const r = await this.ask<{ action?: number }>({ op: 'aiChoose', agent: kind, iterations: 100 });
+    return r.action ?? null;
+  }
+
+  async getPlayerStateAsync(viewerId: string): Promise<RuleZeroPlayerView> {
+    await this.ready;
+    const p = this.seats.find(s => s.id === viewerId)?.seat ?? -1;
+    const rz = this.views.get(p);
+    if (!rz) throw new Error('view unavailable');
+    return { gameId: 'rulezero', rz };
+  }
+
+  handleActionAsync(playerId: string, actionIndex: number, expectedRevision?: number, commandId: string = randomUUID()): Promise<{ ok: boolean; error?: string }> {
+    const run = async () => {
+      await this.ready;
+      const seat = this.seats.find(s => s.id === playerId);
+      if (!seat) return { ok: false, error: 'not seated' };
+      try {
+        await this.ask({ op: 'apply', player: seat.seat, action: actionIndex,
+          expectedRevision: expectedRevision ?? this.snapshot.revision, commandId });
+        await this.refresh();
+        return { ok: true };
+      } catch (e) { return { ok: false, error: (e as Error).message }; }
     };
     const next = this.queue.then(run, run);
     this.queue = next.catch(() => {});
     return next;
   }
 
-  private readline: ReturnType<typeof createInterface> | null = null;
-
-  private aiKinds = new Map<string, 'cfr' | 'random'>();
-
-  /** Register which seated players are CPU agents and their strategy. */
-  setAiSeats(aiSeats: { playerId: string; kind: 'cfr' | 'random' }[]): void {
-    this.aiKinds = new Map(aiSeats.map((a) => [a.playerId, a.kind]));
+  getState(): RuleZeroPersistedState {
+    return { stateVersion: 2, gameId: 'rulezero', phase: this.terminal ? 'RULEZERO_TERMINAL' : 'RULEZERO_LIVE',
+      specHash: this.snapshot.specHash ?? '', spec: this.spec, seats: this.seats,
+      aiSeats: this.aiSeats, snapshot: this.snapshot };
   }
-
-  async currentPlayerId(): Promise<string | null> {
-    if (!this.readline || this.terminal) return null;
-    try {
-      const v = await this.askOrdered<{ currentActor: number | null }>({
-        op: 'view', player: 0,
-      });
-      if (v.currentActor === null) return null;
-      for (const [pid, seat] of this.seatIndex) {
-        if (seat === v.currentActor) return pid;
-      }
-    } catch {
-      /* service restarting */
-    }
-    return null;
+  validateAction(): { ok: boolean } { return { ok: false }; }
+  handleAction(_action: unknown): { ok: boolean; error?: string } {
+    return { ok: false, error: 'service actions require the awaited room command boundary' };
   }
-
-  /**
-   * Ask the RuleZero service to choose an action for this seat (§9).
-   * Returns the chosen dense action id, or null when nothing to do.
-   */
-  async chooseAiAction(playerId: string): Promise<number | null> {
-    const kind = this.aiKinds.get(playerId) ?? 'random';
-    const r = await this.askOrdered<{
-      ok: boolean; action?: number; chanceApplied?: boolean;
-    }>({ op: 'aiChoose', agent: kind, iterations: 300 });
-    if (!r.ok) return null;
-    return r.chanceApplied ? -1 : (r.action ?? null);
-  }
-
-  async createGame(
-    seats: { id: string; name: string; seat: number }[],
-    _opts?: {
-      seed?: number; spec?: object;
-      aiSeats?: { playerId: string; kind: 'cfr' | 'random' }[];
-    },
-  ): Promise<void> {
-    this.playerCount = seats.length;
-    this.seatIndex = new Map(seats.map((s) => [s.id, s.seat]));
-    this.setAiSeats(_opts?.aiSeats ?? []);
-    this.terminal = false;
-    this.lastReturns = null;
-
-    this.proc = spawn(pythonBin(), ['-m', 'rulezero.service'], {
-      cwd: serviceHome(),
-      env: { ...process.env, PYTHONPATH: serviceHome() },
-    }) as ChildProcessWithoutNullStreams;
-    this.readline = createInterface(this.proc.stdout);
-    this.proc.stderr.on('data', (d: Buffer) => {
-      console.error('[rulezero-service]', d.toString().trim());
-    });
-    this.proc.on('exit', (code) => {
-      console.error(`[rulezero-service] exited code=${code}`);
-      this.readline = null;
-      this.proc = null;
-    });
-
-    const res = await this.askOrdered<{ players: number; specHash: string }>({
-      op: 'create',
-      spec: _opts?.spec ?? KUHNISH_SPEC,
-      seed: _opts?.seed ?? 1,
-    });
-    this.specHash = res.specHash;
-  }
-
-  async getPlayerStateAsync(viewerId: string): Promise<RuleZeroPlayerView> {
-    const idx = this.seatIndex.get(viewerId) ?? 0;
-    const res = await this.askOrdered<{ view: RZServiceView }>({
-      op: 'view',
-      player: idx,
-    });
-    if (res.view.isTerminal && !this.terminal) {
-      this.terminal = true;
-      const r = await this.askOrdered<{ returns: number[] | null }>({
-        op: 'returns',
-      });
-      this.lastReturns = r.returns ?? null;
-    }
-    if (!res.view.isTerminal) {
-      this.terminal = false;
-      this.cachedReview = undefined;
-      return { gameId: 'rulezero' as const, rz: res.view };
-    }
-    // Terminal: attach the GAME REVIEW (S14) once per finished game.
-    if (this.cachedReview === undefined) {
-      try {
-        const rev = await this.askOrdered<{
-          ok: boolean; nashConv?: number | null;
-          review?: {
-            step: number; player: number;
-            chosen?: string | null;
-            referenceTop?: [string, number] | null;
-            distribution: [string, number][];
-          }[];
-        }>({ op: 'labReview', iterations: 300 });
-        this.cachedReview = rev.ok
-          ? { nashConv: rev.nashConv ?? null, decisions: rev.review ?? [] }
-          : undefined;
-      } catch {
-        this.cachedReview = undefined;
-      }
-    }
-    return {
-      gameId: 'rulezero' as const,
-      rz: res.view,
-      review: this.cachedReview ?? undefined,
-    };
-  }
-
-  private cachedReview: RuleZeroPlayerView['review'];
-
-  async handleActionAsync(
-    playerId: string,
-    actionIndex: number,
-  ): Promise<{ ok: boolean; error?: string }> {
-    if (!this.seatIndex.has(playerId)) {
-      return { ok: false, error: 'not seated' };
-    }
-    if (this.terminal) return { ok: false, error: 'game finished' };
-    try {
-      const r = await this.askOrdered<{ isTerminal: boolean }>({
-        op: 'apply',
-        action: actionIndex,
-        review: true,
-      });
-      this.terminal = r.isTerminal;
-      if (r.isTerminal) {
-        const rr = await this.askOrdered<{ returns: number[] | null }>({
-          op: 'returns',
-        });
-        this.lastReturns = rr.returns ?? null;
-      }
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  }
-
-  /**
-   * Minimal opaque state for debug/persistence surfaces. The authoritative
-   * live state lives in the service; reconnect uses snapshot/restore (§16).
-   */
-  getState(): {
-    phase: string;
-    specHash: string;
-    players: Array<{ id: string; seat: number }>;
-    currentTurn: number;
-  } {
-    return {
-      phase: this.terminal ? 'RULEZERO_TERMINAL' : 'RULEZERO_LIVE',
-      specHash: this.specHash,
-      players: [...this.seatIndex].map(([id, seat]) => ({ id, seat })),
-      currentTurn: 0,
-    };
-  }
-
-  validateAction(): { ok: boolean } {
-    // Authority is enforced by the service on apply; nothing client-side
-    // to validate beyond seating (checked in handleActionAsync).
-    return { ok: true };
-  }
-
-  /** Sync envelope: queues an async apply; failures are logged, not thrown
-   * (the room broadcasts post-change state either way). */
-  handleAction(action: {
-    playerId?: string;
-    actionIndex?: number;
-  }): { ok: boolean; error?: string } {
-    const pid = action.playerId ?? '';
-    const idx = action.actionIndex;
-    if (typeof idx !== 'number') return { ok: false, error: 'actionIndex required' };
-    void this.handleActionAsync(pid, idx).then((r) => {
-      if (!r.ok) console.error(`[rulezero] apply rejected: ${r.error}`);
-    });
-    return { ok: true };
-  }
-
-  isGameFinished(): boolean {
-    return this.terminal;
-  }
-
+  isGameFinished(): boolean { return this.terminal; }
   calculateScore(): Record<string, number> {
-    const out: Record<string, number> = {};
-    if (!this.lastReturns) return out;
-    for (const [seatId, idx] of this.seatIndex) {
-      out[seatId] = Math.round(this.lastReturns[idx] ?? 0);
-    }
-    return out;
+    return Object.fromEntries(this.seats.map(s => [s.id, this.returns?.[s.seat] ?? 0]));
   }
-
-  dispose(): void {
-    this.proc?.stdin.end();
-    this.proc?.kill();
-    this.proc = null;
-    this.readline = null;
-  }
-
-  get specHashValue(): string {
-    return this.specHash;
-  }
+  dispose(): void { this.client.dispose(); }
+  get specHashValue(): string { return this.snapshot.specHash ?? ''; }
 }

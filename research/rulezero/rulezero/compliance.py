@@ -54,7 +54,9 @@ def run_compliance(game, *, episodes: int = 12,
     for eps in range(episodes):
         st = game.new_initial_state(eps * 31 + 7)
         traj: list[tuple[str, int]] = []
-        while not st.is_terminal():
+        steps = 0
+        while not st.is_terminal() and steps < 512:
+            steps += 1
             if st.is_chance_node():
                 outs = st.chance_outcomes()
                 total = sum(p for _, p in outs)
@@ -75,7 +77,7 @@ def run_compliance(game, *, episodes: int = 12,
             if not legal:
                 break
             # every legal action applies on a CLONE (mutation isolation too)
-            for a in legal[:6]:
+            for a in legal:
                 cl = st.clone()
                 try:
                     cl.apply_action(a)
@@ -98,6 +100,8 @@ def run_compliance(game, *, episodes: int = 12,
             traj.append((str(p), int(a)))
             st.apply_action(a)
 
+        if not st.is_terminal():
+            return [f"episode {eps} did not terminate within 512 transitions"]
         if st.is_terminal():
             terminals += 1
             r = st.returns()

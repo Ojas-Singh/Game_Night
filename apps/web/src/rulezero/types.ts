@@ -1,5 +1,5 @@
 /**
- * Types mirroring rulezero/service.py `game-service/v1` view payloads.
+ * Types mirroring rulezero/service.py `game-service/v2` view payloads.
  * The browser renders EXACTLY what the service emits — hidden zones arrive
  * as counts only, so the client cannot leak what it never received.
  */
@@ -19,6 +19,8 @@ export interface ServiceZone {
 }
 
 export interface ServiceView {
+  revision?: number;
+  runtimeVersion?: number;
   protocol: string;
   specHash: string;
   player: number;

@@ -97,6 +97,12 @@ class ModelBackend(ABC):
     def sample(self, prompt: str, candidates: Sequence[str]) -> str:
         """Return the chosen candidateId for this prompt."""
 
+    def distribution_value(self, prompt: str, candidates: Sequence[str]) -> tuple[list[float], float]:
+        if hasattr(self, "probs"):
+            return list(self.probs(prompt, candidates)), 0.0
+        selected = self.sample(prompt, candidates)
+        return [float(c == selected) for c in candidates], 0.0
+
     @abstractmethod
     def save(self, path: Path) -> None: ...
 
@@ -319,6 +325,9 @@ class TinkerBackend(ModelBackend):
 
 def get_backend(kind: str, **kwargs: Any) -> ModelBackend:
     """Registry lookup used by experiment configs (data-driven backend choice)."""
+    if kind in ("torch", "torch-cpu"):
+        from .torch_backend import TorchBackend
+        return TorchBackend(**kwargs)
     if kind == "local":
         return LocalBackend(**kwargs)
     if kind == "tinker":

@@ -4,6 +4,9 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => ({
   plugins: [react()],
+  test: {
+    exclude: ['**/node_modules/**', '**/e2e/**'],
+  },
   resolve: {
     alias: {
       '@shared': fileURLToPath(new URL('../../packages/shared/src', import.meta.url)),

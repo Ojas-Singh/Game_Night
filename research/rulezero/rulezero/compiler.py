@@ -106,7 +106,7 @@ class DeterministicStubCompiler(RuleCompilerLLM):
 # ---------------------------------------------------------------------------
 
 
-def _semantic_smoke(doc: dict[str, Any], episodes: int = 30) -> dict[str, Any]:
+def _semantic_smoke(doc: dict[str, Any], episodes: int = 100) -> dict[str, Any]:
     """Random-simulation smoke over the generic interpreter (§12 subset)."""
     from .gamespec_runtime import IRGame
 
@@ -123,7 +123,7 @@ def _semantic_smoke(doc: dict[str, Any], episodes: int = 30) -> dict[str, Any]:
     for _ in range(episodes):
         s = game.new_initial_state()
         steps = 0
-        while not s.is_terminal() and steps < 500:
+        while not s.is_terminal() and steps < 512:
             steps += 1
             if s.is_chance_node():
                 outcomes, probs = zip(*s.chance_outcomes())
@@ -145,8 +145,29 @@ def _semantic_smoke(doc: dict[str, Any], episodes: int = 30) -> dict[str, Any]:
             assert all(abs(r) < 10**6 for r in rets), "non-finite returns"
         else:
             illegal += 1  # hit the step cap: possible no-progress loop
+    # Exhaustive prefix exploration checks every branch of small games. A budget
+    # exhaustion is disclosed; it is not a claim that the entire tree was proven.
+    stack = [(game.new_initial_state(), 0)]
+    explored = 0
+    while stack and explored < 2000:
+        state, depth = stack.pop()
+        explored += 1
+        if state.is_terminal():
+            if not all(game.min_utility() <= x <= game.max_utility() for x in state.returns()):
+                raise ValueError("utility outside declared bounds")
+            continue
+        if depth >= 512:
+            raise ValueError("reachable branch exceeds transition cap")
+        actions = state.legal_actions()
+        if not actions:
+            raise ValueError("reachable nonterminal deadlock")
+        for action in actions:
+            child = state.clone()
+            child.apply_action(action)
+            stack.append((child, depth + 1))
     return {"episodes": episodes, "reached_terminal": terminals,
-            "step_cap_hits": illegal}
+            "step_cap_hits": illegal, "explored_nodes": explored,
+            "exhaustive": not stack}
 
 
 @dataclass
@@ -168,7 +189,7 @@ def compile_and_verify(
     llm: RuleCompilerLLM,
     rules_text: str,
     family_id: str | None = None,
-    smoke_episodes: int = 30,
+    smoke_episodes: int = 100,
 ) -> CompiledGame | CompileFailure:
     """Full §13 gate chain. Accepts only specs that pass every stage."""
     t0 = time.time()
@@ -194,10 +215,10 @@ def compile_and_verify(
         smoke = _semantic_smoke(doc, episodes=smoke_episodes)
     except Exception as e:
         return CompileFailure(rules_text[:120], "semantic", [f"{type(e).__name__}: {e}"])
-    if smoke["reached_terminal"] == 0:
+    if smoke["reached_terminal"] != smoke_episodes:
         return CompileFailure(
             rules_text[:120], "semantic",
-            [f"no episode reached terminal in {smoke_episodes} random episodes"],
+            [f"not every episode reached terminal in {smoke_episodes} random episodes"],
         )
 
     fam = family_id or f"compiled-{ir_hash(doc)[:12]}"

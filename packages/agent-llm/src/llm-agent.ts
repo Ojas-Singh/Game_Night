@@ -33,6 +33,8 @@ export interface LlmAgentOptions {
   temperature?: number;
   maxTokens?: number;
   timeoutMs?: number;
+  /** Stable provider conversation id (required by OpenCode Go routing). */
+  sessionId?: string;
   /** Cap on serialized candidate list (large power menus get sampled). */
   maxCandidates?: number;
   /**
@@ -157,6 +159,7 @@ export class LlmAgent implements GameAgent {
         temperature: this.opts.temperature ?? 0.4,
         maxTokens: this.opts.maxTokens ?? 400,
         timeoutMs: this.opts.timeoutMs ?? 20_000,
+        sessionId: this.opts.sessionId,
       });
       const parsed = extractJson(res.content);
       let matched: AnyGameAction | null = null;
@@ -215,6 +218,7 @@ export class LlmAgent implements GameAgent {
       temperature: this.opts.temperature,
       maxTokens: this.opts.maxTokens,
       timeoutMs: this.opts.timeoutMs,
+      sessionId: this.opts.sessionId,
     };
   }
 
