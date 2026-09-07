@@ -49,11 +49,13 @@ describe('LlmAgent', () => {
     const obs = makeObs();
     // playerId in the answer may differ; matcher keys on type+cardId+playerId —
     // so use the real selfId:
-    responses = [`{"thought":"go","action":{"type":"FLIP_CARD","playerId":"${obs.selfId}","cardId":"c-0"}}`];
+    responses = [`{"summary":"go","factors":["the slot is legal","it improves the visible position"],"action":{"type":"FLIP_CARD","playerId":"${obs.selfId}","cardId":"c-0"}}`];
     requests = 0;
     const agent = new LlmAgent({ baseUrl, model: 'test-model' });
     const d = await agent.decide(obs, { rng: createAgentRng(1) });
     expect(d.action).toMatchObject({ type: 'FLIP_CARD', cardId: 'c-0' });
+    expect(d.thought).toBe('go');
+    expect(d.rationale).toEqual(['the slot is legal', 'it improves the visible position']);
     expect(d.meta?.source).toBe('model');
     expect(d.meta?.attempts?.[0]?.status).toBe('accepted');
     expect(requests).toBe(1);
@@ -93,6 +95,21 @@ describe('LlmAgent', () => {
       await agent.decide(obs, { rng: createAgentRng(1) });
       expect(capturedUser).toContain('LEGAL ACTIONS (pick exactly one id):');
       expect(capturedUser).toMatch(/A0: \{"type":"FLIP_CARD"/);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it('records provider reasoning availability without exposing its text', async () => {
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ choices: [{ message: { content: '{"summary":"choose A0","factors":["legal"],"action_id":"A0"}', reasoning_content: 'hidden provider text' } }] }),
+      { headers: { 'content-type': 'application/json' } },
+    )) as unknown as typeof fetch;
+    try {
+      const d = await new LlmAgent({ baseUrl, model: 'test-model', mode: 'research-strict' }).decide(makeObs(), { rng: createAgentRng(8) });
+      expect(d.meta?.providerReasoningAvailable).toBe(true);
+      expect(JSON.stringify(d)).not.toContain('hidden provider text');
     } finally {
       globalThis.fetch = origFetch;
     }

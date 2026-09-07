@@ -555,7 +555,9 @@ export class Room {
       decisionSource?: string;
       observation?: string;
       candidates?: string[];
-    },
+     rationale?: string[];
+      providerReasoningAvailable?: boolean;
+   },
   ): AiThought | null {
     if (!this.aiDebug) return null;
     const player = this.players.get(playerId);
@@ -571,7 +573,9 @@ export class Room {
       playerId,
       playerName: player.name,
       thought: thought.slice(0, 500),
-      ...(action ? { action } : {}),
+     ...(meta?.rationale?.length ? { rationale: meta.rationale.slice(0, 4).map((item) => item.slice(0, 220)) } : {}),
+      ...(meta?.providerReasoningAvailable ? { providerReasoningAvailable: true } : {}),
+     ...(action ? { action } : {}),
       ...(meta?.executedAction ? { executedAction: meta.executedAction } : {}),
       ...(meta?.failure ? { failure: meta.failure } : {}),
       ...(meta?.latencyMs != null ? { latencyMs: meta.latencyMs } : {}),

@@ -107,7 +107,7 @@ function buildPromptInner(obs: AgentObservation, persona: Persona, candidates: A
     `You are "${persona.label}", a world-class card player in a game night app.`,
     persona.prompt,
     `GAME RULES:\n${RULES_TEXT[obs.gameId]}`,
-    `Respond with ONE json object and nothing else: {"thought": "<=2 sentences of provided rationale", "action_id": "<one candidate id, e.g. A7>"}. Copying the full action object as "action" instead of action_id is also acceptable. The thought is a brief explanation you provide for the move, not hidden chain-of-thought.`,
+    `Respond with ONE json object and nothing else: {"summary": "<=2 sentences explaining the move>", "factors": ["visible fact", "tradeoff or risk"], "action_id": "<one candidate id, e.g. A7>"}. Copying the full action object as "action" instead of action_id is also acceptable. Summary and factors are a brief user-facing decision explanation, not hidden chain-of-thought. Use only facts from the filtered observation and legal actions.`,
     obs.gameId === 'cabo'
       ? 'A FLUSH action is a complete move. If a flush is legal, it appears in LEGAL ACTIONS as FLUSH_OWN or FLUSH_OTHER; choose one of those candidates only when you want to flush. Never describe or submit a planned action that is not listed.'
       : '',
@@ -125,17 +125,27 @@ function buildPromptInner(obs: AgentObservation, persona: Persona, candidates: A
   ];
 }
 
-function extractJson(text: string): { thought?: string; action?: unknown; action_id?: string } | null {
+function extractJson(text: string): { thought?: string; summary?: string; factors?: unknown; action?: unknown; action_id?: string } | null {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   const raw = fenced ? fenced[1]! : text;
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');
   if (start < 0 || end <= start) return null;
   try {
-    return JSON.parse(raw.slice(start, end + 1)) as { thought?: string; action?: unknown };
+    return JSON.parse(raw.slice(start, end + 1)) as { thought?: string; summary?: string; factors?: unknown; action?: unknown; action_id?: string };
   } catch {
     return null;
   }
+}
+
+function normalizeRationale(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const factors = value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim().slice(0, 220))
+    .filter(Boolean)
+    .slice(0, 4);
+  return factors.length > 0 ? factors : undefined;
 }
 
 function restoreActionIds(value: unknown, aliases: Map<string, string>): unknown {
@@ -235,15 +245,18 @@ export class LlmAgent implements GameAgent {
         throw new Error(`unusable model answer: ${res.content.slice(0, 160)}`);
       }
       const action = matched;
-      const thought = parsed ? String(parsed.thought ?? '').slice(0, 300) : undefined;
+      const thought = parsed ? String(parsed.summary ?? parsed.thought ?? '').slice(0, 300) : undefined;
+      const rationale = parsed ? normalizeRationale(parsed.factors) : undefined;
       attempts.push({ attempt, status: 'accepted', latencyMs: Date.now() - attemptStarted, httpStatus: res.httpStatus, finishReason: res.finishReason, promptTokens: res.usage?.promptTokens, completionTokens: res.usage?.completionTokens });
       return {
         action,
         thought: thought || undefined,
+        rationale,
         meta: {
           source: 'model', provider: this.opts.provider, model: this.opts.model,
           attempts, latencyMs: Date.now() - startedAt, promptTokens: res.usage?.promptTokens,
           completionTokens: res.usage?.completionTokens, candidateCount: candidates.length,
+          providerReasoningAvailable: Boolean(res.reasoningContent),
         },
       };
       } catch (err) {

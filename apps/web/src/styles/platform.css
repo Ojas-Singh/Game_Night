@@ -336,9 +336,10 @@ button, .button-link { min-height: 44px; }
   border: 1px solid rgba(255, 220, 160, .2);
   border-radius: 14px;
   color: var(--ink);
-  background: rgba(13, 10, 8, .97);
+  background: linear-gradient(145deg, rgba(25, 34, 27, .78), rgba(13, 10, 8, .68));
   box-shadow: 0 16px 40px rgba(0, 0, 0, .5);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(16px) saturate(125%);
+  -webkit-backdrop-filter: blur(16px) saturate(125%);
 }
 .debug-menu-head {
   display: flex;
@@ -406,6 +407,10 @@ button, .button-link { min-height: 44px; }
 .debug-trace-top { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
 .debug-trace-top span { color: var(--accent-strong); font-size: 10px; }
 .debug-trace p { margin: 5px 0; color: var(--ink); font-size: 11px; line-height: 1.4; }
+.debug-rationale { margin: 7px 0; color: var(--ink-dim); font-size: 10.5px; }
+.debug-rationale summary { cursor: pointer; color: var(--accent-strong); font-weight: 700; }
+.debug-rationale ol { display: grid; gap: 3px; margin: 5px 0 0 16px; padding: 0; line-height: 1.35; }
+.debug-rationale li { padding-left: 2px; }
 .debug-trace small { color: var(--ink-dim); font-size: 10px; }
 .debug-empty { margin: 11px 0 2px; color: var(--ink-dim); font-size: 11px; line-height: 1.45; }
 

@@ -56,7 +56,14 @@ function Trace({ thought }: { thought: AiThought }) {
     <li className={`debug-trace ${thought.status}`}>
       <div className="debug-trace-top"><strong>{thought.playerName}</strong><span>{thought.status === 'thinking' ? 'deciding…' : thought.status === 'executed' ? 'executed' : thought.status === 'failed' ? 'failed' : thought.action ?? 'decision'}</span></div>
       <p>{thought.thought}</p>
-      <small>{thought.source}{thought.decisionSource ? ` · ${thought.decisionSource}` : ''}{thought.latencyMs != null ? ` · ${thought.latencyMs}ms` : ''}{thought.attempts != null ? ` · ${thought.attempts} attempt${thought.attempts === 1 ? '' : 's'}` : ''}{thought.failure ? ` · ${thought.failure}` : ''}</small>
+      {thought.rationale && thought.rationale.length > 0 && (
+        <details className="debug-rationale" open={thought.status === 'decision'}>
+          <summary>Decision breakdown</summary>
+          <ol>{thought.rationale.map((factor, index) => <li key={`${thought.id}-factor-${index}`}>{factor}</li>)}</ol>
+        </details>
+      )}
+     <small>{thought.source}{thought.decisionSource ? ` · ${thought.decisionSource}` : ''}{thought.latencyMs != null ? ` · ${thought.latencyMs}ms` : ''}{thought.attempts != null ? ` · ${thought.attempts} attempt${thought.attempts === 1 ? '' : 's'}` : ''}{thought.failure ? ` · ${thought.failure}` : ''}</small>
+      {thought.providerReasoningAvailable && <small>Provider reasoning field received; hidden text omitted.</small>}
       {thought.executedAction && thought.status !== 'executed' && <small>Executed: {thought.executedAction}</small>}
       {thought.candidates && <details className="debug-detail"><summary>Model input · {thought.candidates.length} candidates</summary><pre>{thought.candidates.join('\n')}</pre>{thought.observation && <pre>{thought.observation}</pre>}</details>}
     </li>

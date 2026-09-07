@@ -271,7 +271,9 @@ export class AgentLoops {
           failure: decision.meta?.failure,
           latencyMs: decision.meta?.latencyMs,
           attempts: decision.meta?.attempts?.length,
-          observation: JSON.stringify(view),
+         rationale: decision.rationale,
+          providerReasoningAvailable: decision.meta?.providerReasoningAvailable,
+         observation: JSON.stringify(view),
           candidates: legalCandidates.map((candidate) => JSON.stringify(candidate)),
         });
         if (trace) await this.broadcaster.aiThought?.(room, trace);

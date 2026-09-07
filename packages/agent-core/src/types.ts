@@ -67,14 +67,18 @@ export interface AgentDecisionMeta {
   failure?: AgentFailureKind;
   latencyMs?: number;
   promptTokens?: number;
-  completionTokens?: number;
-  candidateCount?: number;
+ completionTokens?: number;
+  /** Whether the provider returned a separate reasoning field; its text is never surfaced. */
+  providerReasoningAvailable?: boolean;
+ candidateCount?: number;
 }
 
 export interface AgentDecision {
   action: AnyGameAction;
-  /** Short reasoning trace ("I keep the 4 and discard…"). Logged when present. */
+  /** Short model-provided rationale, never hidden chain-of-thought. */
   thought?: string;
+  /** Optional visible decision breakdown grounded in the filtered observation. */
+  rationale?: string[];
   /** Auditable execution metadata. Never contains provider credentials or hidden state. */
   meta?: AgentDecisionMeta;
 }

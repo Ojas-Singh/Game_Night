@@ -124,7 +124,10 @@ export interface AiThought {
   playerId: string;
   playerName: string;
   thought: string;
-  action?: string;
+  /** Model-provided decision factors; never provider hidden reasoning. */
+ rationale?: string[];
+  providerReasoningAvailable?: boolean;
+ action?: string;
   source: string;
   model?: string;
   executedAction?: string;
