@@ -342,19 +342,13 @@ export default function LobbyView({ room }: { room: RoomApi }) {
           <div className="avatar-editor">
             <Avatar avatar={avatar} size={84} ring />
             <div className="avatar-options">
-              <div className="swatch-row">
-                {AVATAR_COLORS.map((hex, i) => (
-                  <button
-                    key={hex}
-                    className={`swatch ${avatar.color === i ? 'sel' : ''}`}
-                    style={{ background: hex }}
-                    onClick={() => customize({ color: i })}
-                    aria-label={`Color ${i + 1}`}
-                    aria-pressed={avatar.color === i}
-                    title={`Color ${i + 1}`}
-                  />
-                ))}
-              </div>
+              <PickerRow
+                label="Color"
+                options={AVATAR_COLORS.map((_, i) => `Color ${i + 1}`)}
+                sel={avatar.color}
+                onPick={(i) => customize({ color: i })}
+                renderCurrent={(_, i) => <span className="picker-color" style={{ background: AVATAR_COLORS[i] }} />}
+              />
               <PickerRow label="Eyes" options={EYE_STYLES} sel={avatar.eyes} onPick={(i) => customize({ eyes: i })} />
               <PickerRow label="Mouth" options={MOUTH_STYLES} sel={avatar.mouth} onPick={(i) => customize({ mouth: i })} />
               <PickerRow label="Hat" options={HAT_STYLES} sel={avatar.hat} onPick={(i) => customize({ hat: i })} />
@@ -446,27 +440,45 @@ function PickerRow({
   options,
   sel,
   onPick,
+  renderCurrent,
 }: {
   label: string;
   options: readonly string[];
   sel: number;
   onPick: (i: number) => void;
+  renderCurrent?: (option: string, index: number) => React.ReactNode;
 }) {
+  const index = options.length > 0 ? ((sel % options.length) + options.length) % options.length : 0;
+  const current = options[index] ?? 'None';
+  const previous = options.length > 0 ? (index - 1 + options.length) % options.length : 0;
+  const next = options.length > 0 ? (index + 1) % options.length : 0;
   return (
     <div className="picker-row">
       <span className="picker-label">{label}</span>
       <div className="picker-options">
-        {options.map((opt, i) => (
-          <button
-            key={opt}
-            className={`picker-opt ${sel === i ? 'sel' : ''}`}
-            onClick={() => onPick(i)}
-            title={opt}
-            aria-pressed={sel === i}
-          >
-            {opt}
-          </button>
-        ))}
+        <button
+          type="button"
+          className="picker-arrow"
+          onClick={() => onPick(previous)}
+          aria-label={`Previous ${label.toLowerCase()}`}
+          title={`Previous ${label.toLowerCase()}`}
+          disabled={options.length < 2}
+        >
+          ‹
+        </button>
+        <span className="picker-current" aria-live="polite">
+          {renderCurrent ? renderCurrent(current, index) : current}
+        </span>
+        <button
+          type="button"
+          className="picker-arrow"
+          onClick={() => onPick(next)}
+          aria-label={`Next ${label.toLowerCase()}`}
+          title={`Next ${label.toLowerCase()}`}
+          disabled={options.length < 2}
+        >
+          ›
+        </button>
       </div>
     </div>
   );

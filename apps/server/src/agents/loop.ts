@@ -29,6 +29,7 @@ import type { Room } from '../room.js';
 import { RoomError } from '../room.js';
 import { config } from '../config.js';
 import { log } from '../log.js';
+import type { AiThought } from '../protocol.js';
 
 const DEFAULT_MIN_THINK_MS = 700;
 const DEFAULT_MAX_THINK_MS = 2200;
@@ -36,6 +37,8 @@ const DEFAULT_MAX_THINK_MS = 2200;
 export interface AgentBroadcaster {
   /** Re-broadcast lobby + game views + persist (same as human actions). */
   afterChange(room: Room): void | Promise<void>;
+  /** Send host-only AI debug traces while a model is thinking/acting. */
+  aiThought?(room: Room, thought: AiThought): void | Promise<void>;
 }
 
 export interface AgentLoopOptions {
@@ -144,6 +147,10 @@ export class AgentLoops {
       const aiIds = [...room.players.values()]
         .filter((p) => p.kind === 'ai')
         .map((p) => p.id);
+      const solver = {
+        label: 'RuleZero AI',
+        describe: () => ({ kind: 'solver', model: 'CFR / random OpenSpiel seat' }),
+      };
 
       for (let attempt = 0; attempt < 24; attempt++) {
         if (room.closed || engine.isGameFinished()) return;
@@ -154,8 +161,18 @@ export class AgentLoops {
           continue;
         }
         if (!aiIds.includes(actor)) return; // humans turn — done pumping
+        const thinking = room.recordAiThought(actor, solver, 'thinking', 'Evaluating the legal actions from the current information state…');
+        if (thinking) await this.broadcaster.aiThought?.(room, thinking);
         const pick = await engine.chooseAiAction(actor);
         if (pick === null) return;
+        const trace = room.recordAiThought(
+          actor,
+          solver,
+          'decision',
+          pick === -1 ? 'The solver advanced the service through a chance step.' : 'The solver selected a legal action from the service policy.',
+          pick === -1 ? 'CHANCE' : `ACTION_${pick}`,
+        );
+        if (trace) await this.broadcaster.aiThought?.(room, trace);
         if (pick === -1) continue; // chance resolved; keep pumping
         await room.runCommand(async () => {
           if (room.engine !== engine) return;
@@ -225,10 +242,17 @@ export class AgentLoops {
       const obs = { gameId: view.gameId, selfId: aiId, view, step: 0 };
       const rng = createAgentRng(randomBytes(4).readUInt32BE(0));
       let action;
+      const agent = this.agentFor(room, aiId);
+      const thinking = room.recordAiThought(aiId, agent, 'thinking', 'Reviewing the visible table…');
+      if (thinking) await this.broadcaster.aiThought?.(room, thinking);
       try {
-        const decision = await this.agentFor(room, aiId).decide(obs, { rng });
+        const decision = await agent.decide(obs, { rng });
         action = decision.action;
+        const trace = room.recordAiThought(aiId, agent, 'decision', decision.thought ?? 'Selected a legal move.', action.type);
+        if (trace) await this.broadcaster.aiThought?.(room, trace);
       } catch (err) {
+        const trace = room.recordAiThought(aiId, agent, 'decision', `The agent failed, so the table used a safe fallback: ${String(err).slice(0, 180)}`);
+        if (trace) await this.broadcaster.aiThought?.(room, trace);
         log.warn('ai_agent_error', { roomId: room.id, aiId, error: String(err).slice(0, 120) });
       }
       if (!action) {

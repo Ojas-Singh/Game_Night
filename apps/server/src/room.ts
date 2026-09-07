@@ -12,7 +12,7 @@ import { RuleZeroEngine, type RuleZeroPlayerView } from './rulezeroEngine.js';
 import { takeRulezeroSpec } from './gameLab.js';
 import { PairOneEngine, type PairOnePlayerView } from '@game-night/engine-pairone';
 import { SeepEngine, type SeepPlayerView, type SeepState } from '@game-night/engine-seep';
-import type { ChatMessage, LobbyPlayer, RoomLobbyState } from './protocol.js';
+import type { AiThought, ChatMessage, LobbyPlayer, RoomLobbyState } from './protocol.js';
 import { isValidAvatar, randomAvatar, type Avatar } from './protocol.js';
 import { log } from './log.js';
 
@@ -160,6 +160,9 @@ export class Room {
   /** Test Mode: reveal every card's value to all players so anyone can watch
    *  the full flow. Purely a debugging/test aid — off by default. */
   testMode = false;
+  /** Host-only live AI reasoning panel. Never included in non-host views. */
+  aiDebug = false;
+  aiThoughts: AiThought[] = [];
   debug: RoomDebug;
   private reconnectGraceMs: number;
   private chatSeq = 0;
@@ -185,6 +188,7 @@ export class Room {
     for (const p of snap.spectators ?? []) room.spectators.set(p.id, { ...p, sockets: new Set(), connected: false });
     room.roundScored = snap.roundScored ?? false;
     room.testMode = snap.testMode ?? false;
+    room.aiDebug = snap.aiDebug ?? false;
     room.debug = snap.debug ?? {};
     for (const sp of snap.players) {
       room.players.set(sp.id, {
@@ -531,6 +535,40 @@ export class Room {
     this.system(enabled ? 'TEST MODE ON — all cards revealed' : 'TEST MODE OFF');
   }
 
+  setAiDebug(playerId: string, enabled: boolean): void {
+    if (playerId !== this.hostId) throw new RoomError('only the host can toggle AI debug');
+    this.aiDebug = enabled;
+    if (!enabled) this.aiThoughts = [];
+  }
+
+  recordAiThought(
+    playerId: string,
+    agent: { label: string; describe?: () => Record<string, unknown> },
+    status: AiThought['status'],
+    thought: string,
+    action?: string,
+  ): AiThought | null {
+    if (!this.aiDebug) return null;
+    const player = this.players.get(playerId);
+    if (!player) return null;
+    const description = agent.describe?.() ?? {};
+    const kind = description.kind === 'llm' ? 'LLM' : description.kind === 'solver' ? 'Solver' : 'Heuristic';
+    const model = typeof description.model === 'string' ? description.model : undefined;
+    const entry: AiThought = {
+      id: randomUUID(),
+      status,
+      at: new Date().toISOString(),
+      playerId,
+      playerName: player.name,
+      thought: thought.slice(0, 500),
+      ...(action ? { action } : {}),
+      source: model ? `${kind} · ${model}` : `${kind} · ${agent.label}`,
+      ...(model ? { model } : {}),
+    };
+    this.aiThoughts = [...this.aiThoughts, entry].slice(-80);
+    return entry;
+  }
+
   /** Host restarts the round at ANY time: fresh deal, scoreboard preserved. */
   restartGame(playerId: string): void {
     if (playerId !== this.hostId) throw new RoomError('only the host can restart the game');
@@ -650,6 +688,7 @@ export class Room {
       hostId: this.hostId ?? '',
       scoreboard: this.getScoreboard(),
       testMode: this.testMode,
+      aiDebug: this.aiDebug,
     };
   }
 

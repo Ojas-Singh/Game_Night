@@ -15,6 +15,7 @@ import EmotePicker from '../EmotePicker.js';
 import FloatingEmote from './FloatingEmote.js';
 import InfoModal from './InfoModal.js';
 import Avatar from './Avatar.js';
+import DebugControls from './DebugControls.js';
 
 /**
  * The round-table experience. The local player always sits at the bottom;
@@ -472,7 +473,7 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
       <div className={`status-banner ${guidance.urgent ? 'urgent' : ''}`}>
         {guidance.text}
       </div>
-      {/* Test Mode — reveals every card so you can verify the flow. */}
+      {/* Host debug menu combines Test Mode with live AI reasoning. */}
       {room.testMode && <div className="test-banner">TEST MODE — all cards revealed</div>}
       {/* CABO! — full-screen announcement with page flash + shake. */}
       {room.caboAnnounce && Date.now() - room.caboAnnounce.at < 3000 && (
@@ -488,16 +489,7 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
         const f = room.peekFlash[id];
         return f && f.ms >= 9000 && Date.now() - f.at < f.ms;
       }) && <div className="memorize-note">👁 Remember your bottom two cards!</div>}
-      {room.lobby?.hostId === room.myPlayerId && (
-        <button
-          className={`test-toggle ${room.testMode ? 'on' : ''}`}
-          onClick={() => room.setTestMode(!room.testMode)}
-          title={room.testMode ? 'Turn off Test Mode' : 'Turn on Test Mode (see every card)'}
-          aria-label="Toggle Test Mode"
-        >
-          {room.testMode ? 'TEST ON' : 'TEST'}
-        </button>
-      )}
+      <DebugControls room={room} />
       {(() => {
         const isHost = room.lobby?.hostId === room.myPlayerId;
         const inGame = !!view.gameId;

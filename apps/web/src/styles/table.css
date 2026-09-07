@@ -2062,32 +2062,6 @@
   box-shadow: var(--shadow-card);
 }
 
-/* Test Mode toggle (host-only) — bottom-left, clear of the control stack. */
-.test-toggle {
-  position: absolute;
-  left: 18px;
-  bottom: 18px;
-  z-index: 35;
-  width: 56px;
-  height: 42px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  padding: 0;
-  background: rgba(23, 17, 12, 0.85);
-  color: var(--ink-dim);
-  border: 1px solid rgba(255, 220, 160, 0.12);
-  box-shadow: var(--shadow-card);
-}
-.test-toggle:hover {
-  color: var(--ink);
-}
-.test-toggle.on {
-  background: rgba(20, 120, 110, 0.85);
-  border-color: rgba(92, 214, 200, 0.6);
-  color: #d9fff9;
-}
 .memorize-note {
   position: absolute;
   top: 64px;
@@ -2393,7 +2367,6 @@
   .sound-toggle { width: 36px; height: 36px; left: 12px; right: auto; bottom: 102px; }
   .info-toggle { width: 36px; height: 36px; left: 12px; right: auto; bottom: 146px; }
   .info-card { max-height: 90vh; }
-  .test-toggle { left: 10px; bottom: 10px; width: 50px; height: 38px; font-size: 11px; }
   .memorize-note {
   position: absolute;
   top: 64px;

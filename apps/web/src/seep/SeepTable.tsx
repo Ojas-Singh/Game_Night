@@ -16,6 +16,7 @@ import EmotePicker from '../EmotePicker.js';
 import FloatingEmote from '../table/FloatingEmote.js';
 import InfoModal from '../table/InfoModal.js';
 import Avatar from '../table/Avatar.js';
+import DebugControls from '../table/DebugControls.js';
 
 /**
  * The Seep table. Same physical room as Cabo — ellipse felt, seats around
@@ -338,16 +339,7 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
         const isHost = room.lobby?.hostId === room.myPlayerId;
         return (
           <>
-            {isHost && (
-              <button
-                className={`test-toggle ${room.testMode ? 'on' : ''}`}
-                onClick={() => room.setTestMode(!room.testMode)}
-                title={room.testMode ? 'Turn off Test Mode' : 'Turn on Test Mode (see every card)'}
-                aria-label="Toggle Test Mode"
-              >
-                {room.testMode ? 'TEST ON' : 'TEST'}
-              </button>
-            )}
+            <DebugControls room={room} />
             {isHost && (
               <button
                 className="restart-toggle"

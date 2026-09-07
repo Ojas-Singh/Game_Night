@@ -194,15 +194,85 @@ button, .button-link { min-height: 44px; }
 .lab-discovery { background: linear-gradient(150deg, #3c3120, #201a12); }.lab-discovery .game-card-art { color: var(--accent-strong); }.lab-discovery p { max-width: 280px; }
 .home-footer { display: flex; justify-content: space-between; gap: 18px; padding-top: 22px; border-top: 1px solid rgba(255, 220, 160, .1); color: var(--ink-dim); font-size: 11px; }
 
-/* The compact avatar controls need their own dimensions; the global 44px
-   touch-target rule otherwise turns swatches and pills into tall columns. */
-.avatar-panel .avatar-editor { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: start; gap: 14px; }
-.avatar-panel .avatar-options { min-width: 0; }
-.avatar-panel .swatch { min-height: 22px; height: 22px; }
-.avatar-panel .picker-row { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: start; gap: 6px; }
-.avatar-panel .picker-label { padding-top: 7px; }
-.avatar-panel .picker-options { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
-.avatar-panel .picker-opt { min-height: 30px; padding: 3px 8px; }
+/* Compact, left/right avatar carousels. The global 44px touch-target rule is
+   useful for room actions, but it makes a small character editor feel airy. */
+.avatar-panel .avatar-editor {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+.avatar-panel .avatar-options {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 7px;
+  border: 1px solid rgba(255, 220, 160, .12);
+  border-radius: 12px;
+  background: rgba(8, 14, 10, .34);
+}
+.avatar-panel .picker-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+.avatar-panel .picker-label {
+  color: var(--ink-dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.avatar-panel .picker-options {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.avatar-panel .picker-arrow {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 1px solid rgba(255, 220, 160, .18);
+  border-radius: 8px;
+  color: var(--accent-strong);
+  background: rgba(255, 255, 255, .06);
+  font-size: 22px;
+  line-height: 1;
+}
+.avatar-panel .picker-arrow:hover:not(:disabled) { background: rgba(232, 165, 75, .16); }
+.avatar-panel .picker-arrow:disabled { cursor: default; opacity: .45; }
+.avatar-panel .picker-current {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 3px 7px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 220, 160, .12);
+  border-radius: 8px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, .035);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.avatar-panel .picker-color {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  border: 2px solid rgba(255, 255, 255, .56);
+  border-radius: 50%;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .35);
+}
 .lab-rules-label { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 12px; }
 .lab-rules-label label { font-weight: 700; }.lab-rules-label > span { color: var(--ink-dim); font-size: 12px; }.lab-reset-example { min-height: 30px; margin-left: auto; padding: 5px 10px; border: 1px solid var(--tk-border); background: rgba(255,255,255,.06); color: var(--accent-strong); box-shadow: none; font-size: 11px; }
 
@@ -218,6 +288,135 @@ button, .button-link { min-height: 44px; }
   .home-card { padding: 16px; }.home-action-heading { align-items: flex-start; flex-direction: column; gap: 3px; }.home-form, .home-join { flex-direction: column; }.home-form button, .home-join button { width: 100%; }
   .home-stage { min-height: 350px; }.home-stage-table { width: 88%; border-width: 10px; }.stage-card { width: 52px; height: 74px; font-size: 23px; }.stage-card-face span { font-size: 30px; }.stage-card-diamond { width: 40px; height: 58px; }.stage-table-center strong { font-size: 18px; }.stage-seat-a { top: 3%; }.stage-seat-c { bottom: 12%; }
   .home-section-heading { display: block; }.home-section-heading > p { margin-top: 12px; }.home-discovery { padding-top: 10px; }.home-footer { display: grid; gap: 5px; }
-  .avatar-panel .avatar-editor { grid-template-columns: 76px minmax(0, 1fr); gap: 10px; }.avatar-panel .avatar-editor > .avatar { transform: scale(.88); transform-origin: top left; }
+  .avatar-panel .avatar-editor { grid-template-columns: 70px minmax(0, 1fr); gap: 8px; }.avatar-panel .avatar-editor > .avatar { transform: scale(.82); transform-origin: top left; }
   .lab-rules-label > span { flex: 1 1 100%; }.lab-reset-example { margin-left: 0; }
+}
+
+/* -------------------------------------------------------------------------
+   Live-table controls
+   Action controls use the same quiet rounded-rectangle language as the
+   lobby. Circular treatment stays reserved for icon-only controls and
+   avatars, so the table no longer reads as a field of pills.
+--------------------------------------------------------------------------- */
+.table-room .debug-toggle {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  z-index: 35;
+  width: auto;
+  min-width: 78px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 220, 160, .18);
+  border-radius: 10px;
+  color: var(--ink-dim);
+  background: rgba(23, 17, 12, .88);
+  box-shadow: var(--shadow-card);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+.table-room .debug-toggle:hover,
+.table-room .debug-toggle.on { color: var(--ink); }
+.table-room .debug-toggle.on {
+  border-color: rgba(92, 214, 200, .6);
+  background: rgba(20, 120, 110, .86);
+  color: #d9fff9;
+}
+.table-room .debug-menu {
+  position: absolute;
+  left: 18px;
+  bottom: 70px;
+  z-index: 75;
+  width: min(380px, calc(100vw - 36px));
+  max-height: min(72vh, 560px);
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid rgba(255, 220, 160, .2);
+  border-radius: 14px;
+  color: var(--ink);
+  background: rgba(13, 10, 8, .97);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .5);
+  backdrop-filter: blur(12px);
+}
+.debug-menu-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.debug-menu-head strong,
+.debug-menu-head small,
+.debug-option strong,
+.debug-option small { display: block; }
+.debug-menu-head strong { font-size: 14px; }
+.debug-menu-head small,
+.debug-option small { margin-top: 3px; color: var(--ink-dim); font-size: 11px; line-height: 1.35; }
+.debug-menu-close {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: 1px solid rgba(255, 220, 160, .16);
+  border-radius: 8px;
+  color: var(--ink-dim);
+  background: rgba(255, 255, 255, .06);
+  font-size: 20px;
+  line-height: 1;
+}
+.debug-option {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 9px 0;
+  border-top: 1px solid rgba(255, 220, 160, .1);
+  cursor: pointer;
+}
+.debug-option input { width: 17px; height: 17px; margin: 1px 0 0; accent-color: var(--accent); }
+.debug-option strong { font-size: 12px; }
+.debug-trace-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(255, 220, 160, .1);
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.debug-traces { display: grid; gap: 7px; padding: 9px 0 0; margin: 0; list-style: none; }
+.debug-trace {
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 220, 160, .12);
+  border-left: 3px solid rgba(232, 165, 75, .5);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .035);
+}
+.debug-trace.thinking { border-left-color: rgba(120, 190, 255, .7); }
+.debug-trace-top { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
+.debug-trace-top span { color: var(--accent-strong); font-size: 10px; }
+.debug-trace p { margin: 5px 0; color: var(--ink); font-size: 11px; line-height: 1.4; }
+.debug-trace small { color: var(--ink-dim); font-size: 10px; }
+.debug-empty { margin: 11px 0 2px; color: var(--ink-dim); font-size: 11px; line-height: 1.45; }
+
+.table-room .draw-discard-btn,
+.table-room .end-turn-btn,
+.table-room .seep-act,
+.table-room .round-actions button {
+  border-radius: 10px;
+}
+.table-room .draw-discard-btn { min-height: 36px; }
+.table-room .end-turn-btn { min-height: 42px; }
+.table-room .seep-act { min-height: 42px; padding: 9px 13px; }
+
+@media (max-width: 720px) {
+  .table-room .debug-toggle { left: 10px; bottom: 10px; min-width: 72px; height: 38px; min-height: 38px; }
+  .table-room .debug-menu { left: 10px; bottom: 58px; width: min(360px, calc(100vw - 20px)); }
 }

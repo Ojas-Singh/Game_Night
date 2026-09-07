@@ -31,6 +31,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
     state.spectator = !!forPlayerId && room.spectators.has(forPlayerId);
     if (forPlayerId) {
       state.players = state.players.map((p) => ({ ...p, isYou: p.id === forPlayerId }));
+      if (forPlayerId === room.hostId) state.aiThoughts = room.aiThoughts;
     }
     return state;
   };
@@ -72,7 +73,14 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
   };
 
   // AI seats are driven here: the loop re-enters through afterChange.
-  const agents = new AgentLoops(io, { afterChange: (room) => afterChange(room) });
+  const agents = new AgentLoops(io, {
+    afterChange: (room) => afterChange(room),
+    aiThought: (room, thought) => {
+      const host = room.hostId ? room.players.get(room.hostId) : undefined;
+      if (!host) return;
+      for (const sid of host.sockets) io.to(sid).emit('room:ai_thought', thought);
+    },
+  });
   const afterChange = async (room: Room): Promise<void> => {
     await persistRoom(room);
     broadcastLobby(room);
@@ -294,6 +302,17 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         persistRoom(room);
       } catch (err) {
         log.warn('set_test_mode_failed', { error: msg(err) });
+      }
+    });
+
+    socket.on('room:set_ai_debug', ({ enabled }) => {
+      try {
+        const { room, playerId } = requireRoom();
+        room.setAiDebug(playerId, !!enabled);
+        broadcastLobby(room);
+        persistRoom(room);
+      } catch (err) {
+        log.warn('set_ai_debug_failed', { error: msg(err) });
       }
     });
 

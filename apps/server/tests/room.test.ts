@@ -194,6 +194,29 @@ describe('Room', () => {
     expect(other.color).toBeLessThan(12);
   });
 
+  it('keeps AI debug traces host-only and clears them when disabled', () => {
+    const room = new Room({ roomId: 'AIDEBUG' });
+    const { player: host } = room.addPlayer('Host');
+    const { player: guest } = room.addPlayer('Guest');
+    const ai = room.addAiPlayer(host.id, 'scholar');
+    expect(() => room.setAiDebug(guest.id, true)).toThrow(/host/);
+
+    room.setAiDebug(host.id, true);
+    const trace = room.recordAiThought(
+      ai.id,
+      { label: 'Cabo Scholar', describe: () => ({ kind: 'llm', model: 'test-model' }) },
+      'decision',
+      'Choosing a safe discard',
+      'DISCARD_DRAWN',
+    );
+    expect(trace?.source).toBe('LLM · test-model');
+    expect(room.lobbyState().aiThoughts).toBeUndefined();
+    expect(room.aiThoughts).toHaveLength(1);
+
+    room.setAiDebug(host.id, false);
+    expect(room.aiThoughts).toHaveLength(0);
+  });
+
   it('supports Pair One: host selects it, start deals the 52-card single-deck grid', () => {
     const room = new Room({ roomId: 'PAIR01' });
     const { player: p1 } = room.addPlayer('A');

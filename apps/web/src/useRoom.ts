@@ -10,7 +10,7 @@ import type { PairOnePlayerView } from '@pairone/views.js';
 import type { PairOneAction } from '@pairone/types.js';
 import type { SeepAction } from '@seep/types.js';
 import type { AnyGameView, CaboPlayerView } from './server-protocol.js';
-import type { ChatMessage, JoinResult, RoomLobbyState } from './server-protocol.js';
+import type { AiThought, ChatMessage, JoinResult, RoomLobbyState } from './server-protocol.js';
 import type { CaboAction } from '@cabo/types.js';
 import { collectSeepFlights } from './seep/flights.js';
 import { playSound } from './sound.js';
@@ -364,6 +364,8 @@ export interface RoomApi {
   /** Test Mode: the server reveals every card to everyone (debug/test aid). */
   testMode: boolean;
   setTestMode: (enabled: boolean) => void;
+  /** Host-only debug switch for live AI thoughts. */
+  setAiDebug: (enabled: boolean) => void;
   /** Host aborts the running game; everyone returns to the lobby. */
   endGame: () => void;
   /** Host hands a mid-game seat to the autopilot bot. */
@@ -657,7 +659,14 @@ export function useRoom(): RoomApi {
     const onEmote = ({ playerId, emote }: { playerId: string; emote: string }) => {
       setEmotes((prev) => ({ ...prev, [playerId]: { emote, at: Date.now() } }));
     };
+    const onAiThought = (thought: AiThought) => {
+      setLobby((prev) => {
+        if (!prev || prev.hostId !== myIdRef.current) return prev;
+        return { ...prev, aiThoughts: [...(prev.aiThoughts ?? []), thought].slice(-80) };
+      });
+    };
     socket.on('room:emote', onEmote);
+    socket.on('room:ai_thought', onAiThought);
     socket.on('room:closed', ({ reason }) => {
       // Fully detach: clear the stored session so the reconnect path can't
       // silently re-join a room we were kicked from (or that was deleted).
@@ -679,6 +688,7 @@ export function useRoom(): RoomApi {
       socket.off('room:chat', onChat);
       socket.off('game:view', onView);
       socket.off('room:emote', onEmote);
+      socket.off('room:ai_thought', onAiThought);
       socket.off('room:closed');
     };
   }, [socket]);
@@ -778,6 +788,7 @@ export function useRoom(): RoomApi {
       selectGame: (gameId: string) => socketRef.current?.emit('room:select_game', { gameId }),
       testMode,
       setTestMode: (enabled: boolean) => socketRef.current?.emit('room:set_test_mode', { enabled }),
+      setAiDebug: (enabled: boolean) => socketRef.current?.emit('room:set_ai_debug', { enabled }),
       endGame: () => socketRef.current?.emit('room:end_game', undefined),
       kickLive: (playerId) => socketRef.current?.emit('room:kick_live', { playerId }),
       startGame: () =>

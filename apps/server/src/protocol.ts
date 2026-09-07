@@ -69,6 +69,7 @@ export interface ClientEvents {
   'room:return_to_lobby': () => void;
   'room:restart_game': (payload: {}, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:play_again': (payload: {}, ack: (res: { ok: boolean; error?: string }) => void) => void;
+  'room:set_ai_debug': (payload: { enabled: boolean }) => void;
 }
 
 export interface JoinResult {
@@ -110,6 +111,22 @@ export interface RoomLobbyState {
   /** Host-selected optional 5–6 "swap others" power. */
   /** Test Mode: all cards revealed to everyone (debug/test aid). */
   testMode: boolean;
+  /** Host-only debug switch for live AI decision traces. */
+  aiDebug: boolean;
+  /** Recent AI traces are sent only to the host's socket. */
+  aiThoughts?: AiThought[];
+}
+
+export interface AiThought {
+  id: string;
+  status: 'thinking' | 'decision';
+  at: string;
+  playerId: string;
+  playerName: string;
+  thought: string;
+  action?: string;
+  source: string;
+  model?: string;
 }
 
 export interface ChatMessage {
@@ -127,4 +144,5 @@ export interface ServerEvents {
   'room:emote': (payload: { playerId: string; emote: string; timestamp: string }) => void;
   'game:view': (view: AnyGameView | { spectator: true }) => void;
   'room:closed': (payload: { reason: string }) => void;
+  'room:ai_thought': (thought: AiThought) => void;
 }

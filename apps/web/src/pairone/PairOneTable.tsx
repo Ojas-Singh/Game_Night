@@ -11,6 +11,7 @@ import ChatPanel from '../chat/ChatPanel.js';
 import SoundToggle from '../SoundToggle.js';
 import EmotePicker from '../EmotePicker.js';
 import { playSound } from '../sound.js';
+import DebugControls from '../table/DebugControls.js';
 
 type Props = { room: RoomApi; view: PairOnePlayerView };
 
@@ -319,6 +320,7 @@ export default function PairOneTable({ room, view }: Props) {
       >
         🚪
       </button>
+      <DebugControls room={room} />
       {isHost && (
         <button
           className="restart-toggle"

@@ -90,6 +90,20 @@ export interface RoomLobbyState {
   hostId: string;
   scoreboard: Record<string, number>;
   testMode: boolean;
+  aiDebug: boolean;
+  aiThoughts?: AiThought[];
+}
+
+export interface AiThought {
+  id: string;
+  status: 'thinking' | 'decision';
+  at: string;
+  playerId: string;
+  playerName: string;
+  thought: string;
+  action?: string;
+  source: string;
+  model?: string;
 }
 
 export interface ChatMessage {
@@ -120,6 +134,7 @@ export type ClientToServerEvents = {
   'room:return_to_lobby': () => void;
   'room:restart_game': (payload: Record<string, never>, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:play_again': (payload: Record<string, never>, ack: (res: { ok: boolean; error?: string }) => void) => void;
+  'room:set_ai_debug': (payload: { enabled: boolean }) => void;
 };
 
 export type ServerToClientEvents = {
@@ -128,6 +143,7 @@ export type ServerToClientEvents = {
   'room:emote': (payload: { playerId: string; emote: string; timestamp: string }) => void;
   'game:view': (view: AnyGameView) => void;
   'room:closed': (payload: { reason: string }) => void;
+  'room:ai_thought': (thought: AiThought) => void;
 };
 
 export type { GameAction, CaboPlayerView, PairOnePlayerView, SeepPlayerView };
