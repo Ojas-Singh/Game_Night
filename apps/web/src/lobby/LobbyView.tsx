@@ -455,17 +455,19 @@ function PickerRow({
   return (
     <div className="picker-row">
       <span className="picker-label">{label}</span>
-      {options.map((opt, i) => (
-        <button
-          key={opt}
-          className={`picker-opt ${sel === i ? 'sel' : ''}`}
-          onClick={() => onPick(i)}
-          title={opt}
-          aria-pressed={sel === i}
-        >
-          {opt}
-        </button>
-      ))}
+      <div className="picker-options">
+        {options.map((opt, i) => (
+          <button
+            key={opt}
+            className={`picker-opt ${sel === i ? 'sel' : ''}`}
+            onClick={() => onPick(i)}
+            title={opt}
+            aria-pressed={sel === i}
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

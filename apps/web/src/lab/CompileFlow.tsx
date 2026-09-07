@@ -7,8 +7,19 @@ type Job = {
   validation?: { episodes: number; reached_terminal: number; exhaustive: boolean };
 };
 
+const EXAMPLE_RULES = `High Card Duel
+
+Two players play a short, competitive card game with a standard deck containing
+one copy of ranks 1 through 10. Deal five cards face down to each player and
+place the rest in a public draw pile. Players take turns, starting with player
+1. On your turn, draw the top card, then choose exactly one card from your hand
+to reveal and score. Discard the scored card face up. After both players have
+completed five turns, the player with the higher total score wins. If the totals
+are tied, split the win evenly. A player may never see an opponent's unrevealed
+cards. The game ends immediately after the second player's fifth turn.`;
+
 export default function CompileFlow({ onLaunch }: { onLaunch: (shareId: string, ai: boolean) => Promise<void> }) {
-  const [text, setText] = useState('');
+  const [text, setText] = useState(EXAMPLE_RULES);
   const [job, setJob] = useState<Job | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [acknowledged, setAcknowledged] = useState(false);
@@ -43,10 +54,17 @@ export default function CompileFlow({ onLaunch }: { onLaunch: (shareId: string, 
     setShareId(r.shareId);
     return r.shareId;
   }
+  function loadExample() {
+    setText(EXAMPLE_RULES);
+    setJob(null);
+    setAnswers({});
+    setShareId('');
+    setError('');
+  }
   return <section className="lab-create" aria-labelledby="create-title">
     <div><p className="eyebrow">FROM YOUR IMAGINATION TO THE TABLE</p><h2 id="create-title">Make a game of it.</h2>
       <p className="muted">Describe a sequential card game. Review its rules, answer any questions, then invite your friends.</p></div>
-    <label htmlFor="rules">Your game rules</label>
+    <div className="lab-rules-label"><label htmlFor="rules">Your game rules</label><span>Try the example below, or replace it with your own idea.</span><button type="button" className="lab-reset-example" onClick={loadExample}>Load example</button></div>
     <textarea id="rules" rows={6} maxLength={16000} value={text} onChange={e => setText(e.target.value)}
       placeholder="How many players? What cards do they receive? What can they do on a turn, and how does someone win?" />
     <button disabled={busy || !!pending || !text.trim()} onClick={() => void run(() => submit())}>Create game</button>
