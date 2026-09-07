@@ -77,7 +77,10 @@ export async function chat(opts: ChatOptions): Promise<ChatResult> {
         model: opts.model,
         messages: opts.messages,
         temperature: opts.temperature ?? 0.4,
-        max_tokens: opts.maxTokens ?? 400,
+        // Keep the default large enough for the complete JSON response after
+        // a Cabo observation and candidate list. The server can override this
+        // with AGENT_MAX_TOKENS for a measured provider budget.
+        max_tokens: opts.maxTokens ?? 4_096,
         stream: false,
       }),
     });

@@ -17,11 +17,11 @@ export default function DebugControls({ room }: { room: RoomApi }) {
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label="Open debug controls"
-        title="Debug controls"
-      >
-        DEBUG
-      </button>
+        aria-label="Open AI trace and test controls"
+        title="AI trace and test controls"
+     >
+        AI DEBUG
+     </button>
       {open && (
         <aside className="debug-menu" role="dialog" aria-label="Debug controls">
           <div className="debug-menu-head">
@@ -34,11 +34,12 @@ export default function DebugControls({ room }: { room: RoomApi }) {
           </label>
           <label className="debug-option">
             <input type="checkbox" checked={!!room.lobby?.aiDebug} onChange={(event) => room.setAiDebug(event.target.checked)} />
-            <span><strong>Show AI decisions</strong><small>Show the model’s provided rationale, attempts, and executed move. Hidden internal reasoning is never exposed.</small></span>
+            <span><strong>Show AI trace</strong><small>Show the model-provided rationale, attempts, and executed move. Hidden internal reasoning is never exposed.</small></span>
           </label>
-          <div className="debug-trace-head"><span>AI activity</span><span>{thoughts.length ? `${thoughts.length} entries` : 'waiting'}</span></div>
+          <div className="debug-trace-head"><span>AI activity</span><span>{thoughts.length ? thoughts.length + ' entries' : room.lobby?.aiDebug ? 'listening' : 'off'}</span></div>
           {!hasAi && <p className="debug-empty">Add an AI seat to see its decisions here.</p>}
-          {hasAi && !room.lobby?.aiDebug && <p className="debug-empty">Turn on AI reasoning, then start or continue the table.</p>}
+          {hasAi && !room.lobby?.aiDebug && <p className="debug-empty">Turn on AI trace, then start or continue the table.</p>}
+          {hasAi && room.lobby?.aiDebug && thoughts.length === 0 && <p className="debug-empty">Listening for the next AI decision…</p>}
           {room.lobby?.aiDebug && thoughts.length > 0 && (
             <ol className="debug-traces" aria-live="polite">
               {thoughts.slice().reverse().slice(0, 24).map((thought) => <Trace key={thought.id} thought={thought} />)}

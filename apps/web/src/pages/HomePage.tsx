@@ -108,7 +108,6 @@ export default function HomePage({ room }: { room: RoomApi }) {
             </div>
 
             <div className="home-stage" aria-label="A game table waiting for players">
-              <img className="home-lounge-art" src="/assets/lounge/home-lounge.png" alt="" aria-hidden="true" fetchPriority="high" />
               <div className="home-stage-glow" />
               <div className="home-stage-topline"><span>TONIGHT’S TABLE</span><span>2–6 PLAYERS</span></div>
               <div className="home-stage-table">
@@ -127,10 +126,10 @@ export default function HomePage({ room }: { room: RoomApi }) {
           <section className="home-discovery" id="games" aria-labelledby="games-title">
             <div className="home-section-heading"><div><p className="eyebrow">FIND YOUR NEXT FAVORITE</p><h2 id="games-title">Pick a table.</h2></div><p>Start with a classic, then make something entirely your own.</p></div>
             <div className="discovery-grid">
-              {[{ id: 'cabo', title: 'Cabo', info: 'Memory, timing & misdirection', meta: '2–6 players', symbol: '♦', tone: 'red', art: 'cabo' },
-                { id: 'seep', title: 'Seep', info: 'Partners, captures & big swings', meta: '4 players · 2v2', symbol: '♠', tone: 'green', art: 'seep' },
-                { id: 'pairone', title: 'Pair One', info: 'A bright, social memory game', meta: '2–6 players', symbol: '♥', tone: 'blue', art: 'pairone' }].map(g =>
-                <article className={`discovery-card game-discovery-card ${g.tone}`} key={g.id}><div className="game-card-art"><img src={`/assets/lounge/${g.art}.png`} alt="" aria-hidden="true" loading="lazy" /><span aria-hidden>{g.symbol}</span></div><div className="game-card-meta">{g.meta}</div><h3>{g.title}</h3><p>{g.info}</p>
+              {[{ id: 'cabo', title: 'Cabo', info: 'Memory, timing & misdirection', meta: '2–6 players', symbol: '♦', tone: 'red' },
+                { id: 'seep', title: 'Seep', info: 'Partners, captures & big swings', meta: '4 players · 2v2', symbol: '♠', tone: 'green' },
+                { id: 'pairone', title: 'Pair One', info: 'A bright, social memory game', meta: '2–6 players', symbol: '♥', tone: 'blue' }].map(g =>
+                <article className={`discovery-card game-discovery-card ${g.tone}`} key={g.id}><div className="game-card-art" aria-hidden><span>{g.symbol}</span></div><div className="game-card-meta">{g.meta}</div><h3>{g.title}</h3><p>{g.info}</p>
                   <button disabled={busy || !room.socket} onClick={() => void createGame(g.id)}>Create a {g.title} table <span aria-hidden>→</span></button></article>)}
               <article className="discovery-card lab-discovery"><div className="game-card-art" aria-hidden>✦</div><div className="game-card-meta">YOUR RULES · GAME LAB</div><h3>Make a game</h3><p>Describe the rules in plain language. Review, validate, and play the result with your friends.</p><Link className="button-link" to="/gamelab">Open Game Lab <span aria-hidden>→</span></Link></article>
             </div>

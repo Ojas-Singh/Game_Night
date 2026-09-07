@@ -311,6 +311,10 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         room.setAiDebug(playerId, !!enabled);
         broadcastLobby(room);
         persistRoom(room);
+        // Enabling the inspector during a turn must wake the agent loop. This
+        // makes the next pending decision emit its live `thinking` record
+        // instead of waiting for an unrelated room mutation.
+        agents.notify(room);
       } catch (err) {
         log.warn('set_ai_debug_failed', { error: msg(err) });
       }

@@ -252,6 +252,8 @@ export class AgentLoops {
       const view = room.gameView(aiId, { forAi: true });
       if (!view) return;
       if (view.gameId === 'rulezero') return; // service games: human seats only (for now)
+      const decisionRevision = view.revision;
+      const decisionEngine = room.engine;
       const obs = { gameId: view.gameId, selfId: aiId, view, step: 0 };
       const legalCandidates = enumerateLegalActions(view, aiId);
       const rng = createAgentRng(randomBytes(4).readUInt32BE(0));
@@ -282,6 +284,23 @@ export class AgentLoops {
         const candidates = enumerateLegalActions(view, aiId);
         if (candidates.length === 0) return;
         action = rng.pick(candidates);
+      }
+      // An LLM response is asynchronous. The room may have been restarted,
+      // the seat may have changed, or a newer command may have advanced the
+      // revision while it was thinking. Never submit a stale flush (or any
+      // other move) against a newer information state.
+     const latestView = room.gameView(aiId, { forAi: true });
+      if (room.engine !== decisionEngine || !latestView || latestView.gameId === 'rulezero' || latestView.revision !== decisionRevision) {
+        const discarded = room.recordAiThought(
+          aiId,
+          agent,
+          'failed',
+          'The table changed while this decision was being prepared; the proposed move was discarded.',
+          undefined,
+          { failure: 'stale_decision', decisionSource: 'discarded' },
+        );
+        if (discarded) await this.broadcaster.aiThought?.(room, discarded);
+        return;
       }
       try {
         room.handleGameAction(aiId, action);

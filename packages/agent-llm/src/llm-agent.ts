@@ -107,7 +107,10 @@ function buildPromptInner(obs: AgentObservation, persona: Persona, candidates: A
     `You are "${persona.label}", a world-class card player in a game night app.`,
     persona.prompt,
     `GAME RULES:\n${RULES_TEXT[obs.gameId]}`,
-    `Respond with ONE json object and nothing else: {"thought": "<=2 sentences of reasoning", "action_id": "<one candidate id, e.g. A7>"}. Copying the full action object as "action" instead of action_id is also acceptable.`,
+    `Respond with ONE json object and nothing else: {"thought": "<=2 sentences of provided rationale", "action_id": "<one candidate id, e.g. A7>"}. Copying the full action object as "action" instead of action_id is also acceptable. The thought is a brief explanation you provide for the move, not hidden chain-of-thought.`,
+    obs.gameId === 'cabo'
+      ? 'A FLUSH action is a complete move. If a flush is legal, it appears in LEGAL ACTIONS as FLUSH_OWN or FLUSH_OTHER; choose one of those candidates only when you want to flush. Never describe or submit a planned action that is not listed.'
+      : '',
   ].join('\n\n');
   const user = [
     `CURRENT SITUATION (you are "YOU", id ${obs.selfId}):`,
@@ -212,7 +215,7 @@ export class LlmAgent implements GameAgent {
         model: this.opts.model,
         messages,
         temperature: this.opts.temperature ?? 0.4,
-        maxTokens: this.opts.maxTokens ?? 2_048,
+        maxTokens: this.opts.maxTokens ?? 4_096,
         timeoutMs: this.opts.timeoutMs ?? 30_000,
         sessionId: this.opts.sessionId,
         });

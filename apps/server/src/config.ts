@@ -58,7 +58,10 @@ export const config = {
       ? 'opencode-go'
       : 'endpoint'),
   agentTimeoutMs: intEnv('AGENT_TIMEOUT_MS', 30_000),
-  agentMaxTokens: intEnv('AGENT_MAX_TOKENS', 2_048),
+  // Cabo prompts include the full filtered observation and every legal flush
+  // candidate. Leave enough response budget for a short rationale plus the
+  // required JSON; operators can still lower this with AGENT_MAX_TOKENS.
+  agentMaxTokens: intEnv('AGENT_MAX_TOKENS', 4_096),
   agentMaxCandidates: intEnv('AGENT_MAX_CANDIDATES', 0) || undefined,
 };
 
