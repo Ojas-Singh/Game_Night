@@ -13,6 +13,8 @@ import { Room, RoomError } from './room.js';
 import type { ChatMessage, JoinResult, RoomLobbyState, MediaMemberInfo } from './protocol.js';
 import { MediaMesh } from './media.js';
 import { log } from './log.js';
+import type { ShopService } from './shop.js';
+import type { ShopHelloResult } from './protocol.js';
 
 interface SocketData {
   roomId?: string;
@@ -24,8 +26,9 @@ import { AgentLoops } from './agents/loop.js';
 
 const PRESENCE_DEBOUNCE_MS = 5_000;
 
-export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): void {
+export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opts: { shop?: ShopService } = {}): void {
   // eslint note: AgentLoops imported statically below the io type import.
+  const shop = opts.shop ?? null;
   const persistRoom = (room: Room): Promise<void> => rooms.persistNow(room);
   const lobbyOf = (room: Room, forPlayerId?: string): RoomLobbyState => {
     const state = room.lobbyState();
@@ -46,6 +49,29 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
       }
     }
   };
+
+  // Shop: credit completed rounds, push unlocks, and refresh loadouts so the
+  // next lobbyState() carries fresh cosmetics.
+  if (shop) {
+    rooms.setOnRoundCompleted((room, playerIds) => {
+      void shop
+        .creditPlayers(playerIds)
+        .then(async (awards) => {
+          const pids = Object.keys(awards);
+          if (pids.length === 0) return;
+          await shop.refreshLoadouts([...room.players.keys()]);
+          broadcastLobby(room);
+          for (const pid of pids) {
+            const p = room.participant(pid);
+            if (!p) continue;
+            for (const sid of p.sockets) {
+              io.to(sid).emit('shop:granted', { skus: awards[pid]! });
+            }
+          }
+        })
+        .catch((err) => log.warn('shop_credit_failed', { error: msg(err) }));
+    });
+  }
 
   const broadcastGame = async (room: Room): Promise<void> => {
     if (!room.engine) return;
@@ -115,6 +141,13 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
     const data = socket.data as SocketData;
     log.debug('socket_connected', { socketId: socket.id });
 
+    /** Attach the socket's shop profile (if any) to a room seat. */
+    const bindShopPlayer = (playerId: string): void => {
+      if (!shop || !playerId) return;
+      const userId = shop.userForSocket(socket.id);
+      if (userId) shop.bindPlayer(playerId, userId);
+    };
+
     const requireRoom = (): { room: Room; playerId: string } => {
       const room = data.roomId ? rooms.getRoom(data.roomId) : undefined;
       if (!room) throw new RoomError('room not found');
@@ -146,6 +179,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         data.roomId = room.id;
         data.playerId = player.id;
         room.attachSocket(player.id, socket.id);
+        bindShopPlayer(player.id);
         socket.join(room.id);
         system(room, `${player.name} created the room`);
         if (autoAi && rulezeroSpecToken) {
@@ -176,6 +210,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
         data.roomId = room.id;
         data.playerId = player.id;
         room.attachSocket(player.id, socket.id);
+        bindShopPlayer(player.id);
         socket.join(room.id);
         log.info(reconnected ? 'reconnect' : 'join', { roomId: room.id, playerId: player.id });
         if (reconnected) {
@@ -605,8 +640,89 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager): vo
       data.playerId = undefined;
     });
 
+    // -----------------------------------------------------------------
+    // Shop (cosmetics)
+    // -----------------------------------------------------------------
+
+    socket.on('shop:hello', async (payload, ack) => {
+      if (!shop) {
+        ack?.({
+          ok: false,
+          token: '',
+          profile: { userId: '', gamesPlayed: 0, owned: [], equipped: {} },
+          catalog: [],
+          stripeEnabled: false,
+        } satisfies ShopHelloResult);
+        return;
+      }
+      try {
+        const resolved = await shop.resolveProfile(payload?.token ?? null);
+        shop.bindSocket(socket.id, resolved.profile.userId);
+        if (data.playerId) bindShopPlayer(data.playerId);
+        ack?.({
+          ok: true,
+          token: resolved.token,
+          profile: resolved.profile,
+          catalog: shop.catalogFor(resolved.profile),
+          stripeEnabled: shop.stripeEnabled,
+        });
+      } catch (err) {
+        log.warn('shop_hello_failed', { error: msg(err) });
+        ack?.({
+          ok: false,
+          token: '',
+          profile: { userId: '', gamesPlayed: 0, owned: [], equipped: {} },
+          catalog: [],
+          stripeEnabled: false,
+        });
+      }
+    });
+
+    socket.on('shop:purchase', async ({ sku }, ack) => {
+      if (!shop) {
+        ack?.({ ok: false, error: 'store_unavailable' });
+        return;
+      }
+      const userId = shop.userForSocket(socket.id);
+      if (!userId) {
+        ack?.({ ok: false, error: 'unknown_item' });
+        return;
+      }
+      const result = await shop.purchase(userId, sku);
+      ack?.(result);
+      if (result.ok && result.granted && data.roomId) {
+        const room = rooms.getRoom(data.roomId);
+        if (room) {
+          await shop.refreshLoadouts([...room.players.keys()]);
+          broadcastLobby(room);
+        }
+      }
+    });
+
+    socket.on('shop:equip', async ({ sku }, ack) => {
+      if (!shop) {
+        ack?.({ ok: false, error: 'store_unavailable' });
+        return;
+      }
+      const userId = shop.userForSocket(socket.id);
+      if (!userId) {
+        ack?.({ ok: false, error: 'unknown_item' });
+        return;
+      }
+      const result = await shop.equip(userId, sku);
+      ack?.(result);
+      if (result.ok && data.roomId) {
+        const room = rooms.getRoom(data.roomId);
+        if (room) {
+          await shop.refreshLoadouts([...room.players.keys()]);
+          broadcastLobby(room);
+        }
+      }
+    });
+
     socket.on('disconnect', () => {
       log.debug('socket_disconnected', { socketId: socket.id });
+      shop?.unbindSocket(socket.id);
       try {
         leaveMedia();
         const roomId = data.roomId;

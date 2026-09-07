@@ -6,6 +6,8 @@ import GamePage from './pages/GamePage.js';
 import RuleZeroDemo from './rulezero/RuleZeroDemo.js';
 import GameLabPage from './pages/GameLabPage.js';
 import SharedGamePage from './pages/SharedGamePage.js';
+import ShopPage from './pages/ShopPage.js';
+import { PrivacyPage, TosPage } from './pages/LegalPages.js';
 
 export default function App() {
   const room = useRoom();
@@ -16,6 +18,9 @@ export default function App() {
       <Routes>
         <Route path="/" element={<HomePage room={room} />} />
         <Route path="/rulezero-demo" element={<RuleZeroDemo />} />
+        <Route path="/shop" element={<ShopPage room={room} />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/tos" element={<TosPage />} />
             <Route path="/shared/:shareId" element={<SharedGamePage room={room} />} />
         <Route path="/gamelab" element={<GameLabPage room={room} />} />
         <Route

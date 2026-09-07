@@ -84,6 +84,16 @@ apps/web                # React client (round-table Cabo, memory-grid Pair One, 
 
 ## Live voice & webcam
 
+- **Cosmetics shop** (`/shop`): card backs and table felts — starter items free,
+  some unlock by rounds played (server-awarded, capped), paid items through
+  Stripe Checkout. Entitlements are server-owned (a sku not in your inventory
+  can never be equipped); identity is a random bearer token in your browser —
+  no account, no email, no tracking. Equipped loadouts broadcast to the room
+  and render on the 3D table (per-player card backs, host's felt theme) and
+  the 2D felt. Configure with `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
+  (webhook: `POST /api/shop/webhook`), and `APP_ORIGIN`. Plain-language
+  `/privacy` and `/tos` pages ship with the client.
+
 - **3D table (opt-in)**: the Cabo table can render as a real three.js scene —
   felt, fanned card hands, deck/discard piles, flight ghosts, turn rings — via
   a `✦ 3D` toggle. It lazy-loads as its own bundle (three.js never enters the

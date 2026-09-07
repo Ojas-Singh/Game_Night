@@ -94,6 +94,40 @@ export interface RoomLobbyState {
   aiThoughts?: AiDecisionTrace[];
   /** Host-set "first to N wins" series goal; null/undefined = free play. */
   seriesTarget?: number | null;
+  /** Equipped cosmetics per seated player (server-verified ownership). */
+  loadouts?: Record<string, PlayerLoadout>;
+}
+
+// --- Shop -------------------------------------------------------------------
+
+export interface PlayerLoadout {
+  cardBack?: string;
+  feltTheme?: string;
+}
+
+export interface ShopHelloResult {
+  ok: boolean;
+  token: string;
+  profile: {
+    userId: string;
+    gamesPlayed: number;
+    owned: string[];
+    equipped: PlayerLoadout;
+  };
+  catalog: ShopCatalogEntry[];
+  stripeEnabled: boolean;
+}
+
+export interface ShopCatalogEntry {
+  sku: string;
+  slot: 'cardBack' | 'feltTheme';
+  name: string;
+  description: string;
+  priceCents: number;
+  unlockAfterGames: number;
+  owned: boolean;
+  unlocked: boolean;
+  equipped: boolean;
 }
 
 export interface TokenUsage {
@@ -185,6 +219,8 @@ export type ServerToClientEvents = {
   'game:view': (view: AnyGameView) => void;
   'room:closed': (payload: { reason: string }) => void;
   'room:ai_thought': (trace: AiDecisionTrace) => void;
+  /** Free items newly unlocked by games played (pushed to their owner). */
+  'shop:granted': (payload: { skus: string[] }) => void;
 };
 
 export type { GameAction, CaboPlayerView, PairOnePlayerView, SeepPlayerView };

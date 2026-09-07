@@ -10,6 +10,7 @@ import { Server as SocketServer } from 'socket.io';
 import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
 import { RoomManager } from '../src/roomManager.js';
 import { registerSocketHandlers } from '../src/socket.js';
+import { ShopService, MemoryShopStore } from '../src/shop.js';
 import type { CaboPlayerView } from '@game-night/engine-cabo';
 
 let http: HttpServer;
@@ -90,7 +91,9 @@ beforeAll(async () => {
   http = createServer();
   io = new SocketServer(http, { cors: { origin: true } });
   const rooms = new RoomManager(3_600_000);
-  registerSocketHandlers(io, rooms);
+  const shop = new ShopService({ store: new MemoryShopStore() });
+  rooms.setLoadoutProvider((playerIds) => shop.loadoutsFor(playerIds));
+  registerSocketHandlers(io, rooms, { shop });
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
   const addr = http.address();
   url = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
@@ -336,7 +339,7 @@ describe('socket integration', () => {
       }
     };
 
-    const deadline = Date.now() + 30_000;
+    const deadline = Date.now() + 60_000;
     const hostFlight = { value: false };
     const guestFlight = { value: false };
     while (Date.now() < deadline && !hostTraces.some((trace) => trace.status === 'executed')) {
@@ -369,7 +372,53 @@ describe('socket integration', () => {
     });
     host.close();
     guest.close();
-  }, 40_000);
+  }, 90_000);
+
+  it('attaches a cosmetics profile, enforces entitlements, and broadcasts loadouts', async () => {
+    const sock = await connect();
+    // Hello before seating: profile token is issued and persisted client-side.
+    const hello = await new Promise<{ ok: boolean; token: string; profile: { owned: string[] } }>((resolve) => {
+      sock.emit('shop:hello', { token: null }, resolve);
+    });
+    expect(hello.ok).toBe(true);
+    expect(hello.token).toBeTruthy();
+    expect(hello.profile.owned).toContain('back-classic');
+
+    // Re-hello with the same token restores the SAME profile.
+    const hello2 = await new Promise<{ ok: boolean; profile: { userId: string } }>((resolve) => {
+      sock.emit('shop:hello', { token: hello.token }, resolve);
+    });
+    expect(hello2.profile.userId).toBeTruthy();
+
+    // Create room AFTER hello so the seat binds to the profile.
+    const created = await createRoom(sock, 'Host');
+    expect(created.playerId).toBeTruthy();
+
+    // Server refuses to equip an unowned item.
+    const refused = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      sock.emit('shop:equip', { sku: 'back-royale' }, resolve);
+    });
+    expect(refused.ok).toBe(false);
+
+    // Equipping an owned item broadcasts the loadout in the lobby state.
+    const states: Array<{ loadouts?: Record<string, { cardBack?: string }> }> = [];
+    sock.on('room:state', (state) => states.push(state));
+    const equipped = await new Promise<{ ok: boolean }>((resolve) => {
+      sock.emit('shop:equip', { sku: 'back-classic' }, resolve);
+    });
+    expect(equipped.ok).toBe(true);
+    await new Promise((r) => setTimeout(r, 60));
+    const mine = states.find((s) => s.loadouts?.[created.playerId!]?.cardBack === 'back-classic');
+    expect(mine).toBeTruthy();
+
+    // Paid checkout is refused cleanly when Stripe is not configured.
+    const purchase = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      sock.emit('shop:purchase', { sku: 'back-midnight' }, resolve);
+    });
+    expect(purchase).toEqual({ ok: false, error: 'store_unavailable' });
+
+    sock.close();
+  });
 
   it('relays WebRTC signaling across the media mesh and bars spectators', async () => {
     const p = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

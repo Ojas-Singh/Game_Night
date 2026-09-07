@@ -56,6 +56,7 @@ export default function HomePage({ room }: { room: RoomApi }) {
           </Link>
           <nav className="home-nav-links" aria-label="Main navigation">
             <a href="#games">Games</a>
+            <Link to="/shop">Shop</Link>
             <Link to="/gamelab">Game Lab</Link>
             <span className="home-nav-status"><i /> No account needed</span>
           </nav>

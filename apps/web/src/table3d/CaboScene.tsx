@@ -17,6 +17,7 @@ import * as THREE from 'three';
 import { easing } from 'maath';
 import type { CaboPlayerView } from '@cabo/views.js';
 import type { Rank, Suit } from '@shared/cards.js';
+import { feltStyle } from '../cosmetics.js';
 import type { RoomApi, CardFlight } from '../useRoom.js';
 import Avatar from '../table/Avatar.js';
 import FloatingEmote from '../table/FloatingEmote.js';
@@ -29,7 +30,7 @@ import {
   type SeatLayout,
   type Vec3,
 } from './layout.js';
-import { cardFaceSpec, drawBackCanvas, drawFaceCanvas, drawFlightCanvas } from './textures.js';
+import { cardFaceSpec, drawBackCanvas, drawFaceCanvas, drawFeltCanvas, drawFlightCanvas } from './textures.js';
 
 export interface CaboSceneProps {
   view: CaboPlayerView;
@@ -50,6 +51,8 @@ export interface CaboSceneProps {
   onCallCabo: (() => void) | null;
   onDiscardDrawn: (() => void) | null;
   onFlightDone: (id: string) => void;
+  /** Equipped cosmetics per player (server-verified). */
+  loadouts?: Record<string, { cardBack?: string; feltTheme?: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -68,13 +71,16 @@ function faceTexture(rank: Rank, suit: Suit): THREE.CanvasTexture {
   }
   return tex;
 }
-let backTex: THREE.CanvasTexture | null = null;
-function backTexture(): THREE.CanvasTexture {
-  if (!backTex) {
-    backTex = new THREE.CanvasTexture(drawBackCanvas());
-    backTex.colorSpace = THREE.SRGBColorSpace;
+const backTexCache = new Map<string, THREE.CanvasTexture>();
+function backTexture(sku?: string): THREE.CanvasTexture {
+  const key = sku ?? 'default';
+  let tex = backTexCache.get(key);
+  if (!tex) {
+    tex = new THREE.CanvasTexture(drawBackCanvas(sku));
+    tex.colorSpace = THREE.SRGBColorSpace;
+    backTexCache.set(key, tex);
   }
-  return backTex;
+  return tex;
 }
 const flightTexCache = new Map<number, THREE.CanvasTexture>();
 function flightTexture(rank: number): THREE.CanvasTexture {
@@ -86,29 +92,15 @@ function flightTexture(rank: number): THREE.CanvasTexture {
   }
   return tex;
 }
-let feltTex: THREE.CanvasTexture | null = null;
-function feltTexture(): THREE.CanvasTexture {
-  if (feltTex) return feltTex;
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 512;
-  const ctx = canvas.getContext('2d');
-  if (ctx) {
-    const grad = ctx.createRadialGradient(256, 256, 60, 256, 256, 256);
-    grad.addColorStop(0, '#2c5a35');
-    grad.addColorStop(0.75, '#224a2c');
-    grad.addColorStop(1, '#1a3a22');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 512, 512);
-    // Faint speckle for felt grain.
-    ctx.fillStyle = 'rgba(255,255,255,0.025)';
-    for (let i = 0; i < 900; i++) {
-      ctx.fillRect(Math.random() * 512, Math.random() * 512, 1.5, 1.5);
-    }
-  }
-  feltTex = new THREE.CanvasTexture(canvas);
-  feltTex.colorSpace = THREE.SRGBColorSpace;
-  return feltTex;
+const feltTexCache = new Map<string, THREE.CanvasTexture>();
+function feltTexture(sku?: string): THREE.CanvasTexture {
+  const key = sku ?? 'default';
+  let tex = feltTexCache.get(key);
+  if (tex) return tex;
+  tex = new THREE.CanvasTexture(drawFeltCanvas(sku));
+  tex.colorSpace = THREE.SRGBColorSpace;
+  feltTexCache.set(key, tex);
+  return tex;
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +115,7 @@ function CardMesh({
   revealedSuit,
   selectable,
   highlight,
+  backSku,
   onClick,
 }: {
   instance: CardInstance;
@@ -130,6 +123,7 @@ function CardMesh({
   revealedSuit: Suit | null;
   selectable: boolean;
   highlight: boolean;
+  backSku?: string;
   onClick?: () => void;
 }) {
   const group = useRef<THREE.Group>(null!);
@@ -191,13 +185,12 @@ function CardMesh({
         {/* +x, -x, +y (front), -y (back), +z, -z */}
         <meshStandardMaterial attach="material-0" color="#e9e2d2" />
         <meshStandardMaterial attach="material-1" color="#e9e2d2" />
-        <meshStandardMaterial
-          attach="material-2"
+        <meshStandardMaterial attach="material-2"
           map={frontMap ?? undefined}
           color={frontMap ? '#ffffff' : '#e9e2d2'}
           roughness={0.55}
         />
-        <meshStandardMaterial attach="material-3" map={backTexture()} roughness={0.6} />
+        <meshStandardMaterial attach="material-3" map={backTexture(backSku)} roughness={0.6} />
         <meshStandardMaterial attach="material-4" color="#e9e2d2" />
         <meshStandardMaterial attach="material-5" color="#e9e2d2" />
       </mesh>
@@ -410,6 +403,9 @@ function SceneContents(props: CaboSceneProps) {
 
   const discardTop = view.discardTop;
   const drawn = view.drawnCard;
+  const loadouts = props.loadouts ?? {};
+  const hostFelt = loadouts[room.lobby?.hostId ?? '']?.feltTheme;
+  const myBack = loadouts[myId]?.cardBack;
 
   return (
     <>
@@ -422,11 +418,11 @@ function SceneContents(props: CaboSceneProps) {
       <group>
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]}>
           <circleGeometry args={[4.6, 64]} />
-          <meshStandardMaterial map={feltTexture()} roughness={0.9} />
+          <meshStandardMaterial map={feltTexture(hostFelt)} roughness={0.9} />
         </mesh>
         <mesh position={[0, -0.06, 0]}>
           <cylinderGeometry args={[4.6, 4.35, 0.18, 64]} />
-          <meshStandardMaterial color="#3a2b20" roughness={0.7} />
+          <meshStandardMaterial color={feltStyle(hostFelt).rail} roughness={0.7} />
         </mesh>
       </group>
 
@@ -481,6 +477,7 @@ function SceneContents(props: CaboSceneProps) {
             revealedSuit={known?.suit ?? null}
             selectable={props.opponentSelectable(seat.playerId)}
             highlight={false}
+            backSku={loadouts[seat.playerId]?.cardBack}
             onClick={props.opponentSelectable(seat.playerId) ? () => props.onOpponentCardClick(seat.playerId, c.cardId) : undefined}
           />
         );
@@ -497,6 +494,7 @@ function SceneContents(props: CaboSceneProps) {
             revealedSuit={known?.suit ?? null}
             selectable
             highlight={props.selectedOwn === c.cardId}
+            backSku={myBack}
             onClick={() => props.onMyCardClick(c.cardId)}
           />
         );

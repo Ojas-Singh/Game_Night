@@ -78,6 +78,12 @@ export interface ClientEvents {
   'media:signal': (payload: { to: string; data: unknown }) => void;
   'media:update': (payload: { mic: boolean; cam: boolean }) => void;
   'media:leave': () => void;
+  /** Attach (or create) the caller's cosmetics profile. */
+  'shop:hello': (payload: { token?: string | null }, ack: (res: ShopHelloResult) => void) => void;
+  /** Buy a paid sku (returns a Stripe Checkout URL when configured). */
+  'shop:purchase': (payload: { sku: string }, ack: (res: PurchaseAck) => void) => void;
+  /** Equip an owned cosmetic (server verifies ownership). */
+  'shop:equip': (payload: { sku: string }, ack: (res: { ok: boolean; error?: string }) => void) => void;
 }
 
 export interface JoinResult {
@@ -86,6 +92,40 @@ export interface JoinResult {
   roomId?: string;
   playerId?: string;
   playerToken?: string;
+}
+
+// --- Shop -------------------------------------------------------------------
+
+export interface ShopHelloResult {
+  ok: boolean;
+  token: string;
+  profile: {
+    userId: string;
+    gamesPlayed: number;
+    owned: string[];
+    equipped: { cardBack?: string; feltTheme?: string };
+  };
+  catalog: ShopCatalogEntry[];
+  stripeEnabled: boolean;
+}
+
+export interface ShopCatalogEntry {
+  sku: string;
+  slot: 'cardBack' | 'feltTheme';
+  name: string;
+  description: string;
+  priceCents: number;
+  unlockAfterGames: number;
+  owned: boolean;
+  unlocked: boolean;
+  equipped: boolean;
+}
+
+export interface PurchaseAck {
+  ok: boolean;
+  granted?: boolean;
+  checkoutUrl?: string;
+  error?: 'unknown_item' | 'locked' | 'store_unavailable' | 'checkout_failed';
 }
 
 // ---------------------------------------------------------------------------
@@ -125,6 +165,8 @@ export interface RoomLobbyState {
   aiThoughts?: AiDecisionTrace[];
   /** Host-set "first to N wins" series goal; null = no series. */
   seriesTarget?: number | null;
+  /** Equipped cosmetics per seated player (server-verified ownership). */
+  loadouts?: Record<string, { cardBack?: string; feltTheme?: string }>;
 }
 
 export interface TokenUsage {
@@ -198,6 +240,8 @@ export interface ServerEvents {
   'media:peers': (payload: { peers: MediaMemberInfo[] }) => void;
   /** Relayed WebRTC signaling from another member. */
   'media:signal': (payload: { from: string; data: unknown }) => void;
+  /** Free items newly unlocked by games played (pushed to their owner). */
+  'shop:granted': (payload: { skus: string[] }) => void;
 }
 
 /** Subset of the mesh roster clients see (never socket ids). */

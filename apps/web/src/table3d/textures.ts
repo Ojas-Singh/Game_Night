@@ -5,6 +5,7 @@
  */
 
 import type { Card, Rank, Suit } from '@shared/cards.js';
+import { backStyle, feltStyle } from '../cosmetics.js';
 
 export const RANK_LABELS: Record<number, string> = {
   1: 'A',
@@ -93,19 +94,21 @@ export function drawFaceCanvas(rank: Rank, suit: Suit): HTMLCanvasElement {
   return canvas;
 }
 
-/** Card back — deep felt-toned pattern with a brand mark. */
-export function drawBackCanvas(): HTMLCanvasElement {
-  const cached = BACK_CACHE.get('default');
+/** Card back — pattern per owned sku (falls back to the classic design). */
+export function drawBackCanvas(sku?: string): HTMLCanvasElement {
+  const key = sku ?? 'default';
+  const cached = BACK_CACHE.get(key);
   if (cached) return cached;
+  const style = backStyle(sku);
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 712;
   const ctx = canvas.getContext('2d');
   if (ctx) {
-    ctx.fillStyle = '#25321f';
+    ctx.fillStyle = style.bg;
     roundRect(ctx, 0, 0, canvas.width, canvas.height, 36);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 220, 160, 0.28)';
+    ctx.strokeStyle = style.accent;
     ctx.lineWidth = 5;
     roundRect(ctx, 20, 20, canvas.width - 40, canvas.height - 40, 22);
     ctx.stroke();
@@ -113,7 +116,7 @@ export function drawBackCanvas(): HTMLCanvasElement {
     ctx.save();
     roundRect(ctx, 36, 36, canvas.width - 72, canvas.height - 72, 14);
     ctx.clip();
-    ctx.strokeStyle = 'rgba(255, 220, 160, 0.10)';
+    ctx.strokeStyle = style.pattern;
     ctx.lineWidth = 3;
     for (let d = -canvas.height; d < canvas.width + canvas.height; d += 34) {
       ctx.beginPath();
@@ -127,15 +130,42 @@ export function drawBackCanvas(): HTMLCanvasElement {
     }
     ctx.restore();
     // Centre mark
-    ctx.fillStyle = 'rgba(255, 220, 160, 0.5)';
+    ctx.fillStyle = style.accent;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = '700 210px Georgia, serif';
-    ctx.fillText('✦', canvas.width / 2, canvas.height / 2);
+    ctx.fillText(style.glyph, canvas.width / 2, canvas.height / 2);
   }
-  BACK_CACHE.set('default', canvas);
+  BACK_CACHE.set(key, canvas);
   return canvas;
 }
+
+/** Felt table surface texture for a felt-theme sku. */
+export function drawFeltCanvas(sku?: string): HTMLCanvasElement {
+  const key = sku ?? 'default';
+  const cached = FELT_CACHE.get(key);
+  if (cached) return cached;
+  const style = feltStyle(sku);
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const grad = ctx.createRadialGradient(256, 256, 60, 256, 256, 256);
+    grad.addColorStop(0, style.center);
+    grad.addColorStop(1, style.edge);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 512, 512);
+    ctx.fillStyle = 'rgba(255,255,255,0.025)';
+    for (let i = 0; i < 900; i++) {
+      ctx.fillRect(Math.random() * 512, Math.random() * 512, 1.5, 1.5);
+    }
+  }
+  FELT_CACHE.set(key, canvas);
+  return canvas;
+}
+
+const FELT_CACHE = new Map<string, HTMLCanvasElement>();
 
 const FLIGHT_CACHE = new Map<number, HTMLCanvasElement>();
 

@@ -826,6 +826,10 @@
   border-radius: 50%;
   border: 1.5px dashed rgba(255, 240, 200, 0.08);
 }
+/* Equipped felt themes (cosmetics shop). */
+.table-felt[data-felt='slate'] { --felt-1: #3c4550; --felt-2: #242b33; }
+.table-felt[data-felt='azure'] { --felt-1: #1f4a66; --felt-2: #12293a; }
+.table-felt[data-felt='crimson'] { --felt-1: #5e1f26; --felt-2: #3a1218; }
 
 /* Seats */
 .seat {

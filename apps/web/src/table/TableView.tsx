@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { feltStyle } from '../cosmetics.js';
 import type { CSSProperties } from 'react';
 import type { RoomApi, CardFlight } from '../useRoom.js';
 import type { FlightPos } from './CardFlights.js';
@@ -589,6 +590,7 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
                 onCallCabo={isMyTurn && phase === 'TURN_END' && !view.cabo ? () => act({ type: 'CALL_CABO' }) : null}
                 onDiscardDrawn={mode === 'draw-decision' ? () => act({ type: 'DISCARD_DRAWN' }) : null}
                 onFlightDone={dropFlight}
+                loadouts={room.lobby?.loadouts}
               />
             </Suspense>
             {mode === 'turn-end' && (
@@ -599,7 +601,10 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
           </>
         ) : (
           <>
-        <div className="table-felt" />
+        <div
+          className="table-felt"
+          data-felt={feltStyle(room.lobby?.loadouts?.[room.lobby.hostId ?? '']?.feltTheme).domClass}
+        />
 
         {/* opponents around the arc */}
         {others.map((p, i) => {
