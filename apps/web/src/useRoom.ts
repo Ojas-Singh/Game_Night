@@ -17,6 +17,7 @@ import { playSound } from './sound.js';
 import { loadAvatar, saveAvatar } from './avatar.js';
 import type { Avatar } from './server-protocol.js';
 import { mergeAiTraces, upsertAiTrace } from './table/ai-trace.js';
+import { funnel } from './analytics.js';
 
 /** Derive sound cues from view transitions by comparing event logs. */
 function playSoundsFor(prev: AnyGameView, next: AnyGameView): void {
@@ -731,6 +732,7 @@ export function useRoom(): RoomApi {
               resolve(res);
               return;
             }
+            funnel.roomCreated();
             persistSession(res);
             resolve(res);
           },
@@ -750,7 +752,7 @@ export function useRoom(): RoomApi {
           playerToken: stored?.playerToken,
         };
         socketRef.current?.emit('room:join', payload, (res: JoinResult) => {
-          if (res.ok) { setJoinError(null); persistSession(res); }
+          if (res.ok) { funnel.inviteAccepted(); setJoinError(null); persistSession(res); }
           else setJoinError(res.error ?? 'failed to join room');
           resolve(res);
         });

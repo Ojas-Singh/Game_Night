@@ -47,5 +47,63 @@ services:
       timeout: 5s
       retries: 3
 
+  # Automatic-HTTPS reverse proxy for public deployments. getUserMedia
+  # (voice/webcam) and Stripe webhooks require TLS. Start with:
+  #   docker compose --profile proxy up -d
+  # Set DOMAIN (and ACME_EMAIL for Let's Encrypt registration). Keep port 3000
+  # firewalled off when the proxy fronts the app.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ['proxy']
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  # Optional self-hosted, cookieless analytics (the build wires VITE_UMAMI_SRC
+  # to its /script.js and VITE_UMAMI_WEBSITE_ID to the site id). Start with:
+  #   docker compose --profile analytics up -d
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    profiles: ['analytics']
+    ports:
+      - '${UMAMI_PORT:-3001}:3000'
+    environment:
+      DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD:-umami-change-me}@umami-db:5432/umami
+      DATABASE_TYPE: postgresql
+      APP_SECRET: ${UMAMI_APP_SECRET:-change-me-umami-app-secret}
+    depends_on:
+      umami-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  umami-db:
+    image: postgres:16-alpine
+    profiles: ['analytics']
+    environment:
+      POSTGRES_DB: umami
+      POSTGRES_USER: umami
+      POSTGRES_PASSWORD: ${UMAMI_DB_PASSWORD:-umami-change-me}
+    volumes:
+      - umami-db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U umami -d umami']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   redis-data:
+  caddy-data:
+  caddy-config:
+  umami-db-data:

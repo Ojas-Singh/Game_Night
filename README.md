@@ -26,6 +26,28 @@ docker compose up -d
 
 Coolify: point a new Docker Compose resource at this repo; set `SESSION_SECRET`; expose port 3000.
 
+### Public deployment with HTTPS (voice/webcam prerequisite)
+
+Mic/camera access (`getUserMedia`) and payment webhooks require TLS. An
+optional Caddy reverse proxy with automatic certificates ships behind a
+profile — the default stack is unchanged:
+
+```bash
+DOMAIN=game.example.com ACME_EMAIL=you@example.com \
+  docker compose --profile proxy up -d
+```
+
+Optional self-hosted, cookieless analytics (Umami):
+
+```bash
+docker compose --profile analytics up -d   # UI on :3001
+```
+
+Point the web build at it with `VITE_UMAMI_SRC=https://<host>/script.js` and
+`VITE_UMAMI_WEBSITE_ID=<id>`; without them analytics is a compiled-in no-op
+(see `apps/web/src/analytics.ts`). See `docs/LAUNCH_CHECKLIST.md` for the full
+publication checklist (naming/trademark, Stripe, moderation, funnels).
+
 ### Rules → Play compiler
 
 Game Lab keeps model access on the server and sends only validated GameSpec data

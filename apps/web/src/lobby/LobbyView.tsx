@@ -4,6 +4,7 @@ import type { RoomApi } from '../useRoom.js';
 import ChatPanel from '../chat/ChatPanel.js';
 import DebugPanel from '../DebugPanel.js';
 import { loadName } from '../session.js';
+import { funnel } from '../analytics.js';
 import Avatar from '../table/Avatar.js';
 import InfoModal from '../table/InfoModal.js';
 import { loadAvatar, randomAvatar, saveAvatar } from '../avatar.js';
@@ -99,7 +100,8 @@ export default function LobbyView({ room }: { room: RoomApi }) {
     setStartError(null);
     const result = await room.startGame();
     setStarting(false);
-    if (!result.ok) setStartError(result.error ?? 'Could not start the game');
+    if (result.ok) funnel.gameStarted(lobby.gameId);
+    else setStartError(result.error ?? 'Could not start the game');
   };
 
   const canStart = lobby.players.filter((p) => p.connected).length >= 2 && !lobby.inGame;

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import type { RoomApi } from '../useRoom.js';
 import { loadName } from '../session.js';
+import { funnel } from '../analytics.js';
 
 export default function HomePage({ room }: { room: RoomApi }) {
   const navigate = useNavigate();
@@ -9,6 +10,8 @@ export default function HomePage({ room }: { room: RoomApi }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+
+  useEffect(() => { funnel.homeView(); }, []);
 
   const createGame = async (gameId = 'cabo') => {
     if (!room.socket) return;

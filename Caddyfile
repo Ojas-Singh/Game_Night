@@ -1,0 +1,9 @@
+# Automatic-HTTPS front for the Game Night app (docker compose --profile proxy).
+# DOMAIN comes from the environment; with DOMAIN=localhost Caddy issues a local
+# CA certificate, otherwise it obtains a Let's Encrypt certificate (ACME_EMAIL).
+{$DOMAIN} {
+	encode gzip zstd
+
+	# Socket.IO must not be buffered: long-polling upgrades + websocket.
+	reverse_proxy app:3000
+}
