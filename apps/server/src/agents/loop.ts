@@ -209,6 +209,7 @@ export class AgentLoops {
         sessionId: config.agentProvider === 'opencode-go'
           ? `room-${room.id}-seat-${playerId}`
           : undefined,
+        provider: config.agentProvider,
       });
     } else {
       agent =

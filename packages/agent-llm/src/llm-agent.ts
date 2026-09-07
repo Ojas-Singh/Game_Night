@@ -35,6 +35,8 @@ export interface LlmAgentOptions {
   timeoutMs?: number;
   /** Stable provider conversation id (required by OpenCode Go routing). */
   sessionId?: string;
+  /** Optional provider label for live provenance/debug displays. */
+  provider?: string;
   /** Cap on serialized candidate list (large power menus get sampled). */
   maxCandidates?: number;
   /**
@@ -212,6 +214,7 @@ export class LlmAgent implements GameAgent {
   describe(): Record<string, unknown> {
     return {
       kind: 'llm',
+      provider: this.opts.provider,
       model: this.opts.model,
       baseUrl: this.opts.baseUrl,
       persona: this.persona.id,

@@ -553,6 +553,7 @@ export class Room {
     if (!player) return null;
     const description = agent.describe?.() ?? {};
     const kind = description.kind === 'llm' ? 'LLM' : description.kind === 'solver' ? 'Solver' : 'Heuristic';
+    const provider = typeof description.provider === 'string' ? description.provider : undefined;
     const model = typeof description.model === 'string' ? description.model : undefined;
     const entry: AiThought = {
       id: randomUUID(),
@@ -562,7 +563,7 @@ export class Room {
       playerName: player.name,
       thought: thought.slice(0, 500),
       ...(action ? { action } : {}),
-      source: model ? `${kind} · ${model}` : `${kind} · ${agent.label}`,
+      source: [kind, provider, model].filter(Boolean).join(' · ') || `${kind} · ${agent.label}`,
       ...(model ? { model } : {}),
     };
     this.aiThoughts = [...this.aiThoughts, entry].slice(-80);

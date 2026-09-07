@@ -204,12 +204,12 @@ describe('Room', () => {
     room.setAiDebug(host.id, true);
     const trace = room.recordAiThought(
       ai.id,
-      { label: 'Cabo Scholar', describe: () => ({ kind: 'llm', model: 'test-model' }) },
+      { label: 'Cabo Scholar', describe: () => ({ kind: 'llm', provider: 'test-provider', model: 'test-model' }) },
       'decision',
       'Choosing a safe discard',
       'DISCARD_DRAWN',
     );
-    expect(trace?.source).toBe('LLM · test-model');
+    expect(trace?.source).toBe('LLM · test-provider · test-model');
     expect(room.lobbyState().aiThoughts).toBeUndefined();
     expect(room.aiThoughts).toHaveLength(1);
 
