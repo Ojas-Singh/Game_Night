@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { RoomApi } from '../useRoom.js';
@@ -346,9 +345,6 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
             <StylePanel socket={room.socket} />
             {isHost ? (
               <div className="host-controls">
-                <Link className="ghost gamelab-host-link" to="/gamelab" title="Open the RuleZero Game Lab">
-                  🧪 Game Lab
-                </Link>
                 <button
                   className="start-btn"
                   disabled={!canStart || starting}

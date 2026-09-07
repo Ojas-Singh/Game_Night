@@ -39,6 +39,20 @@ export interface ShopApi extends ShopState {
   catalogBySlot: (slot: ShopCatalogEntry['slot']) => ShopCatalogEntry[];
 }
 
+/**
+ * Optimistic equip flip: the picked sku gets the ✓ and the sku it replaced
+ * in the SAME slot loses it. The other slot's equipped chip is untouched —
+ * a card back and a felt are equipped independently.
+ */
+export function flipCatalog(catalog: ShopCatalogEntry[], sku: string): ShopCatalogEntry[] {
+  const slot = catalog.find((entry) => entry.sku === sku)?.slot;
+  if (!slot) return catalog;
+  return catalog.map((entry) => ({
+    ...entry,
+    equipped: entry.sku === sku || (entry.slot !== slot && entry.equipped),
+  }));
+}
+
 export function useShop(socket: Socket | null): ShopApi {
   const [state, setState] = useState<ShopState>({
     ready: false,
@@ -84,14 +98,7 @@ export function useShop(socket: Socket | null): ShopApi {
         }
         socket.emit('shop:equip', { sku }, (res: { ok: boolean; error?: string }) => {
           if (res.ok) {
-            // Optimistic catalog flip; server broadcast re-syncs the lobby.
-            setState((cur) => ({
-              ...cur,
-              catalog: cur.catalog.map((entry) => ({
-                ...entry,
-                equipped: entry.sku === sku,
-              })),
-            }));
+            setState((cur) => ({ ...cur, catalog: flipCatalog(cur.catalog, sku) }));
           }
           resolve(res);
         });
