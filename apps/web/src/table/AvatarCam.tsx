@@ -20,10 +20,13 @@ interface AvatarCamProps {
   crown?: boolean;
   ring?: boolean;
   cabo?: boolean;
+  /** Also render the peer's audio element (for host-less inline layouts). */
+  audio?: boolean;
 }
 
-export default function AvatarCam({ media, playerId, myPlayerId, avatar, size = 42, crown, ring, cabo }: AvatarCamProps) {
+export default function AvatarCam({ media, playerId, myPlayerId, avatar, size = 42, crown, ring, cabo, audio = false }: AvatarCamProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   const isSelf = myPlayerId != null && playerId === myPlayerId;
   const peer = media.peers.find((p) => p.playerId === playerId);
@@ -43,11 +46,16 @@ export default function AvatarCam({ media, playerId, myPlayerId, avatar, size = 
     }
   }, [stream]);
 
-  if (!live) {
-    return <Avatar avatar={avatar} size={size} crown={crown} ring={ring} cabo={cabo} />;
-  }
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (!isSelf && stream && el.srcObject !== stream) {
+      el.srcObject = stream;
+      void el.play().catch(() => /* autoplay guard */ undefined);
+    }
+  }, [stream, isSelf]);
 
-  return (
+  const cam = live ? (
     <span
       className={`avatar-cam ${crown ? 'is-turn' : ''}`}
       style={{ width: size, height: size }}
@@ -55,5 +63,15 @@ export default function AvatarCam({ media, playerId, myPlayerId, avatar, size = 
     >
       <video ref={videoRef} autoPlay playsInline muted />
     </span>
+  ) : (
+    <Avatar avatar={avatar} size={size} crown={crown} ring={ring} cabo={cabo} />
+  );
+
+  if (!audio || isSelf || !stream) return cam;
+  return (
+    <>
+      {cam}
+      <audio ref={audioRef} autoPlay />
+    </>
   );
 }

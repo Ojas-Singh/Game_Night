@@ -9,7 +9,6 @@ import { funnel } from '../analytics.js';
 import Avatar from '../table/Avatar.js';
 import AvatarCam from '../table/AvatarCam.js';
 import InfoModal from '../table/InfoModal.js';
-import MediaDock from '../table/MediaDock.js';
 import { seriesStandings, seriesWinner } from './series.js';
 import { StylePanel } from './StylePanel.js';
 import { loadAvatar, randomAvatar, saveAvatar } from '../avatar.js';
@@ -213,7 +212,7 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
               {lobby.players.map((p) => (
                 <li key={p.id} className={`player-row ${p.connected ? '' : 'disconnected'} ${p.isYou ? 'is-you' : ''}`}>
                   <div className="player-avatar-wrap">
-                    <AvatarCam media={media} playerId={p.id} myPlayerId={room.myPlayerId} avatar={p.avatar ?? { color: 0, eyes: 0, mouth: 0, hat: 0 }} size={42} ring={p.isYou} />
+                    <AvatarCam media={media} playerId={p.id} myPlayerId={room.myPlayerId} avatar={p.avatar ?? { color: 0, eyes: 0, mouth: 0, hat: 0 }} size={42} ring={p.isYou} audio />
                     {p.kind === 'ai' && <span className="player-ai-mark" title="AI player"><Icon name="bot" /></span>}
                   </div>
                   <div className="player-identity">
@@ -243,6 +242,9 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
                           <Icon name="pencil" />
                         </button>
                       )}
+                      {/* Table talk lives right here next to the name — no
+                          separate call box. */}
+                      <TalkControls media={media} isYou={p.isYou} playerId={p.id} />
                     </div>
                     <span className="player-subtitle">
                       {p.kind === 'ai'
@@ -373,7 +375,6 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
 
       <aside className="lobby-side">
         <DebugPanel room={room} />
-        <MediaDock media={media} players={lobby.players} myPlayerId={room.myPlayerId} compact />
         <div className="lobby-panel avatar-panel">
           <div className="avatar-panel-head">
             <div>
@@ -627,4 +628,66 @@ function Icon({ name }: { name: IconName }) {
     case 'shuffle':
       return <svg {...common}><path d="M16 3h5v5M4 7h2c4 0 5 10 10 10h5M16 21h5v-5M4 17h2c1.4 0 2.4-.8 3.2-1.8M14.8 8.8C15.6 7.8 16.6 7 18 7h3" /></svg>;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Table talk, inline: my row gets mic/cam toggles next to my name; other
+// rows show that player's live call state. The server never carries media —
+// this is a thin UI over the peer-to-peer mesh.
+// ---------------------------------------------------------------------------
+
+function TalkControls({ media, isYou, playerId }: { media: MediaChat; isYou?: boolean; playerId: string }) {
+  if (!media.supported) return null;
+
+  if (!isYou) {
+    const peer = media.peers.find((p) => p.playerId === playerId);
+    if (!media.joined || !peer) return null;
+    return (
+      <span className="talk-status" aria-hidden>
+        {peer.connection === 'failed' && <span className="talk-flag" title="Direct connection failed (NAT)">⚠</span>}
+        {peer.speaking && <span className="talk-dot speaking" title="Speaking" />}
+        {!peer.mic && <span className="talk-muted" title="Microphone off">🔇</span>}
+      </span>
+    );
+  }
+
+  const join = (cam: boolean): void => {
+    void media.join({ mic: true, cam }).then((ok) => {
+      if (!ok) return;
+      funnel.voiceJoined();
+      if (cam) funnel.cameraEnabled();
+    });
+  };
+
+  return (
+    <span className="talk-controls">
+      {!media.joined ? (
+        <>
+          <button className="talk-btn" title="Join table talk (mic)" onClick={() => join(false)}>🎙️</button>
+          <button className="talk-btn" title="Join with camera" onClick={() => join(true)}>📷</button>
+        </>
+      ) : (
+        <>
+          <button
+            className={`talk-btn ${media.micOn ? 'on' : 'off'}`}
+            title={media.micOn ? 'Mute your mic' : 'Unmute your mic'}
+            aria-pressed={media.micOn}
+            onClick={() => media.setMic(!media.micOn)}
+          >
+            {media.micOn ? '🎙️' : '🔇'}
+          </button>
+          <button
+            className={`talk-btn ${media.camOn ? 'on' : 'off'}`}
+            title={media.camOn ? 'Turn your camera off' : 'Turn your camera on'}
+            aria-pressed={media.camOn}
+            onClick={() => void media.setCam(!media.camOn).then((ok) => { if (ok && media.camOn) funnel.cameraEnabled(); })}
+          >
+            📷
+          </button>
+          <button className="talk-btn leave" title="Leave table talk" onClick={media.leave}>⏏</button>
+        </>
+      )}
+      {media.joined && <span className="talk-dot live" title="Table talk live" />}
+    </span>
+  );
 }

@@ -796,3 +796,36 @@ button, .button-link { min-height: 44px; }
 }
 .style-chip:hover { transform: translateY(-1px); border-color: rgba(255, 216, 138, 0.5); }
 .style-chip.equipped { border-color: #ffd88a; box-shadow: 0 0 0 1.5px rgba(255, 216, 138, 0.35); }
+
+/* Inline table-talk controls (lobby roster, next to the player name). */
+.talk-controls { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }
+.talk-btn {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.talk-btn:hover { border-color: rgba(255, 216, 138, 0.45); background: rgba(255, 216, 138, 0.08); }
+.talk-btn.on { border-color: rgba(127, 191, 122, 0.55); background: rgba(127, 191, 122, 0.12); }
+.talk-btn.off { opacity: 0.75; }
+.talk-btn.leave { opacity: 0.6; }
+.talk-btn.leave:hover { opacity: 1; border-color: rgba(224, 108, 90, 0.5); }
+.talk-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  display: inline-block;
+}
+.talk-dot.live { background: #74d68a; box-shadow: 0 0 6px rgba(116, 214, 138, 0.8); }
+.talk-dot.speaking { background: #ffd88a; box-shadow: 0 0 8px rgba(255, 216, 138, 0.9); animation: talk-pulse 1s ease-in-out infinite; }
+@keyframes talk-pulse { 0%, 100% { transform: scale(0.85); opacity: 0.7; } 50% { transform: scale(1.15); opacity: 1; } }
+.talk-muted, .talk-flag { font-size: 12px; opacity: 0.8; }
+.talk-status { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }

@@ -67,7 +67,7 @@ export default function HomePage({ room }: { room: RoomApi }) {
               <p className="eyebrow">THE TABLE IS OPEN</p>
               <h1 id="home-title" className="font-display home-title">Bring your people.<br /><em>Deal something great.</em></h1>
               <p className="home-sub">
-                A warm, easy place for game nights with friends. Live voice &amp; video at the table, a 3D room, AI opponents, and house rules that actually play.
+                A warm, easy place for game nights with friends. Live voice &amp; video at the table, AI opponents, and house rules that actually play.
               </p>
               <div className="home-card" aria-label="Start or join a table">
                 <div className="home-action-heading"><span>Start a table</span><small>Pick a game after everyone arrives.</small></div>

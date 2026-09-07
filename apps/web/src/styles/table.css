@@ -2911,55 +2911,6 @@
   100% { filter: brightness(1); transform: scale(1); }
 }
 
-/* --- 3D table (react-three-fiber) --------------------------------------- */
-.scene3d-toggle {
-  position: fixed;
-  top: 96px;
-  right: 16px;
-  z-index: 40;
-  padding: 7px 11px;
-  border: 1px solid rgba(255, 216, 138, 0.35);
-  border-radius: 9px;
-  color: var(--gold, #ffd88a);
-  background: rgba(20, 16, 24, 0.72);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  cursor: pointer;
-}
-.scene3d-toggle:hover { background: rgba(255, 216, 138, 0.12); }
-.scene3d-host {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  overflow: hidden;
-  z-index: 1;
-}
-.scene3d-host canvas { display: block; }
-.scene3d-loading {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: var(--gold, #ffd88a);
-  font-size: 34px;
-  animation: scene3d-pulse 1.2s ease-in-out infinite;
-}
-@keyframes scene3d-pulse {
-  0%, 100% { opacity: 0.35; transform: scale(0.92); }
-  50% { opacity: 1; transform: scale(1.06); }
-}
-.seat3d-pill { display: flex; align-items: center; gap: 6px; user-select: none; }
-.seat-who-3d {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 4px 9px 4px 4px;
-  border: 1px solid rgba(255, 220, 160, 0.18);
-  border-radius: 999px;
-  background: rgba(16, 13, 20, 0.82);
-  cursor: pointer;
-}
 .pile-action-btn {
   padding: 8px 14px;
   border: 1px solid rgba(255, 220, 160, 0.4);

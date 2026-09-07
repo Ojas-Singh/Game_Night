@@ -85,28 +85,21 @@ apps/web                # React client (round-table Cabo, memory-grid Pair One, 
 ## Live voice & webcam
 
 - **Voice + video at the table**: a full-mesh WebRTC call (server is a
-  signaling relay only — media never touches it). Join from the lobby MediaDock
-  or the in-game sound toggle. When someone's camera is on, their **live feed
-  replaces their avatar** — lobby roster, 2D seat pills, and 3D seat pills all
-  show the face, so reactions are part of the game. STUN-only by default;
-  add a TURN relay via `VITE_ICE_SERVERS` for restrictive NATs.
+  signaling relay only — media never touches it). Controls sit **inline next
+  to each player's name** in the lobby roster — mic, camera, and live-state
+  dots, no separate call box (the in-game table keeps a compact dock). When
+  someone's camera is on, their **live feed replaces their avatar** in the
+  roster and the seat pills. STUN-only by default; add a TURN relay via
+  `VITE_ICE_SERVERS` for restrictive NATs.
 
 - **Cosmetics (all free)**: card backs and felt themes — pick them in the
   lobby's **Table style** panel. Profiles are server-owned with a random
   bearer token in your browser (no account, no email, no tracking); equipped
-  loadouts broadcast to the room and render on the 3D table (per-player card
-  backs, host's felt theme) and the 2D felt. Monetization was deferred — the
+  loadouts broadcast to the room and render on the table (per-player card
+  backs, host's felt theme). Monetization was deferred — the
   Stripe plumbing was removed, and the catalog/profile model kept so a store
   can return without touching renderers or protocol. Plain-language `/privacy`
   and `/tos` pages ship with the client.
-
-- **3D table (strictly opt-in)**: the Cabo table can render as a real
-  three.js scene — felt, fanned card hands, deck/discard piles, flight ghosts,
-  turn rings — via a `✦ 3D` toggle. The classic 2D table is the **default**;
-  3D stays off until a player turns it on (and the choice persists). It
-  lazy-loads as its own bundle (three.js never enters the main chunk) and
-  respects reduced-motion/low-core devices. Both renderers share the same
-  layout math and the same click-intent logic, so gameplay is identical.
 
 - **Peer-to-peer media mesh** for seated players in the lobby and at the table
   (full mesh WebRTC: ≤5 up/down streams per player; Opus audio ~32 kbps, video

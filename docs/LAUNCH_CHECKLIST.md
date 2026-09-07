@@ -56,5 +56,5 @@ section if/when a store returns (the server-side catalog/profile model in
 ## 5. Store/landing assets
 
 - [ ] Logo + favicon set (brand name from step 0).
-- [ ] OG/Twitter card images from the 3D table hero.
+- [ ] OG/Twitter card image (`apps/web/public/og.png`) reviewed.
 - [ ] Screenshot set + short demo clip.
