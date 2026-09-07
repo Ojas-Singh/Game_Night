@@ -2015,6 +2015,40 @@
   right: 18px;
   z-index: 36;
 }
+/* Compact dock joins the right-edge control stack above the rules button. */
+.table-room .media-dock {
+  position: absolute;
+  bottom: 244px;
+  right: 18px;
+  z-index: 35;
+  width: 196px;
+  padding: 8px 11px;
+}
+.table-room .media-dock.open { width: 216px; }
+.table-room .media-dock .media-dock-head small { display: none; }
+.table-room .media-dock.open .media-dock-head small { display: inline; }
+
+/* Series goal reached — persistent celebration banner under the status bar. */
+.series-banner {
+  position: absolute;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 34;
+  padding: 9px 16px;
+  border: 1px solid rgba(232, 165, 75, 0.5);
+  border-radius: 12px;
+  background: rgba(23, 17, 12, 0.92);
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  animation: series-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+@keyframes series-pop {
+  from { transform: translateX(-50%) scale(0.7); opacity: 0; }
+  to { transform: translateX(-50%) scale(1); opacity: 1; }
+}
 .emote-toggle {
   width: 42px;
   height: 42px;

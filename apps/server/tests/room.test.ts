@@ -295,6 +295,58 @@ describe('Room', () => {
     expect(room.engine!.isGameFinished()).toBe(false);
     expect(room.lobbyState().inGame).toBe(true);
   });
+
+  it('series target: host-only, validated, announced once, persisted', () => {
+    const room = new Room({ roomId: 'SERIA1' });
+    const host = room.addPlayer('Host').player;
+    const guest = room.addPlayer('Guest').player;
+    expect(room.seriesTarget).toBeNull();
+
+    // Non-host cannot set the goal.
+    expect(() => room.setSeriesTarget(guest.id, 2)).toThrow(/host/);
+    // Validation.
+    expect(() => room.setSeriesTarget(host.id, 0)).toThrow(/between 1 and 99/);
+    expect(() => room.setSeriesTarget(host.id, 1.5)).toThrow(/between 1 and 99/);
+
+    room.setSeriesTarget(host.id, 2);
+    expect(room.seriesTarget).toBe(2);
+    expect(room.lobbyState().seriesTarget).toBe(2);
+    expect(room.chat.at(-1)!.text).toContain('first to 2');
+
+    // A finished round flows through real scoring: announce exactly once.
+    let finished = false;
+    room.engine = {
+      gameId: 'cabo',
+      handleAction: () => {
+        finished = true;
+        return { ok: true };
+      },
+      isGameFinished: () => finished,
+      calculateScore: () => ({ [host.id]: 2, [guest.id]: 1 }),
+      validateAction: () => true,
+      getState: () => ({ phase: 'ROUND_COMPLETE', players: [] }),
+    } as unknown as import('../src/room.js').AnyGameEngine;
+    room.handleGameAction(host.id, { type: 'NOOP', playerId: host.id } as never);
+    const announce = room.chat.at(-1)!.text;
+    expect(announce).toContain('Host wins the series');
+    expect(room.handleGameAction.bind(room, guest.id, { type: 'NOOP', playerId: guest.id } as never)).not.toThrow();
+    expect(room.chat.at(-1)!.text).toBe(announce);
+
+    // Changing the target re-arms the announcement; snapshot round-trips it.
+    room.setSeriesTarget(host.id, 3);
+    expect(room.chat.at(-1)!.text).toContain('first to 3');
+    const snap = serializeRoom(room);
+    // The stub engine is not restorable — series state is what we round-trip.
+    snap.engineState = null;
+    expect(snap.seriesTarget).toBe(3);
+    const restored = Room.fromSnapshot(snap);
+    expect(restored.seriesTarget).toBe(3);
+
+    // Clearing the goal returns the room to free play.
+    room.setSeriesTarget(host.id, null);
+    expect(room.seriesTarget).toBeNull();
+    expect(room.lobbyState().seriesTarget).toBeNull();
+  });
 });
 
 function ra_id(room: Room, name: string): string | undefined {

@@ -450,6 +450,128 @@ button, .button-link { min-height: 44px; }
 .debug-trace small { color: var(--ink-dim); font-size: 10px; }
 .debug-empty { margin: 11px 0 2px; color: var(--ink-dim); font-size: 11px; line-height: 1.45; }
 
+/* --- Media dock (lobby + table shell; WebRTC powers it in the media release) --- */
+.media-dock {
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 220, 160, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.media-dock-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.media-dock-head strong { font-size: 12px; }
+.media-dock-head small { color: var(--ink-dim); font-size: 10px; }
+.media-dock-caret { margin-left: auto; color: var(--ink-dim); font-size: 10px; }
+.media-dock-controls { display: flex; gap: 7px; margin-top: 9px; }
+.media-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 220, 160, 0.16);
+  border-radius: 8px;
+  color: var(--ink);
+  background: rgba(0, 0, 0, 0.2);
+  font-size: 11px;
+  font-weight: 700;
+}
+.media-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.media-dock-note { margin: 8px 0 0; color: var(--ink-dim); font-size: 10px; line-height: 1.4; }
+.media-dock.compact:not(.open) { padding: 8px 11px; }
+
+/* --- Lobby: ready-up + series --- */
+.lobby-count-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ready-toggle {
+  padding: 7px 12px;
+  border: 1px solid rgba(127, 191, 122, 0.35);
+  border-radius: 9px;
+  color: var(--success);
+  background: rgba(127, 191, 122, 0.08);
+  font-size: 11px;
+  font-weight: 800;
+}
+.ready-toggle.on { background: rgba(127, 191, 122, 0.2); }
+.badge.ready { background: rgba(127, 191, 122, 0.16); color: var(--success); }
+
+.series-panel {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid rgba(255, 220, 160, 0.12);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.14);
+}
+.series-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.series-title {
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.series-target-picker { display: flex; gap: 5px; flex-wrap: wrap; }
+.series-chip {
+  padding: 4px 9px;
+  border: 1px solid rgba(255, 220, 160, 0.16);
+  border-radius: 999px;
+  color: var(--ink-dim);
+  background: rgba(0, 0, 0, 0.2);
+  font-size: 10px;
+  font-weight: 700;
+}
+.series-chip.on { color: var(--ink); border-color: rgba(232, 165, 75, 0.55); background: rgba(232, 165, 75, 0.14); }
+.series-state { color: var(--ink-dim); font-size: 10.5px; }
+.series-winner {
+  padding: 7px 9px;
+  border: 1px solid rgba(232, 165, 75, 0.4);
+  border-radius: 8px;
+  color: var(--accent-strong);
+  background: rgba(232, 165, 75, 0.1);
+  font-size: 11.5px;
+  font-weight: 800;
+}
+.series-standings { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.series-standings li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink-dim);
+  font-size: 11px;
+}
+.series-standings li.leading { color: var(--ink); }
+.series-standings strong { color: var(--accent-strong); }
+
+/* --- QR invite popover --- */
+.invite-card { position: relative; }
+.qr-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 8px;
+  z-index: 40;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid rgba(255, 220, 160, 0.2);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+}
+.qr-popover small { color: #444; font-size: 10px; }
+.qr-invite-btn { margin-left: auto; }
+
 .table-room .draw-discard-btn,
 .table-room .end-turn-btn,
 .table-room .seep-act,

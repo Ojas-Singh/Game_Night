@@ -363,6 +363,8 @@ export interface RoomApi {
   setAvatar: (avatar: Avatar) => void;
   setReady: (ready: boolean) => void;
   selectGame: (gameId: string) => void;
+  /** Host-only: set or clear the "first to N wins" series goal. */
+  setSeriesTarget: (target: number | null) => void;
   /** Test Mode: the server reveals every card to everyone (debug/test aid). */
   testMode: boolean;
   setTestMode: (enabled: boolean) => void;
@@ -796,6 +798,7 @@ export function useRoom(): RoomApi {
       },
       setReady: (ready: boolean) => socketRef.current?.emit('room:set_ready', { ready }),
       selectGame: (gameId: string) => socketRef.current?.emit('room:select_game', { gameId }),
+      setSeriesTarget: (target: number | null) => socketRef.current?.emit('room:set_series_target', { target }),
       testMode,
       setTestMode: (enabled: boolean) => socketRef.current?.emit('room:set_test_mode', { enabled }),
       setAiDebug: (enabled: boolean) => socketRef.current?.emit('room:set_ai_debug', { enabled }),

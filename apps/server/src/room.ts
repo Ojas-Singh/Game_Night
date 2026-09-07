@@ -170,6 +170,9 @@ export class Room {
   /** Host-only live AI reasoning panel. Never included in non-host views. */
   aiDebug = false;
   aiThoughts: AiDecisionTrace[] = [];
+  /** "First to N wins" series goal across rounds; null = free play. */
+  seriesTarget: number | null = null;
+  private seriesAnnounced = false;
   private aiDecisionSequence = 0;
   debug: RoomDebug;
   private reconnectGraceMs: number;
@@ -197,6 +200,7 @@ export class Room {
     room.roundScored = snap.roundScored ?? false;
     room.testMode = snap.testMode ?? false;
     room.aiDebug = snap.aiDebug ?? false;
+    room.seriesTarget = snap.seriesTarget ?? null;
     room.debug = snap.debug ?? {};
     for (const sp of snap.players) {
       room.players.set(sp.id, {
@@ -558,6 +562,36 @@ export class Room {
     if (!enabled) this.aiThoughts = [];
   }
 
+  /**
+   * Host sets the series goal ("first to N wins"). Clearing or changing the
+   * target re-arms the one-time winner announcement.
+   */
+  setSeriesTarget(playerId: string, target: number | null): void {
+    if (playerId !== this.hostId) throw new RoomError('only the host can set the series goal');
+    if (target !== null && (!Number.isInteger(target) || target < 1 || target > 99)) {
+      throw new RoomError('series goal must be between 1 and 99');
+    }
+    if (this.seriesTarget !== target) this.seriesAnnounced = false;
+    this.seriesTarget = target;
+    this.system(
+      target === null
+        ? 'Series goal cleared — free play.'
+        : `Series on: first to ${target} round win${target === 1 ? '' : 's'}!`,
+    );
+  }
+
+  /** After round scoring: announce the series winner once, when reached. */
+  private maybeAnnounceSeriesWinner(): void {
+    if (this.seriesTarget === null || this.seriesAnnounced) return;
+    const winner = Object.entries(this.scoreboard)
+      .filter(([, score]) => score >= this.seriesTarget!)
+      .sort((a, b) => b[1] - a[1])[0];
+    if (!winner) return;
+    this.seriesAnnounced = true;
+    const name = this.players.get(winner[0])?.name ?? 'A player';
+    this.system(`🏆 ${name} wins the series ${winner[1]}–${Math.max(0, ...Object.entries(this.scoreboard).filter(([id]) => id !== winner[0]).map(([, s]) => s))}! Start the next round to play on, or head back to the lobby.`);
+  }
+
   beginAiDecision(playerId: string, agent: AiTraceAgent): AiDecisionTrace | null {
     if (!this.aiDebug) return null;
     const player = this.players.get(playerId);
@@ -683,6 +717,7 @@ export class Room {
       for (const [pid, pts] of Object.entries(scores)) {
         this.scoreboard[pid] = (this.scoreboard[pid] ?? 0) + pts;
       }
+      this.maybeAnnounceSeriesWinner();
     }
   }
 
@@ -701,6 +736,7 @@ export class Room {
       for (const [id, score] of Object.entries(this.engine.calculateScore())) {
         this.scoreboard[id] = (this.scoreboard[id] ?? 0) + score;
       }
+      this.maybeAnnounceSeriesWinner();
     }
   }
 
@@ -732,6 +768,7 @@ export class Room {
       scoreboard: this.getScoreboard(),
       testMode: this.testMode,
       aiDebug: this.aiDebug,
+      seriesTarget: this.seriesTarget,
     };
   }
 

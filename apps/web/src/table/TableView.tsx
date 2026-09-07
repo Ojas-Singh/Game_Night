@@ -16,6 +16,8 @@ import FloatingEmote from './FloatingEmote.js';
 import InfoModal from './InfoModal.js';
 import Avatar from './Avatar.js';
 import DebugControls from './DebugControls.js';
+import MediaDock from './MediaDock.js';
+import { seriesWinner } from '../lobby/series.js';
 
 /**
  * The round-table experience. The local player always sits at the bottom;
@@ -473,6 +475,15 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
       <div className={`status-banner ${guidance.urgent ? 'urgent' : ''}`}>
         {guidance.text}
       </div>
+      {/* Series goal reached: keep the celebration up while the goal stands. */}
+      {(() => {
+        const lobby = room.lobby;
+        if (!lobby) return null;
+        const winner = seriesWinner(lobby.scoreboard, lobby.seriesTarget);
+        if (!winner) return null;
+        const name = lobby.players.find((p) => p.id === winner.playerId)?.name ?? 'A player';
+        return <div className="series-banner">🏆 {name} wins the series — start the next round to play on!</div>;
+      })()}
       {/* Host debug menu combines Test Mode with live AI reasoning. */}
       {room.testMode && <div className="test-banner">TEST MODE — all cards revealed</div>}
       {/* CABO! — full-screen announcement with page flash + shake. */}
@@ -524,6 +535,7 @@ export default function TableView({ room, view }: { room: RoomApi; view: CaboPla
         </button>
       )}
       <SoundToggle />
+      <MediaDock compact />
       <EmotePicker room={room} />
       <button
         className="info-toggle"

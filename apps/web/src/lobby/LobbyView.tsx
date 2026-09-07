@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import type { RoomApi } from '../useRoom.js';
 import ChatPanel from '../chat/ChatPanel.js';
 import DebugPanel from '../DebugPanel.js';
@@ -7,9 +8,11 @@ import { loadName } from '../session.js';
 import { funnel } from '../analytics.js';
 import Avatar from '../table/Avatar.js';
 import InfoModal from '../table/InfoModal.js';
+import MediaDock from '../table/MediaDock.js';
+import { seriesStandings, seriesWinner } from './series.js';
 import { loadAvatar, randomAvatar, saveAvatar } from '../avatar.js';
 import { AVATAR_COLORS, EYE_STYLES, MOUTH_STYLES, HAT_STYLES } from '../avatar.js';
-import type { Avatar as AvatarModel } from '../server-protocol.js';
+import type { Avatar as AvatarModel, RoomLobbyState } from '../server-protocol.js';
 
 const AI_PERSONA_LABELS: Record<string, string> = {
   balanced: 'Balanced',
@@ -40,6 +43,7 @@ export default function LobbyView({ room }: { room: RoomApi }) {
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  const [showQr, setShowQr] = useState(false);
   // Rules live on each game tile — tap a tile's ⓘ to read them. No auto-popup.
   const [rulesGame, setRulesGame] = useState<GameId | null>(null);
 
@@ -140,10 +144,20 @@ export default function LobbyView({ room }: { room: RoomApi }) {
                 <strong>Invite friends</strong>
                 <span className="room-url">{inviteLink}</span>
               </span>
+              <button className="copy-invite-btn qr-invite-btn" onClick={() => setShowQr((v) => !v)} aria-expanded={showQr} title="Show the invite as a QR code">
+                <span aria-hidden>▦</span>
+                <span>QR</span>
+              </button>
               <button className="copy-invite-btn" onClick={copyLink}>
                 <Icon name={copied ? 'check' : 'copy'} />
                 <span>{copied ? 'Copied' : 'Copy link'}</span>
               </button>
+              {showQr && (
+                <div className="qr-popover" role="dialog" aria-label="Invite QR code">
+                  <QRCodeSVG value={inviteLink} size={148} level="M" />
+                  <small>Scan to join this table</small>
+                </div>
+              )}
             </div>
           </div>
         </header>
@@ -241,6 +255,9 @@ export default function LobbyView({ room }: { room: RoomApi }) {
                       AI
                     </span>
                   )}
+                  {p.ready && p.kind !== 'ai' && (
+                    <span className="badge ready" title="Ready to play">✓ Ready</span>
+                  )}
                   {p.isHost && <span className="badge host">Host</span>}
                   {p.isYou && <span className="badge you">You</span>}
                   {isHost && !p.isYou && !p.isHost && (
@@ -255,8 +272,20 @@ export default function LobbyView({ room }: { room: RoomApi }) {
                 </li>
               ))}
             </ul>
-            <div className="lobby-count">
-              {lobby.players.length} / 6 players
+            <div className="lobby-count-row">
+              <div className="lobby-count">
+                {lobby.players.length} / 6 players
+              </div>
+              {!isHost && me && me.kind !== 'ai' && (
+                <button
+                  className={`ready-toggle ${me.ready ? 'on' : ''}`}
+                  onClick={() => room.setReady(!me.ready)}
+                  aria-pressed={me.ready}
+                  title={me.ready ? 'You are ready to play' : 'Tap when you are ready to play'}
+                >
+                  {me.ready ? '✓ Ready' : 'Ready up'}
+                </button>
+              )}
             </div>
           </section>
 
@@ -299,6 +328,7 @@ export default function LobbyView({ room }: { room: RoomApi }) {
                 onInfo={() => setRulesGame('seep')}
               />
             </div>
+            <SeriesPanel lobby={lobby} isHost={isHost} onSetTarget={(target) => room.setSeriesTarget(target)} />
             {isHost ? (
               <div className="host-controls">
                 <Link className="ghost gamelab-host-link" to="/gamelab" title="Open the RuleZero Game Lab">
@@ -330,6 +360,7 @@ export default function LobbyView({ room }: { room: RoomApi }) {
 
       <aside className="lobby-side">
         <DebugPanel room={room} />
+        <MediaDock compact />
         <div className="lobby-panel avatar-panel">
           <div className="avatar-panel-head">
             <div>
@@ -379,6 +410,69 @@ const GAME_META: Record<GameId, { label: string }> = {
   pairone: { label: 'Pair One' },
   seep: { label: 'Seep' },
 };
+
+const SERIES_GOALS: Array<number | null> = [null, 2, 3, 5, 7];
+
+/**
+ * "First to N wins" across rounds: the host picks the goal, everyone sees
+ * live standings, and the series winner is celebrated until the goal changes.
+ */
+function SeriesPanel({
+  lobby,
+  isHost,
+  onSetTarget,
+}: {
+  lobby: RoomLobbyState;
+  isHost: boolean;
+  onSetTarget: (target: number | null) => void;
+}) {
+  const target = lobby.seriesTarget ?? null;
+  const winner = seriesWinner(lobby.scoreboard, target);
+  const nameOf = (playerId: string): string =>
+    lobby.players.find((p) => p.id === playerId)?.name ?? 'A player';
+  const standings = seriesStandings(lobby.scoreboard, lobby.players).filter(
+    (s) => s.wins > 0 || winner !== null,
+  );
+  return (
+    <div className="series-panel">
+      <div className="series-head">
+        <span className="series-title">Series</span>
+        {isHost ? (
+          <div className="series-target-picker" role="group" aria-label="Series goal">
+            {SERIES_GOALS.map((goal) => (
+              <button
+                key={String(goal)}
+                className={`series-chip ${target === goal ? 'on' : ''}`}
+                onClick={() => onSetTarget(goal)}
+                aria-pressed={target === goal}
+                title={goal === null ? 'No series goal — free play' : `First player to win ${goal} rounds`}
+              >
+                {goal === null ? 'Free play' : `To ${goal}`}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <span className="series-state">{target === null ? 'Free play' : `First to ${target}`}</span>
+        )}
+      </div>
+      {winner && (
+        <div className="series-winner" role="status">
+          🏆 {nameOf(winner.playerId)} wins the series!
+        </div>
+      )}
+      {standings.length > 0 && (
+        <ol className="series-standings">
+          {standings.map((s) => (
+            <li key={s.playerId} className={winner?.playerId === s.playerId ? 'leading' : ''}>
+              <span>{s.name}{s.isAi ? ' 🤖' : ''}</span>
+              <strong>{s.wins}</strong>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
 
 /**
  * A game tile in the lobby: the host taps it to pick the game; anyone can tap

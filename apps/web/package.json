@@ -17,6 +17,7 @@
     "@game-night/engine-seep": "workspace:*",
     "@game-night/shared": "workspace:*",
     "framer-motion": "^11.15.0",
+    "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0",

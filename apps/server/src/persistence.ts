@@ -36,6 +36,7 @@ export interface RoomSnapshot {
   scoreboard: Record<string, number>;
   testMode: boolean;
   aiDebug?: boolean;
+  seriesTarget?: number | null;
   debug: Room['debug'];
   players: Array<Omit<RoomPlayer, 'sockets'> & { socketCount: number }>;
   engineState: AnyEngineState | null;
@@ -57,6 +58,7 @@ export function serializeRoom(room: Room): RoomSnapshot {
     scoreboard: room.scoreboard,
     testMode: room.testMode,
     aiDebug: room.aiDebug,
+    seriesTarget: room.seriesTarget,
     debug: room.debug,
     players: [...room.players.values()].map((p) => ({
       id: p.id,

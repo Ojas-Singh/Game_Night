@@ -294,7 +294,9 @@ describe('socket integration', () => {
     expect((await startGame(host)).ok).toBe(true);
 
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('timed out waiting for AI trace')), 10_000);
+      // The agent loop waits a human-ish 0.7–2.2s before deciding; under
+      // parallel test workers that can stretch well past a 10s wait.
+      const timer = setTimeout(() => reject(new Error('timed out waiting for AI trace')), 25_000);
       const check = (trace: { status: string }) => {
         if (trace.status === 'executed') {
           clearTimeout(timer);
@@ -328,7 +330,7 @@ describe('socket integration', () => {
     });
     host.close();
     guest.close();
-  }, 20_000);
+  }, 40_000);
 
   it('reconnects with token after disconnect and restores the same seat', async () => {
     const host = await connect();

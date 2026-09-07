@@ -59,6 +59,8 @@ export interface ClientEvents {
   'room:set_ready': (payload: { ready: boolean }) => void;
   'room:select_game': (payload: { gameId: string }) => void;
   'room:set_swap_others': (payload: { enabled: boolean }) => void;
+  /** Host sets the "first to N wins" series goal (null clears it). */
+  'room:set_series_target': (payload: { target: number | null }) => void;
   /** Host removes a player from the lobby. */
   'room:kick': (payload: { playerId: string }, ack: (res: { ok: boolean; error?: string }) => void) => void;
   'room:start_game': (payload: {}, ack: (res: { ok: boolean; error?: string }) => void) => void;
@@ -115,6 +117,8 @@ export interface RoomLobbyState {
   aiDebug: boolean;
   /** Recent AI traces are sent only to the host's socket. */
   aiThoughts?: AiDecisionTrace[];
+  /** Host-set "first to N wins" series goal; null = no series. */
+  seriesTarget?: number | null;
 }
 
 export interface TokenUsage {
