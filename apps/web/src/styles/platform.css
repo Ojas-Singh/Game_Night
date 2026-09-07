@@ -720,3 +720,14 @@ button, .button-link { min-height: 44px; }
 .legal-page h2 { font-size: 16px; margin: 20px 0 6px; }
 .legal-body p, .legal-body li { font-size: 13px; line-height: 1.65; color: rgba(240, 234, 220, 0.85); }
 .legal-body ul { padding-left: 20px; }
+
+.report-btn {
+  padding: 2px 7px;
+  border: 1px solid rgba(224, 108, 90, 0.35);
+  border-radius: 7px;
+  color: #ffb1a0;
+  background: rgba(224, 108, 90, 0.08);
+  font-size: 11px;
+  cursor: pointer;
+}
+.report-btn:hover { background: rgba(224, 108, 90, 0.18); }

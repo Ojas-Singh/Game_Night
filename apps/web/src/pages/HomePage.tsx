@@ -68,7 +68,7 @@ export default function HomePage({ room }: { room: RoomApi }) {
               <p className="eyebrow">THE TABLE IS OPEN</p>
               <h1 id="home-title" className="font-display home-title">Bring your people.<br /><em>Deal something great.</em></h1>
               <p className="home-sub">
-                A warm, easy place for game nights with friends. Choose a classic, invite the table, or turn your own rules into a playable game.
+                A warm, easy place for game nights with friends. Live voice &amp; video at the table, a 3D room, AI opponents, and house rules that actually play.
               </p>
               <div className="home-card" aria-label="Start or join a table">
                 <div className="home-action-heading"><span>Start a table</span><small>Pick a game after everyone arrives.</small></div>
@@ -139,7 +139,7 @@ export default function HomePage({ room }: { room: RoomApi }) {
             </div>
           </section>
         </main>
-        <footer className="home-footer"><span>Game Night</span><span>Private rooms · Shareable links · No accounts</span></footer>
+        <footer className="home-footer"><span>Game Night</span><span>Private rooms · Shareable links · No accounts</span><span><Link to="/shop">Shop</Link> · <Link to="/privacy">Privacy</Link> · <Link to="/tos">Terms</Link></span></footer>
       </div>
     </div>
   );

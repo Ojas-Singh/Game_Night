@@ -84,6 +84,8 @@ export interface ClientEvents {
   'shop:purchase': (payload: { sku: string }, ack: (res: PurchaseAck) => void) => void;
   /** Equip an owned cosmetic (server verifies ownership). */
   'shop:equip': (payload: { sku: string }, ack: (res: { ok: boolean; error?: string }) => void) => void;
+  /** Report a player to moderation (relayed to the host + structured log). */
+  'room:report': (payload: { targetId?: string; reason?: string }) => void;
 }
 
 export interface JoinResult {

@@ -20,10 +20,12 @@ import { RoomManager } from './roomManager.js';
 import { registerSocketHandlers } from './socket.js';
 import { ShopService, RedisShopStore, MemoryShopStore } from './shop.js';
 import { shopRouter } from './shopRoutes.js';
+import { initServerObservability } from './observability.js';
 
 const app = express();
 app.disable('x-powered-by');
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
+await initServerObservability(process.env.SENTRY_DSN, config.nodeEnv);
 
 const rooms = new RoomManager(config.roomTtlMs);
 
@@ -124,9 +126,11 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
 
 process.on('uncaughtException', (err) => {
   log.error('uncaught_exception', { error: err.message, stack: err.stack });
+  void import('./observability.js').then((m) => m.captureServer(err));
 });
 process.on('unhandledRejection', (reason) => {
   log.error('unhandled_rejection', { reason: String(reason) });
+  void import('./observability.js').then((m) => m.captureServer(reason));
 });
 
 /** Hide credentials in logged Redis URLs. */

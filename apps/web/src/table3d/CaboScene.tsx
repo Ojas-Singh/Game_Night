@@ -335,6 +335,7 @@ function SeatPill({
   caboCaller,
   onClick,
   onKick,
+  onReport,
 }: {
   seat: SeatLayout;
   name: string;
@@ -347,6 +348,7 @@ function SeatPill({
   caboCaller: boolean;
   onClick: () => void;
   onKick?: () => void;
+  onReport: () => void;
 }) {
   return (
     <Html position={[seat.pos.x, 0.1, seat.pos.z - 0.55]} center distanceFactor={8} zIndexRange={[20, 0]}>
@@ -360,6 +362,15 @@ function SeatPill({
           <Avatar avatar={avatar} size={42} crown={isTurn} ring={isTurn} cabo={caboCaller} />
           <span className="seat-name">{name}</span>
         </button>
+        {!isHostMe && (
+          <button
+            className="report-btn"
+            title={`Report ${name} to the host`}
+            onClick={onReport}
+          >
+            ⚑
+          </button>
+        )}
         {emote && <FloatingEmote emote={emote} />}
       </div>
     </Html>
@@ -533,6 +544,7 @@ function SceneContents(props: CaboSceneProps) {
             caboCaller={view.cabo?.callerId === seat.playerId}
             onClick={() => props.onOpponentClick(seat.playerId)}
             onKick={room.lobby?.hostId === myId && lobbyPlayer?.kind !== 'ai' ? () => room.kickLive(seat.playerId) : undefined}
+            onReport={() => room.reportPlayer(seat.playerId, 'reported at table')}
           />
         );
       })}

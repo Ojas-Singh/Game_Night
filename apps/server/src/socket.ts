@@ -12,6 +12,7 @@ import type { RoomManager } from './roomManager.js';
 import { Room, RoomError } from './room.js';
 import type { ChatMessage, JoinResult, RoomLobbyState, MediaMemberInfo } from './protocol.js';
 import { MediaMesh } from './media.js';
+import { TokenBucket, SocketRateLimits } from './rateLimit.js';
 import { log } from './log.js';
 import type { ShopService } from './shop.js';
 import type { ShopHelloResult } from './protocol.js';
@@ -29,6 +30,11 @@ const PRESENCE_DEBOUNCE_MS = 5_000;
 export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opts: { shop?: ShopService } = {}): void {
   // eslint note: AgentLoops imported statically below the io type import.
   const shop = opts.shop ?? null;
+  // Flood control for chat/emotes/reports — per socket, GC'd on disconnect.
+  const limits = new SocketRateLimits({
+    chat: () => new TokenBucket(8, 3),
+    emote: () => new TokenBucket(10, 4),
+  });
   const persistRoom = (room: Room): Promise<void> => rooms.persistNow(room);
   const lobbyOf = (room: Room, forPlayerId?: string): RoomLobbyState => {
     const state = room.lobbyState();
@@ -519,6 +525,8 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opt
 
     socket.on('room:chat', ({ text }) => {
       try {
+        // Flood control: 8 messages burst, 3/s refill.
+        if (limits && !limits.allow(socket.id, 'chat')) return;
         const { room, playerId } = requireRoom();
         const chatMsg = room.playerChat(playerId, text);
         if (chatMsg) io.to(room.spectators.has(playerId) ? room.id + ':spectators' : room.id + ':players').emit('room:chat', chatMsg);
@@ -529,6 +537,8 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opt
 
     socket.on('room:emote', ({ emote }) => {
       try {
+        // Emote spam guard: 10 burst, 4/s refill.
+        if (limits && !limits.allow(socket.id, 'emote')) return;
         const { room, playerId } = requireRoom();
         if (room.spectators.has(playerId)) return;
         const clean = typeof emote === 'string' ? emote.slice(0, 8) : '';
@@ -538,6 +548,33 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opt
           emote: clean,
           timestamp: new Date().toISOString(),
         });
+      } catch {
+        /* ignore */
+      }
+    });
+
+    // Player report: relayed to the host as a system message and recorded in
+    // the structured log for moderation review. Rate limited like chat.
+    socket.on('room:report', ({ targetId, reason }) => {
+      try {
+        if (limits && !limits.allow(socket.id, 'chat')) return;
+        const { room, playerId } = requireRoom();
+        const cleanReason = typeof reason === 'string' ? reason.slice(0, 200) : '';
+        const target = typeof targetId === 'string' ? room.participant(targetId) : undefined;
+        log.warn('player_report', {
+          roomId: room.id,
+          reporter: playerId,
+          target: target?.id ?? null,
+          targetName: target?.name ?? null,
+          reason: cleanReason,
+        });
+        if (room.hostId) {
+          const host = room.participant(room.hostId);
+          const targetName = target?.name ?? 'a player';
+          room.system(`⚑ ${targetName} was reported. Host: review the chat, use the lobby kick if needed.`);
+          const sys = room.chat[room.chat.length - 1]!;
+          for (const sid of host?.sockets ?? []) io.to(sid).emit('room:chat', sys);
+        }
       } catch {
         /* ignore */
       }
@@ -723,6 +760,7 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opt
     socket.on('disconnect', () => {
       log.debug('socket_disconnected', { socketId: socket.id });
       shop?.unbindSocket(socket.id);
+      limits?.forget(socket.id);
       try {
         leaveMedia();
         const roomId = data.roomId;

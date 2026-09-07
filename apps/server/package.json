@@ -19,6 +19,7 @@
     "@game-night/engine-pairone": "workspace:*",
     "@game-night/engine-seep": "workspace:*",
     "@game-night/shared": "workspace:*",
+    "@sentry/node": "^10.73.0",
     "express": "^4.21.2",
     "ioredis": "^6.0.0",
     "socket.io": "^4.8.1",

@@ -374,6 +374,8 @@ export interface RoomApi {
   endGame: () => void;
   /** Host hands a mid-game seat to the autopilot bot. */
   kickLive: (playerId: string) => void;
+  /** Report a player to moderation (server relays to host + logs). */
+  reportPlayer: (playerId: string, reason?: string) => void;
   startGame: () => Promise<{ ok: boolean; error?: string }>;
   /** Host-only: remove a player from the lobby. */
   kickPlayer: (playerId: string) => Promise<{ ok: boolean; error?: string }>;
@@ -804,6 +806,7 @@ export function useRoom(): RoomApi {
       setAiDebug: (enabled: boolean) => socketRef.current?.emit('room:set_ai_debug', { enabled }),
       endGame: () => socketRef.current?.emit('room:end_game', undefined),
       kickLive: (playerId) => socketRef.current?.emit('room:kick_live', { playerId }),
+      reportPlayer: (playerId, reason) => socketRef.current?.emit('room:report', { targetId: playerId, reason }),
       startGame: () =>
         new Promise((resolve) => {
           socketRef.current?.emit('room:start_game', {}, resolve);

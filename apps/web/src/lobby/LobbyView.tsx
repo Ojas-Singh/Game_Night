@@ -270,6 +270,15 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
                       <Icon name="close" />
                     </button>
                   )}
+                  {!isHost && !p.isYou && (
+                    <button
+                      className="report-btn"
+                      title={`Report ${p.name} to the host`}
+                      onClick={() => room.reportPlayer(p.id, 'reported from lobby')}
+                    >
+                      ⚑
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
