@@ -110,6 +110,17 @@ export class CaboHeuristicBot implements GameAgent {
     const ownIds = ownCardIds(v, obs.selfId);
     const knownOwn = () => ownIds.filter((id) => v.knownCards[id]).map((id) => ({ id, c: v.knownCards[id]! }));
 
+    // A flush is a true Cabo interrupt: it may be submitted while another
+    // player owns the normal turn. The loop supplies only validated flush
+    // candidates in this mode, so never fall through to DRAW or END_TURN.
+    if (ctx.interruptOnly) {
+      const interrupts = (ctx.allowedActions ?? []).filter((action) => action.type === 'FLUSH_OWN' || action.type === 'FLUSH_OTHER');
+      if (interrupts.length === 0) throw new AgentError('no Cabo flush interrupt available');
+      const ownPair = interrupts.find((action) => action.type === 'FLUSH_OWN' && action.cardIds.length > 1);
+      const chosen = ownPair ?? interrupts.find((action) => action.type === 'FLUSH_OWN') ?? interrupts[0]!;
+      return { action: chosen, thought: 'flushing a known matching card immediately' };
+    }
+
     // --- Free interrupts: flushes -----------------------------------------
     if (v.discardTopRank != null && v.phase !== 'INITIAL_PEEK') {
       const matches = knownOwn().filter((k) => k.c.rank === v.discardTopRank);

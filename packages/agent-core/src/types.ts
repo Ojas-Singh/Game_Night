@@ -109,6 +109,13 @@ export interface Rng {
 
 export interface AgentContext {
   rng: Rng;
+  /**
+   * Optional authoritative subset for interrupt decisions. Cabo uses this
+   * when an AI can flush a known card during another player's turn.
+   */
+  allowedActions?: AnyGameAction[];
+  /** The allowed subset contains only asynchronous Cabo flush actions. */
+  interruptOnly?: boolean;
 }
 
 /** Simple error type so hosts can distinguish agent failures. */

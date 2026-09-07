@@ -53,6 +53,8 @@ export interface LlmAgentOptions {
 export interface PromptOptions {
   /** Full Pair One grids enumerate >100 flips; keep every candidate visible. */
   maxCandidates?: number;
+  /** Explain that this request is an out-of-turn Cabo flush interrupt. */
+  interruptOnly?: boolean;
 }
 
 /**
@@ -70,7 +72,7 @@ export function buildLlmPrompt(
   if (maxCandidates != null && candidates.length > maxCandidates) {
     throw new AgentError(`candidate budget exceeded: ${candidates.length} legal actions (limit ${maxCandidates})`);
   }
-  return buildPromptInner(obs, persona, candidates, maxCandidates);
+  return buildPromptInner(obs, persona, candidates, opts);
 }
 
 export interface CandidateRef {
@@ -85,7 +87,8 @@ export function labelCandidates(candidates: AnyGameAction[], max?: number): Cand
   return list.map((action, i) => ({ id: `A${i}`, action }));
 }
 
-function buildPromptInner(obs: AgentObservation, persona: Persona, candidates: AnyGameAction[], maxCandidates?: number): ChatMessage[] {
+function buildPromptInner(obs: AgentObservation, persona: Persona, candidates: AnyGameAction[], opts: PromptOptions = {}): ChatMessage[] {
+  const maxCandidates = opts.maxCandidates;
   const refs = labelCandidates(candidates, maxCandidates);
   const aliases = new Map<string, string>();
   let aliasIndex = 0;
@@ -106,6 +109,9 @@ function buildPromptInner(obs: AgentObservation, persona: Persona, candidates: A
   const system = [
     `You are "${persona.label}", a world-class card player in a game night app.`,
     persona.prompt,
+    opts.interruptOnly
+      ? 'This is an asynchronous Cabo interrupt while another player may own the normal turn. The listed actions are flushes only; submit one immediately if the known card match is worth taking.'
+      : '',
     `GAME RULES:\n${RULES_TEXT[obs.gameId]}`,
     `Respond with ONE json object and nothing else: {"summary": "<=2 sentences explaining the move>", "factors": ["visible fact", "tradeoff or risk"], "action_id": "<one candidate id, e.g. A7>"}. Copying the full action object as "action" instead of action_id is also acceptable. Summary and factors are a brief user-facing decision explanation, not hidden chain-of-thought. Use only facts from the filtered observation and legal actions.`,
     obs.gameId === 'cabo'
@@ -194,7 +200,7 @@ export class LlmAgent implements GameAgent {
   }
 
   async decide(obs: AgentObservation, ctx: AgentContext): Promise<AgentDecision> {
-    const candidates = enumerateLegalActions(obs.view, obs.selfId);
+    const candidates = ctx.allowedActions ?? enumerateLegalActions(obs.view, obs.selfId);
     if (candidates.length === 0) throw new AgentError('no candidates for LLM');
     const maxCandidates = this.opts.maxCandidates;
     const attempts: AgentAttempt[] = [];
@@ -270,11 +276,11 @@ export class LlmAgent implements GameAgent {
     };
 
     try {
-      return await ask(buildLlmPrompt(obs, this.persona, candidates, { maxCandidates }), 1);
+      return await ask(buildLlmPrompt(obs, this.persona, candidates, { maxCandidates, interruptOnly: ctx.interruptOnly }), 1);
     } catch (err) {
       // One corrective retry, feeding the error back.
       try {
-        const messages = buildLlmPrompt(obs, this.persona, candidates, { maxCandidates });
+        const messages = buildLlmPrompt(obs, this.persona, candidates, { maxCandidates, interruptOnly: ctx.interruptOnly });
         messages.push({
           role: 'assistant',
           content: `{"thought":"...","action":{}}`,

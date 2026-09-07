@@ -21,7 +21,7 @@ export class RandomBot implements GameAgent {
   }
 
   decide(obs: AgentObservation, ctx: AgentContext): AgentDecision {
-    const candidates: AnyGameAction[] = enumerateLegalActions(obs.view, obs.selfId);
+    const candidates: AnyGameAction[] = ctx.allowedActions ?? enumerateLegalActions(obs.view, obs.selfId);
     if (candidates.length === 0) {
       throw new Error(`random bot: no candidate actions in phase ${obs.view.phase}`);
     }

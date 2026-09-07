@@ -2,8 +2,8 @@
  * AgentLoops — drives AI seats in live rooms.
  *
  * After every room change the socket layer calls notify(room); the loop
- * checks whether the seat that must act is an AI, waits a human-ish think
- * delay, asks its agent for a decision, and submits it through the SAME
+ * checks for Cabo flush interrupts before normal turns, waits a human-ish
+ * think delay, asks its agent for a decision, and submits it through the SAME
  * authority path as humans (Room.handleGameAction). Engines never learn
  * they are playing against machines.
  *
@@ -52,6 +52,8 @@ export class AgentLoops {
   private engineRefs = new Map<string, object>();
   private engineEpoch = new Map<string, number>();
   private busy = new Set<string>();
+  /** At most one interrupt runs per room; normal AI thinking may overlap it. */
+  private flushBusy = new Set<string>();
   private readonly minThinkMs: number;
   private readonly maxThinkMs: number;
 
@@ -67,6 +69,7 @@ export class AgentLoops {
   dispose(): void {
     for (const t of this.timers.values()) clearTimeout(t);
     this.timers.clear();
+    this.flushBusy.clear();
   }
 
   /** Call after ANY room mutation. Cheap; collapses to one timer per room. */
@@ -80,15 +83,43 @@ export class AgentLoops {
     if (prev) clearTimeout(prev);
     this.timers.delete(room.id);
     if (room.closed || !room.engine || room.engine.isGameFinished()) return;
-    const aiId = this.aiToAct(room);
+    // Cabo flushes are legal interrupts even when another seat owns the
+    // normal turn. Give those known opportunities priority over turn play.
+    const flushAiId = this.aiFlushToAct(room);
+    if (flushAiId && this.flushBusy.has(room.id)) return;
+    if (!flushAiId && this.busy.has(room.id)) return;
+    const aiId = flushAiId ?? this.aiToAct(room);
     if (!aiId) return;
     const delay = this.minThinkMs + Math.floor(Math.random() * (this.maxThinkMs - this.minThinkMs));
     const timer = setTimeout(() => {
       this.timers.delete(room.id);
-      void this.act(room, aiId);
+      void this.act(room, aiId, Boolean(flushAiId));
     }, delay);
     if (typeof timer.unref === 'function') timer.unref();
     this.timers.set(room.id, timer);
+  }
+
+  /**
+   * Find an AI that can submit a known Cabo flush right now. The Cabo engine
+   * intentionally permits FLUSH_OWN/FLUSH_OTHER in every live phase without
+   * requiring the flusher to own currentTurn, so this path must not wait for
+   * that seat's ordinary turn.
+   */
+  private aiFlushToAct(room: Room): string | null {
+    const engine = room.engine;
+    if (!engine || engine instanceof RuleZeroEngine) return null;
+    const state = engine.getState() as { phase: string };
+    if (state.phase === 'INITIAL_PEEK' || state.phase === 'ROUND_REVEAL' || state.phase === 'ROUND_COMPLETE') return null;
+    for (const player of room.players.values()) {
+      if (player.kind !== 'ai') continue;
+      const view = room.gameView(player.id, { forAi: true });
+      if (!view || view.gameId !== 'cabo') continue;
+      const flushes = enumerateLegalActions(view, player.id).filter(
+        (action) => action.type === 'FLUSH_OWN' || action.type === 'FLUSH_OTHER',
+      );
+      if (flushes.some((action) => engine.validateAction(action))) return player.id;
+    }
+    return null;
   }
 
   private aiToAct(room: Room): string | null {
@@ -237,13 +268,24 @@ export class AgentLoops {
     return agent;
   }
 
-  private async act(room: Room, aiId: string): Promise<void> {
+  private async act(room: Room, aiId: string, interruptOnly = false): Promise<void> {
     const guard = `${room.id}`;
-    if (this.busy.has(guard)) {
-      this.notify(room);
-      return;
+    if (interruptOnly) {
+      if (this.flushBusy.has(guard)) return;
+      this.flushBusy.add(guard);
+    } else {
+      // A newly discovered flush always preempts normal turn thinking. The
+      // normal response will be revision-checked and discarded if necessary.
+      if (this.aiFlushToAct(room)) {
+        this.notify(room);
+        return;
+      }
+      if (this.busy.has(guard)) {
+        this.notify(room);
+        return;
+      }
+      this.busy.add(guard);
     }
-    this.busy.add(guard);
     try {
       if (!room.engine || room.engine.isGameFinished()) return;
       // Test Mode is a human debugging aid. AI seats always receive their
@@ -255,15 +297,24 @@ export class AgentLoops {
       const decisionRevision = view.revision;
       const decisionEngine = room.engine;
       const obs = { gameId: view.gameId, selfId: aiId, view, step: 0 };
-      const legalCandidates = enumerateLegalActions(view, aiId);
+      const allCandidates = enumerateLegalActions(view, aiId);
+      const legalCandidates = interruptOnly
+        ? allCandidates.filter((action) => action.type === 'FLUSH_OWN' || action.type === 'FLUSH_OTHER')
+        : allCandidates;
+      if (legalCandidates.length === 0) return;
       const rng = createAgentRng(randomBytes(4).readUInt32BE(0));
       let action;
       let decisionMeta: import('@game-night/agent-core').AgentDecision['meta'];
       const agent = this.agentFor(room, aiId);
-      const thinking = room.recordAiThought(aiId, agent, 'thinking', 'Reviewing the visible table…');
+      const thinking = room.recordAiThought(
+        aiId,
+        agent,
+        'thinking',
+        interruptOnly ? 'Known flush opportunity detected; choosing an interrupt action…' : 'Reviewing the visible table…',
+      );
       if (thinking) await this.broadcaster.aiThought?.(room, thinking);
       try {
-        const decision = await agent.decide(obs, { rng });
+        const decision = await agent.decide(obs, { rng, allowedActions: legalCandidates, interruptOnly });
         action = decision.action;
         decisionMeta = decision.meta;
         const trace = room.recordAiThought(aiId, agent, 'decision', decision.thought ?? 'Selected a legal move.', action.type, {
@@ -271,9 +322,9 @@ export class AgentLoops {
           failure: decision.meta?.failure,
           latencyMs: decision.meta?.latencyMs,
           attempts: decision.meta?.attempts?.length,
-         rationale: decision.rationale,
+          rationale: decision.rationale,
           providerReasoningAvailable: decision.meta?.providerReasoningAvailable,
-         observation: JSON.stringify(view),
+          observation: JSON.stringify(view),
           candidates: legalCandidates.map((candidate) => JSON.stringify(candidate)),
         });
         if (trace) await this.broadcaster.aiThought?.(room, trace);
@@ -283,15 +334,13 @@ export class AgentLoops {
         log.warn('ai_agent_error', { roomId: room.id, aiId, error: String(err).slice(0, 120) });
       }
       if (!action) {
-        const candidates = enumerateLegalActions(view, aiId);
-        if (candidates.length === 0) return;
-        action = rng.pick(candidates);
+        action = rng.pick(legalCandidates);
       }
       // An LLM response is asynchronous. The room may have been restarted,
       // the seat may have changed, or a newer command may have advanced the
       // revision while it was thinking. Never submit a stale flush (or any
       // other move) against a newer information state.
-     const latestView = room.gameView(aiId, { forAi: true });
+      const latestView = room.gameView(aiId, { forAi: true });
       if (room.engine !== decisionEngine || !latestView || latestView.gameId === 'rulezero' || latestView.revision !== decisionRevision) {
         const discarded = room.recordAiThought(
           aiId,
@@ -309,7 +358,7 @@ export class AgentLoops {
       } catch (err) {
         if (!(err instanceof RoomError)) throw err;
         // Illegal proposal (LLM drift): submit any engine-validated candidate.
-        const legal = enumerateLegalActions(view, aiId).filter((a) => room.engine?.validateAction(a));
+        const legal = legalCandidates.filter((a) => room.engine?.validateAction(a));
         if (legal.length === 0) return;
         const fallbackAction = rng.pick(legal);
         action = fallbackAction;
@@ -329,7 +378,8 @@ export class AgentLoops {
     } catch (err) {
       log.error('ai_loop_error', { roomId: room.id, error: String(err).slice(0, 160) });
     } finally {
-      this.busy.delete(guard);
+      if (interruptOnly) this.flushBusy.delete(guard);
+      else this.busy.delete(guard);
       // Chain: same player continues (pairone match) or next AI turn.
       this.notify(room);
     }

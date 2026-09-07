@@ -152,6 +152,38 @@ describe('AgentLoops', () => {
     }
   }, 5_000);
 
+  it('lets an AI flush a known card during a human player turn', async () => {
+    const room = new Room();
+    const host = room.addPlayer('Human turn').player;
+    const ai = room.addAiPlayer(host.id, 'balanced');
+    room.startGame(host.id);
+    const cabo = room.engine as CaboEngine;
+    const state = cabo.getState();
+    const hostSeat = state.players.findIndex((player) => player.id === host.id);
+    const aiHand = state.hands[ai.id]!;
+    const known = aiHand.find((card) => !!card && state.deck.some((other) => other.rank === card.rank))!;
+    const topIndex = state.deck.findIndex((card) => card.rank === known.rank);
+    expect(topIndex).toBeGreaterThanOrEqual(0);
+    state.currentTurn = hostSeat;
+    state.phase = 'TURN_DRAW';
+    state.drawnCard = null;
+    state.discard.push(state.deck.splice(topIndex, 1)[0]!);
+    state.knowledge[ai.id] = [...new Set([...(state.knowledge[ai.id] ?? []), known.id])];
+
+    const interruptLoops = new AgentLoops({} as never, { afterChange: () => undefined }, FAST);
+    try {
+      interruptLoops.notify(room);
+      const deadline = Date.now() + 1_000;
+      while (state.hands[ai.id]!.some((card) => card?.id === known.id) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(state.hands[ai.id]!.some((card) => card?.id === known.id)).toBe(false);
+      expect(state.currentTurn).toBe(hostSeat);
+    } finally {
+      interruptLoops.dispose();
+    }
+  }, 5_000);
+
   it('uses LLM agents only when configured', () => {
     // With no AGENT_API_URL the heuristic path is used; env untouched here,
     // so just assert config surface exists for deployments.
