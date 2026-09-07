@@ -66,6 +66,8 @@ export interface AgentAttempt {
   finishReason?: string;
   usage?: TokenUsage;
   reasoningAvailable?: boolean;
+  /** Provider chain-of-thought text for this request, when it returned one. */
+  reasoning?: string;
   failure?: AgentFailureKind;
 }
 
@@ -78,14 +80,16 @@ export interface AgentDecisionMeta {
   latencyMs?: number;
   usage?: TokenUsage;
   finishReason?: string;
-  /** Whether the provider returned a separate reasoning field; its text is never surfaced. */
+  /** Whether the provider returned a separate reasoning field or count. */
   providerReasoningAvailable?: boolean;
+  /** Provider chain-of-thought text for the decision, when it was returned. */
+  providerReasoning?: string;
   candidateCount?: number;
 }
 
 export interface AgentDecision {
   action: AnyGameAction;
-  /** Short model-provided rationale, never hidden chain-of-thought. */
+  /** Short model-provided rationale from the JSON answer (not the raw CoT — that is meta.providerReasoning). */
   thought?: string;
   /** Optional visible decision breakdown grounded in the filtered observation. */
   rationale?: string[];

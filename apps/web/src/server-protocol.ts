@@ -109,6 +109,8 @@ export interface AiAttemptTrace {
   finishReason?: string;
   usage?: TokenUsage;
   reasoningAvailable?: boolean;
+  /** Provider chain-of-thought text for this request, when it returned one. */
+  reasoning?: string;
   failure?: string;
 }
 
@@ -122,9 +124,11 @@ export interface AiDecisionTrace {
   playerId: string;
   playerName: string;
   summary?: string;
-  /** Model-provided decision factors; never provider hidden reasoning. */
+  /** Model-provided decision factors grounded in the filtered observation. */
   rationale?: string[];
   providerReasoningAvailable?: boolean;
+  /** Provider chain-of-thought text, when the model returned one (host-only inspector). */
+  providerReasoning?: string;
   source: string;
   model?: string;
   proposedAction?: string;

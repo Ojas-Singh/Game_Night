@@ -77,6 +77,7 @@ export class AgentLoops {
       ...(meta?.usage ? { usage: meta.usage } : {}),
       ...(meta?.finishReason ? { finishReason: meta.finishReason } : {}),
       ...(meta?.providerReasoningAvailable ? { providerReasoningAvailable: true } : {}),
+      ...(meta?.providerReasoning ? { providerReasoning: meta.providerReasoning } : {}),
       ...(meta?.latencyMs != null ? { latencyMs: meta.latencyMs } : {}),
       ...(meta?.failure ? { failure: meta.failure } : {}),
       ...(meta?.source ? { decisionSource: meta.source } : {}),

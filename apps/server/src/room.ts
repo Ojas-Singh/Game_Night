@@ -25,7 +25,7 @@ type AiTraceAgent = { label: string; describe?: () => Record<string, unknown> };
 export type AiDecisionPatch = Partial<Pick<AiDecisionTrace,
   'status' | 'summary' | 'rationale' | 'proposedAction' | 'executedAction' |
   'decisionSource' | 'attempts' | 'usage' | 'finishReason' |
-  'providerReasoningAvailable' | 'failure' | 'latencyMs' | 'observation' | 'candidates'
+  'providerReasoningAvailable' | 'providerReasoning' | 'failure' | 'latencyMs' | 'observation' | 'candidates'
 >>;
 
 /** Available games on the platform. Adding one here lights it up everywhere. */
@@ -599,6 +599,11 @@ export class Room {
       updatedAt: new Date().toISOString(),
       ...(patch.summary !== undefined ? { summary: patch.summary.slice(0, 500) } : {}),
       ...(patch.rationale !== undefined ? { rationale: patch.rationale.slice(0, 4).map((item) => item.slice(0, 220)) } : {}),
+      ...(patch.providerReasoning !== undefined ? { providerReasoning: patch.providerReasoning.slice(0, 12_000) } : {}),
+      ...(patch.attempts !== undefined ? { attempts: patch.attempts.map((attempt) => ({
+        ...attempt,
+        ...(attempt.reasoning !== undefined ? { reasoning: attempt.reasoning.slice(0, 12_000) } : {}),
+      })) } : {}),
       ...(patch.observation !== undefined ? { observation: this.testMode ? patch.observation.slice(0, 6_000) : undefined } : {}),
       ...(patch.candidates !== undefined ? { candidates: this.testMode ? patch.candidates.slice(0, 200) : undefined } : {}),
     };

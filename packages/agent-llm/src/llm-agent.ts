@@ -171,6 +171,21 @@ function failureKind(error: unknown): AgentFailureKind {
   return 'provider_error';
 }
 
+/** Bound the reasoning text carried in traces and trajectory records. */
+function clipReasoning(text: string | undefined): string | undefined {
+  const trimmed = text?.trim();
+  return trimmed ? trimmed.slice(0, 6_000) : undefined;
+}
+
+/** Latest provider chain-of-thought captured across attempts (accepted attempt wins). */
+function lastReasoning(attempts: AgentAttempt[]): string | undefined {
+  for (let i = attempts.length - 1; i >= 0; i--) {
+    const reasoning = attempts[i]?.reasoning;
+    if (reasoning) return reasoning;
+  }
+  return undefined;
+}
+
 function addUsage(total: TokenUsage, usage: TokenUsage | undefined): void {
   if (!usage) return;
   for (const key of ['promptTokens', 'completionTokens', 'reasoningTokens', 'totalTokens'] as const) {
@@ -262,15 +277,17 @@ export class LlmAgent implements GameAgent {
           matched = matched ?? actionMatches(restoreActionIds(parsed.action, reverseAliases), candidates);
       }
       if (!matched) {
-        attempts.push({ attempt, status: 'failed', latencyMs: Date.now() - attemptStarted, httpStatus: res.httpStatus, finishReason: res.finishReason, usage: res.usage, reasoningAvailable: res.reasoningAvailable, failure: parsed ? 'illegal_action' : 'malformed_response' });
+        const failedReasoning = clipReasoning(res.reasoning);
+        attempts.push({ attempt, status: 'failed', latencyMs: Date.now() - attemptStarted, httpStatus: res.httpStatus, finishReason: res.finishReason, usage: res.usage, reasoningAvailable: res.reasoningAvailable, ...(failedReasoning ? { reasoning: failedReasoning } : {}), failure: parsed ? 'illegal_action' : 'malformed_response' });
         // Keep provider output out of errors and fallback explanations. The
-        // model response may contain private reasoning or other untrusted text.
+        // raw chain of thought travels in meta — never in error strings.
         throw new Error('unusable model answer');
       }
       const action = matched;
       const thought = parsed ? String(parsed.summary ?? parsed.thought ?? '').slice(0, 300) : undefined;
       const rationale = parsed ? normalizeRationale(parsed.factors) : undefined;
-      attempts.push({ attempt, status: 'accepted', latencyMs: Date.now() - attemptStarted, httpStatus: res.httpStatus, finishReason: res.finishReason, usage: res.usage, reasoningAvailable: res.reasoningAvailable });
+      const reasoning = clipReasoning(res.reasoning);
+      attempts.push({ attempt, status: 'accepted', latencyMs: Date.now() - attemptStarted, httpStatus: res.httpStatus, finishReason: res.finishReason, usage: res.usage, reasoningAvailable: res.reasoningAvailable, ...(reasoning ? { reasoning } : {}) });
       return {
         action,
         thought: thought || undefined,
@@ -280,6 +297,7 @@ export class LlmAgent implements GameAgent {
           attempts, latencyMs: Date.now() - startedAt, usage: aggregateUsage(attempts),
           finishReason: res.finishReason, candidateCount: candidates.length,
           providerReasoningAvailable: Boolean(res.reasoningAvailable || res.usage?.reasoningTokens != null),
+          ...(reasoning ? { providerReasoning: reasoning } : {}),
         },
       };
       } catch (err) {
@@ -315,6 +333,7 @@ export class LlmAgent implements GameAgent {
         }
         // Live tables must never stall on the model: heuristic fallback.
         const fallbackFailure = failureKind(retryErr);
+        const fallbackReasoning = lastReasoning(attempts);
         const fb = obs.view.gameId === 'cabo'
           ? new CaboHeuristicBot({ idSuffix: '-fb' })
           : obs.view.gameId === 'seep'
@@ -330,6 +349,7 @@ export class LlmAgent implements GameAgent {
             usage: aggregateUsage(attempts),
             finishReason: attempts.at(-1)?.finishReason,
             providerReasoningAvailable: attempts.some((attempt) => attempt.reasoningAvailable || attempt.usage?.reasoningTokens != null),
+            ...(fallbackReasoning ? { providerReasoning: fallbackReasoning } : {}),
             candidateCount: candidates.length,
           },
         };

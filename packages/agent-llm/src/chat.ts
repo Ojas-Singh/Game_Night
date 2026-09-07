@@ -25,6 +25,12 @@ export interface ChatOptions {
 
 export interface ChatResult {
   content: string;
+  /**
+   * Provider chain-of-thought text when the model returned one: a dedicated
+   * reasoning field (reasoning_content / reasoning) or an inline <think>
+   * block, which is stripped from `content` before JSON extraction.
+   */
+  reasoning?: string;
   /** True when the provider returned a separate reasoning field or count. */
   reasoningAvailable?: boolean;
   finishReason?: string;
@@ -64,6 +70,22 @@ function textContent(content: unknown): string {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Split an inline <think>…</think> block out of the message content (same
+ * layouts as the python research agent: reasoning_content field first, then
+ * an inline block; an unterminated leading block consumed the whole answer).
+ */
+function splitInlineThink(content: string): { content: string; reasoning: string } {
+  const inline = content.match(/<think>([\s\S]*?)<\/think>/);
+  if (inline) {
+    return { content: content.replace(/<think>[\s\S]*?<\/think>/g, '').trim(), reasoning: inline[1] ?? '' };
+  }
+  if (content.trimStart().startsWith('<think>')) {
+    return { content: '', reasoning: content.trimStart().slice('<think>'.length) };
+  }
+  return { content, reasoning: '' };
 }
 
 function parseUsage(value: unknown): TokenUsage | undefined {
@@ -123,22 +145,28 @@ export async function chat(opts: ChatOptions): Promise<ChatResult> {
       reasoning_tokens?: unknown;
     };
     const choice = data.choices?.[0];
-    const content = textContent(choice?.message?.content);
+    const fieldReasoning =
+      textContent(choice?.message?.reasoning_content).trim() ||
+      textContent(choice?.message?.reasoning).trim();
+    let content = textContent(choice?.message?.content);
+    let inlineReasoning = '';
+    if (!fieldReasoning && content.includes('<think')) {
+      ({ content, reasoning: inlineReasoning } = splitInlineThink(content));
+    }
     let usage = parseUsage(data.usage);
     const rootReasoningTokens = numberValue(data.reasoning_tokens);
     if (rootReasoningTokens != null && usage?.reasoningTokens == null) {
       usage = { ...(usage ?? {}), reasoningTokens: rootReasoningTokens };
     }
+    const reasoning = [fieldReasoning, inlineReasoning].find((text) => text.length > 0);
     const reasoningAvailable = Boolean(
-      textContent(choice?.message?.reasoning_content).trim() ||
-      textContent(choice?.message?.reasoning).trim() ||
-      usage?.reasoningTokens != null,
+      reasoning || usage?.reasoningTokens != null,
     );
     const finishReason = choice?.finish_reason;
     if (!content.trim()) {
       throw new LlmResponseError('llm returned empty content', 'empty_response', { status: res.status, finishReason, usage, reasoningAvailable });
     }
-    return { content, reasoningAvailable, finishReason, httpStatus: res.status, usage };
+    return { content, ...(reasoning ? { reasoning } : {}), reasoningAvailable, finishReason, httpStatus: res.status, usage };
   } finally {
     clearTimeout(timer);
   }

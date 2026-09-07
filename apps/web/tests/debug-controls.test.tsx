@@ -28,9 +28,11 @@ const trace: AiDecisionTrace = {
     finishReason: 'stop',
     usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 },
     reasoningAvailable: true,
+    reasoning: 'Compare every candidate before committing.',
   }],
   usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 },
   providerReasoningAvailable: true,
+  providerReasoning: 'The drawn nine is known low, so discarding keeps my total safe.',
 };
 
 function room(): RoomApi {
@@ -57,7 +59,7 @@ function room(): RoomApi {
 }
 
 describe('AI decision inspector', () => {
-  it('renders one trace card with telemetry and omits provider reasoning text', () => {
+  it('renders one trace card with telemetry and the provider chain of thought', () => {
     const markup = renderToStaticMarkup(<DebugControls room={room()} initiallyOpen />);
     expect(markup).toContain('AI decision inspector');
     expect(markup).toContain('DISCARD_DRAWN');
@@ -65,8 +67,22 @@ describe('AI decision inspector', () => {
     expect(markup).toContain('100');
     expect(markup).toContain('not reported');
     expect(markup).toContain('Request attempts (1)');
-    expect(markup).toContain('Provider reasoning field received');
-    expect(markup).not.toContain('hidden provider text');
+    expect(markup).toContain('Chain of thought');
+    expect(markup).toContain('The drawn nine is known low');
+    expect(markup).toContain('Compare every candidate before committing.');
     expect(markup.match(/data-trace-id=/g)).toHaveLength(1);
+  });
+
+  it('explains when only reasoning tokens were reported without text', () => {
+    const tokensOnly: AiDecisionTrace = {
+      ...trace,
+      providerReasoning: undefined,
+      attempts: [{ ...trace.attempts[0]!, reasoning: undefined }],
+    };
+    const markup = renderToStaticMarkup(
+      <DebugControls room={{ ...room(), lobby: { ...room().lobby!, aiThoughts: [tokensOnly] } }} initiallyOpen />,
+    );
+    expect(markup).not.toContain('Chain of thought');
+    expect(markup).toContain('Reasoning tokens were reported, but the provider returned no reasoning text.');
   });
 });

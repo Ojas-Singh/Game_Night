@@ -102,11 +102,11 @@ describe('LlmAgent', () => {
     }
   });
 
-  it('records provider reasoning availability without exposing its text', async () => {
+  it('surfaces the provider chain of thought when one is returned', async () => {
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response(
       JSON.stringify({
-        choices: [{ message: { content: '{"summary":"choose A0","factors":["legal"],"action_id":"A0"}', reasoning_content: 'hidden provider text' }, finish_reason: 'stop' }],
+        choices: [{ message: { content: '{"summary":"choose A0","factors":["legal"],"action_id":"A0"}', reasoning_content: 'compare candidates, keep the safe flip' }, finish_reason: 'stop' }],
         usage: {
           prompt_tokens: 120,
           completion_tokens: 42,
@@ -119,10 +119,29 @@ describe('LlmAgent', () => {
     try {
       const d = await new LlmAgent({ baseUrl, model: 'test-model', mode: 'research-strict' }).decide(makeObs(), { rng: createAgentRng(8) });
       expect(d.meta?.providerReasoningAvailable).toBe(true);
+      expect(d.meta?.providerReasoning).toBe('compare candidates, keep the safe flip');
       expect(d.meta?.usage).toEqual({ promptTokens: 120, completionTokens: 42, reasoningTokens: 18, totalTokens: 162 });
       expect(d.meta?.finishReason).toBe('stop');
       expect(d.meta?.attempts?.[0]?.usage?.reasoningTokens).toBe(18);
-      expect(JSON.stringify(d)).not.toContain('hidden provider text');
+      expect(d.meta?.attempts?.[0]?.reasoning).toBe('compare candidates, keep the safe flip');
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  it('extracts an inline <think> block as the chain of thought', async () => {
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({
+        choices: [{ message: { content: '<think>count the flipped cards first</think>\n{"summary":"choose A0","action_id":"A0"}' }, finish_reason: 'stop' }],
+      }),
+      { headers: { 'content-type': 'application/json' } },
+    )) as unknown as typeof fetch;
+    try {
+      const d = await new LlmAgent({ baseUrl, model: 'test-model', mode: 'research-strict' }).decide(makeObs(), { rng: createAgentRng(9) });
+      expect(d.meta?.providerReasoning).toBe('count the flipped cards first');
+      expect(d.meta?.providerReasoningAvailable).toBe(true);
+      expect(d.action).toMatchObject({ type: 'FLIP_CARD' });
     } finally {
       globalThis.fetch = origFetch;
     }

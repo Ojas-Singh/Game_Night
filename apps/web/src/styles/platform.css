@@ -431,6 +431,22 @@ button, .button-link { min-height: 44px; }
 .debug-rationale summary { cursor: pointer; color: var(--accent-strong); font-weight: 700; }
 .debug-rationale ol { display: grid; gap: 3px; margin: 5px 0 0 16px; padding: 0; line-height: 1.35; }
 .debug-rationale li { padding-left: 2px; }
+.debug-reasoning { margin: 7px 0 0; color: var(--ink-dim); font-size: 10.5px; }
+.debug-reasoning summary { cursor: pointer; color: var(--accent-strong); font-weight: 700; }
+.debug-reasoning pre {
+  max-height: 220px;
+  margin: 6px 0 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 220, 160, .1);
+  border-radius: 6px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  background: rgba(0, 0, 0, .18);
+  font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  line-height: 1.45;
+}
 .debug-trace small { color: var(--ink-dim); font-size: 10px; }
 .debug-empty { margin: 11px 0 2px; color: var(--ink-dim); font-size: 11px; line-height: 1.45; }
 
