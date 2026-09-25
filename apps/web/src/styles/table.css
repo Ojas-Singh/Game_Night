@@ -1934,19 +1934,6 @@
   right: 18px;
   z-index: 36;
 }
-/* Compact dock joins the right-edge control stack above the rules button. */
-.table-room .media-dock {
-  position: absolute;
-  bottom: 244px;
-  right: 18px;
-  z-index: 35;
-  width: 196px;
-  padding: 8px 11px;
-}
-.table-room .media-dock.open { width: 216px; }
-.table-room .media-dock .media-dock-head small { display: none; }
-.table-room .media-dock.open .media-dock-head small { display: inline; }
-
 /* Series goal reached — persistent celebration banner under the status bar. */
 .series-banner {
   position: absolute;

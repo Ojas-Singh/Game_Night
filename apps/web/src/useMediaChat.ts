@@ -16,7 +16,12 @@ export interface MediaPeer {
   playerId: string;
   mic: boolean;
   cam: boolean;
+  /** Inbound media from this peer. Always carries audio; carries video when
+   *  their camera is on. Consume `videoStream` for pictures and `stream` for
+   *  sound — an <audio> element fed a video-bearing stream is unreliable. */
   stream: MediaStream | null;
+  /** Inbound video only, or null while their camera is off. */
+  videoStream: MediaStream | null;
   connection: 'connecting' | 'connected' | 'failed';
   speaking: boolean;
 }
@@ -94,7 +99,8 @@ export function useMediaChat(
   const upsertPeer = useCallback((playerId: string, patch: Partial<MediaPeer>): void => {
     setPeerMap((prev) => {
       const next = new Map(prev);
-      const current = next.get(playerId) ?? { playerId, mic: false, cam: false, stream: null, connection: 'connecting' as const, speaking: false };
+      const current = next.get(playerId)
+        ?? { playerId, mic: false, cam: false, stream: null, videoStream: null, connection: 'connecting' as const, speaking: false };
       next.set(playerId, { ...current, ...patch, playerId });
       return next;
     });
@@ -132,6 +138,28 @@ export function useMediaChat(
     socket?.emit('media:signal', { to, data });
   }, [socket]);
 
+  /**
+   * Force a fresh offer on a peer connection. ReplaceTrack on an existing
+   * sender does not always fire onnegotiationneeded, so the side that gains a
+   * track must offer explicitly for the media direction to change.
+   */
+  const renegotiate = useCallback((pc: RTCPeerConnection): void => {
+    if (pc.signalingState !== 'stable') return;
+    void (async () => {
+      try {
+        await pc.setLocalDescription();
+        const peerId = [...pcsRef.current.entries()].find(([, candidate]) => candidate === pc)?.[0];
+        if (peerId && pc.localDescription) {
+          makingOfferRef.current.add(peerId);
+          sendSignal(peerId, { type: pc.localDescription.type, sdp: pc.localDescription.sdp });
+          makingOfferRef.current.delete(peerId);
+        }
+      } catch {
+        /* the next track change retries */
+      }
+    })();
+  }, [sendSignal]);
+
   const createPeer = useCallback((peerId: string): RTCPeerConnection => {
     const existing = pcsRef.current.get(peerId);
     if (existing) return existing;
@@ -139,21 +167,52 @@ export function useMediaChat(
     pcsRef.current.set(peerId, pc);
     upsertPeer(peerId, { connection: 'connecting' });
 
-    // Both transceivers exist from birth: enabling the camera later is a
-    // replaceTrack, never a renegotiation round-trip.
-    const audio = pc.addTransceiver(audioTrackRef.current ?? 'audio', { direction: 'sendrecv' });
-    const video = pc.addTransceiver(videoTrackRef.current ?? 'video', { direction: 'sendrecv' });
-    if (audioTrackRef.current) void audio.sender.replaceTrack(audioTrackRef.current);
-    if (videoTrackRef.current) void video.sender.replaceTrack(videoTrackRef.current);
+    // Both m-lines exist from birth so toggling the camera later is a cheap
+    // replaceTrack. The direction MUST be sendrecv: if we ever negotiated a
+    // track-less m-line as recvonly, a later replaceTrack would be silently
+    // ignored by the browser and the picture would never reach the peer.
+    const audio = pc.addTransceiver('audio', { direction: 'sendrecv' });
+    const video = pc.addTransceiver('video', { direction: 'sendrecv' });
     transceiversRef.current.set(peerId, { audio, video });
+    // Attach whatever we already have. replaceTrack resolves once the track is
+    // actually plugged in, so renegotiation that follows sees a live sender.
+    if (audioTrackRef.current) void audio.sender.replaceTrack(audioTrackRef.current).catch(() => undefined);
+    if (videoTrackRef.current) void video.sender.replaceTrack(videoTrackRef.current).catch(() => undefined);
 
     pc.onicecandidate = (event) => {
       if (event.candidate) sendSignal(peerId, { type: 'candidate', candidate: event.candidate.toJSON() });
     };
+    // A failed or dropped transport is recoverable: restart ICE rather than
+    // leaving the peer stuck on a dead socket for the rest of the night.
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'failed' && pc.signalingState === 'stable') {
+        try { pc.restartIce(); } catch { /* older browsers: next join rebuilds */ }
+      }
+    };
     pc.ontrack = (event) => {
-      const stream = event.streams[0] ?? new MediaStream([event.track]);
-      ensureAudioGraph(peerId, stream);
-      upsertPeer(peerId, { stream });
+      const track = event.track;
+      // Keep inbound audio and video in SEPARATE streams. A remote stream often
+      // contains a silent video track; handing that to an <audio> element is
+      // what made peers inaudible.
+      //
+      // Tracks can land before the roster record exists, so create it on demand
+      // instead of dropping the media on the floor.
+      setPeerMap((prev) => {
+        const next = new Map(prev);
+        const current = next.get(peerId)
+          ?? { playerId: peerId, mic: true, cam: false, stream: null, videoStream: null, connection: 'connecting' as const, speaking: false };
+        if (track.kind === 'video') {
+          const videoStream = current.videoStream ?? new MediaStream();
+          if (!videoStream.getTracks().includes(track)) videoStream.addTrack(track);
+          next.set(peerId, { ...current, videoStream });
+        } else {
+          const stream = current.stream ?? new MediaStream();
+          if (!stream.getTracks().includes(track)) stream.addTrack(track);
+          next.set(peerId, { ...current, stream });
+          ensureAudioGraph(peerId, stream);
+        }
+        return next;
+      });
     };
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') upsertPeer(peerId, { connection: 'connected' });
@@ -248,6 +307,19 @@ export function useMediaChat(
         if (!roster.has(peerId)) closePeer(peerId);
       }
       for (const [peerId, flags] of roster) upsertPeer(peerId, flags);
+      // A peer who turned their camera off keeps a live (black) video track in
+      // the transport. Drop it from our video stream so the UI falls back to
+      // their avatar instead of showing a frozen frame.
+      for (const [peerId, flags] of roster) {
+        if (flags.cam) continue;
+        setPeerMap((prev) => {
+          const peer = prev.get(peerId);
+          if (!peer?.videoStream || peer.videoStream.getVideoTracks().length === 0) return prev;
+          const next = new Map(prev);
+          next.set(peerId, { ...peer, videoStream: null });
+          return next;
+        });
+      }
     };
 
     const onSignal = async ({ from, data }: { from: string; data: { type: string; sdp?: string; candidate?: RTCIceCandidateInit } }): Promise<void> => {
@@ -319,8 +391,7 @@ export function useMediaChat(
       setMicOn(true);
       setCamOn(Boolean(videoTrackRef.current));
       socket.emit('media:join', { mic: true, cam: Boolean(videoTrackRef.current) });
-      return true;
-    } catch (err) {
+      return true;    } catch (err) {
       setError(
         err instanceof DOMException && err.name === 'NotAllowedError'
           ? 'Microphone/camera permission was denied.'
@@ -350,15 +421,23 @@ export function useMediaChat(
         const track = stream.getVideoTracks()[0] ?? null;
         if (track) {
           videoTrackRef.current = track;
-          for (const transceivers of transceiversRef.current.values()) {
-            if (transceivers.video) void transceivers.video.sender.replaceTrack(track);
-          }
-          // Self-view: swap in a stream that carries the new video track.
+          localStreamRef.current?.addTrack(track);
+          // Plug the track into every peer's video sender and WAIT for it: a
+          // fire-and-forget replaceTrack lets the following negotiation race
+          // ahead of the sender and the peer never learns video is available.
+          await Promise.all([...transceiversRef.current.values()].map(async (transceivers) => {
+            const sender = transceivers.video?.sender;
+            if (!sender) return;
+            try { await sender.replaceTrack(track); } catch { /* peer may be mid-teardown */ }
+          }));
+          // Self-view: publish the new track with the existing audio.
           setLocalStream((cur) => {
             const next = new MediaStream(cur ? cur.getAudioTracks() : []);
             next.addTrack(track);
             return next;
           });
+          // Nudge any peer that connected before the camera existed.
+          for (const pc of pcsRef.current.values()) renegotiate(pc);
         }
       }
       if (videoTrackRef.current) videoTrackRef.current.enabled = on;
@@ -369,7 +448,7 @@ export function useMediaChat(
       setError('Camera is unavailable or permission was denied.');
       return false;
     }
-  }, [socket, micOn]);
+  }, [socket, micOn, renegotiate]);
 
   return {
     supported,

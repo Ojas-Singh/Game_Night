@@ -41,7 +41,7 @@ describe('AvatarCam', () => {
     const stream = fakeVideoStream();
     const media = fakeMedia({
       joined: true,
-      peers: [{ playerId: 'p2', mic: true, cam: true, stream, connection: 'connected', speaking: false }],
+      peers: [{ playerId: 'p2', mic: true, cam: true, stream: null, videoStream: stream, connection: 'connected', speaking: false }],
     });
     const html = renderToStaticMarkup(<AvatarCam media={media} playerId="p2" avatar={AVATAR} />);
     expect(html).toContain('avatar-cam');
@@ -54,7 +54,7 @@ describe('AvatarCam', () => {
     const stream = fakeVideoStream();
     const media = fakeMedia({
       joined: true,
-      peers: [{ playerId: 'p2', mic: true, cam: false, stream, connection: 'connected', speaking: false }],
+      peers: [{ playerId: 'p2', mic: true, cam: false, stream: null, videoStream: stream, connection: 'connected', speaking: false }],
     });
     const html = renderToStaticMarkup(<AvatarCam media={media} playerId="p2" avatar={AVATAR} />);
     expect(html).not.toContain('avatar-cam');
@@ -72,5 +72,29 @@ describe('AvatarCam', () => {
       <AvatarCam media={media} playerId="p9" myPlayerId="me" avatar={AVATAR} />,
     );
     expect(other).not.toContain('avatar-cam');
+  });
+
+  // Regression: the peer's `stream` carries AUDIO only. Using it as the picture
+  // source is what left every remote video black, because the transport also
+  // negotiates a silent video track that produced no frames.
+  it('renders no picture when a peer has audio but no video stream', () => {
+    const media = fakeMedia({
+      joined: true,
+      peers: [{ playerId: 'p2', mic: true, cam: true, stream: fakeVideoStream(), videoStream: null, connection: 'connected', speaking: false }],
+    });
+    const html = renderToStaticMarkup(<AvatarCam media={media} playerId="p2" avatar={AVATAR} />);
+    expect(html).not.toContain('avatar-cam');
+    expect(html).not.toContain('<video');
+  });
+
+  it('plays the peer audio sink from the audio stream, not the video one', () => {
+    const media = fakeMedia({
+      joined: true,
+      peers: [{ playerId: 'p2', mic: true, cam: true, stream: fakeVideoStream(), videoStream: fakeVideoStream(), connection: 'connected', speaking: false }],
+    });
+    const html = renderToStaticMarkup(
+      <AvatarCam media={media} playerId="p2" avatar={AVATAR} audio />,
+    );
+    expect(html).toContain('<audio');
   });
 });

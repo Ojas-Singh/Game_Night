@@ -527,93 +527,6 @@ button, .button-link { min-height: 44px; }
 .debug-trace small { color: var(--ink-dim); font-size: 10px; }
 .debug-empty { margin: 11px 0 2px; color: var(--ink-dim); font-size: 11px; line-height: 1.45; }
 
-/* --- Media dock (lobby + table shell; WebRTC powers it in the media release) --- */
-.media-dock {
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 220, 160, 0.12);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-}
-.media-dock-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--ink);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.media-dock-head strong { font-size: 12px; }
-.media-dock-head small { color: var(--ink-dim); font-size: 10px; }
-.media-dock-caret { margin-left: auto; color: var(--ink-dim); font-size: 10px; }
-.media-dock-controls { display: flex; gap: 7px; margin-top: 9px; }
-.media-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 10px;
-  border: 1px solid rgba(255, 220, 160, 0.16);
-  border-radius: 8px;
-  color: var(--ink);
-  background: rgba(0, 0, 0, 0.2);
-  font-size: 11px;
-  font-weight: 700;
-}
-.media-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.media-dock-note { margin: 8px 0 0; color: var(--ink-dim); font-size: 10px; line-height: 1.4; }
-.media-dock.compact:not(.open) { padding: 8px 11px; }
-.media-dock.live { border-color: rgba(127, 191, 122, 0.4); }
-.media-dock-hint { font-size: 13px; opacity: 0.7; }
-.media-dock-error { margin: 7px 0 0; color: #ffb1a0; font-size: 10.5px; line-height: 1.4; }
-.media-live-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-left: 4px;
-  border-radius: 50%;
-  background: #74d68a;
-  box-shadow: 0 0 0 0 rgba(116, 214, 138, 0.6);
-  animation: media-live-pulse 1.8s ease-out infinite;
-}
-@keyframes media-live-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(116, 214, 138, 0.55); }
-  70% { box-shadow: 0 0 0 7px rgba(116, 214, 138, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(116, 214, 138, 0); }
-}
-.media-btn.join { border-color: rgba(127, 191, 122, 0.4); color: var(--success); background: rgba(127, 191, 122, 0.08); cursor: pointer; }
-.media-btn.on { border-color: rgba(127, 191, 122, 0.45); color: var(--success); background: rgba(127, 191, 122, 0.14); cursor: pointer; }
-.media-btn.off { color: var(--ink-dim); cursor: pointer; }
-.media-btn.leave { border-color: rgba(224, 108, 90, 0.4); color: #ffb1a0; background: rgba(224, 108, 90, 0.08); cursor: pointer; }
-.media-peers { display: grid; gap: 6px; margin-top: 9px; }
-.media-peer {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 7px;
-  border: 1px solid rgba(255, 220, 160, 0.12);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.22);
-}
-.media-peer.speaking { border-color: rgba(116, 214, 138, 0.7); box-shadow: 0 0 0 1px rgba(116, 214, 138, 0.35); }
-.media-peer.failed { border-color: rgba(224, 108, 90, 0.5); }
-.media-peer-avatar { display: inline-flex; }
-.media-peer-name { color: var(--ink); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.media-peer-mic-off { margin-left: auto; font-size: 11px; }
-.media-peer-failed { position: absolute; bottom: 3px; left: 8px; color: #ffb1a0; font-size: 8.5px; }
-.media-peer-video {
-  width: 100%;
-  max-height: 132px;
-  border-radius: 7px;
-  background: #000;
-  object-fit: cover;
-}
-.media-peer:has(.media-peer-video) { flex-wrap: wrap; }
-
 /* --- Lobby: ready-up --- */
 .lobby-count-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ready-toggle {
@@ -826,26 +739,49 @@ button, .button-link { min-height: 44px; }
 .style-chip:hover { transform: translateY(-1px); border-color: rgba(255, 216, 138, 0.5); }
 .style-chip.equipped { border-color: #ffd88a; box-shadow: 0 0 0 1.5px rgba(255, 216, 138, 0.35); }
 
-/* Inline table-talk controls (lobby roster, next to the player name). */
-.talk-controls { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }
+/* Inline table-talk controls. Icon-only buttons sized to a true square so the
+   global 44px text-button minimum never stretches them into ovals. */
+.talk-controls,
+.talk-status { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }
 .talk-btn {
   width: 26px;
   height: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  padding: 0;
   display: grid;
   place-items: center;
-  font-size: 13px;
-  line-height: 1;
+  color: var(--ink-dim);
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.04);
+  box-shadow: none;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
-.talk-btn:hover { border-color: rgba(255, 216, 138, 0.45); background: rgba(255, 216, 138, 0.08); }
-.talk-btn.on { border-color: rgba(127, 191, 122, 0.55); background: rgba(127, 191, 122, 0.12); }
-.talk-btn.off { opacity: 0.75; }
-.talk-btn.leave { opacity: 0.6; }
-.talk-btn.leave:hover { opacity: 1; border-color: rgba(224, 108, 90, 0.5); }
+.talk-btn:hover { color: var(--ink); border-color: rgba(255, 216, 138, 0.45); background: rgba(255, 216, 138, 0.08); }
+.talk-btn.on { color: var(--success); border-color: rgba(127, 191, 122, 0.55); background: rgba(127, 191, 122, 0.12); }
+.talk-btn.off { color: var(--ink-dim); opacity: 0.8; }
+.talk-btn.leave { color: var(--ink-dim); opacity: 0.6; }
+.talk-btn.leave:hover { color: #ffb1a0; opacity: 1; border-color: rgba(224, 108, 90, 0.5); background: rgba(224, 108, 90, 0.08); }
+
+/* Standalone strip used on the live table. */
+.talk-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px;
+  border: 1px solid rgba(255, 220, 160, 0.12);
+  border-radius: 11px;
+  background: rgba(13, 10, 8, 0.78);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(8px);
+}
+.talk-bar .talk-btn { width: auto; min-width: 30px; height: 30px; min-height: 30px; padding: 0 9px; gap: 6px; grid-auto-flow: column; font-size: 11px; font-weight: 700; }
+.talk-bar .talk-btn span { line-height: 1; }
+.talk-bar .talk-dot { margin: 0 3px 0 1px; }
+.talk-error { margin-left: 6px; color: #ffb1a0; font-size: 10.5px; }
+
 .talk-dot {
   width: 8px;
   height: 8px;
@@ -856,8 +792,11 @@ button, .button-link { min-height: 44px; }
 .talk-dot.live { background: #74d68a; box-shadow: 0 0 6px rgba(116, 214, 138, 0.8); }
 .talk-dot.speaking { background: #ffd88a; box-shadow: 0 0 8px rgba(255, 216, 138, 0.9); animation: talk-pulse 1s ease-in-out infinite; }
 @keyframes talk-pulse { 0%, 100% { transform: scale(0.85); opacity: 0.7; } 50% { transform: scale(1.15); opacity: 1; } }
-.talk-muted, .talk-flag { font-size: 12px; opacity: 0.8; }
-.talk-status { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; }
+.talk-mic-off, .talk-cam-off, .talk-flag { display: inline-flex; opacity: 0.8; }
+
+/* Media sinks: audio must stay in the DOM to play, but never be seen. */
+.talk-sinks { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
+.talk-hidden-video { width: 0; height: 0; opacity: 0; }
 
 .style-chip.pending { opacity: 0.5; cursor: wait; }
 .style-error { margin: 0; font-size: 11px; color: #ffb1a0; }

@@ -30,7 +30,9 @@ export default function AvatarCam({ media, playerId, myPlayerId, avatar, size = 
 
   const isSelf = myPlayerId != null && playerId === myPlayerId;
   const peer = media.peers.find((p) => p.playerId === playerId);
-  const stream = isSelf ? media.localStream : peer?.stream ?? null;
+  // Video comes from the video-only stream; the peer's `stream` carries audio
+  // and must never be used as a picture source.
+  const stream = isSelf ? media.localStream : peer?.videoStream ?? null;
   const camOn = isSelf ? media.camOn : Boolean(peer?.cam);
   const live = Boolean(stream && camOn);
 
@@ -44,16 +46,19 @@ export default function AvatarCam({ media, playerId, myPlayerId, avatar, size = 
     if (!stream && el.srcObject) {
       el.srcObject = null;
     }
-  }, [stream]);
+  }, [stream, live]);
 
+  // Audio sink for this player when the surrounding layout has no dedicated one.
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    if (!isSelf && stream && el.srcObject !== stream) {
-      el.srcObject = stream;
+    const audioStream = peer?.stream ?? null;
+    if (!isSelf && audioStream && el.srcObject !== audioStream) {
+      el.srcObject = audioStream;
       void el.play().catch(() => /* autoplay guard */ undefined);
     }
-  }, [stream, isSelf]);
+    if ((isSelf || !audioStream) && el.srcObject) el.srcObject = null;
+  }, [peer?.stream, isSelf]);
 
   const cam = live ? (
     <span
@@ -67,11 +72,11 @@ export default function AvatarCam({ media, playerId, myPlayerId, avatar, size = 
     <Avatar avatar={avatar} size={size} crown={crown} ring={ring} cabo={cabo} />
   );
 
-  if (!audio || isSelf || !stream) return cam;
+  if (!audio || isSelf) return cam;
   return (
     <>
       {cam}
-      <audio ref={audioRef} autoPlay />
+      <audio ref={audioRef} autoPlay playsInline />
     </>
   );
 }

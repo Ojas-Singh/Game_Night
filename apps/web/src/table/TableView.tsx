@@ -18,7 +18,8 @@ import InfoModal from './InfoModal.js';
 import Avatar from './Avatar.js';
 import AvatarCam from './AvatarCam.js';
 import DebugControls from './DebugControls.js';
-import MediaDock from './MediaDock.js';
+import TalkControls, { PeerAudioSinks } from './TalkControls.js';
+
 import { seriesWinner } from '../lobby/series.js';
 import type { MediaChat } from '../useMediaChat.js';
 
@@ -474,6 +475,8 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
 
   return (
     <div className="table-room">
+      {/* Every peer's audio is attached exactly once, here. */}
+      <PeerAudioSinks media={media} />
       {/* status banner */}
       <div className={`status-banner ${guidance.urgent ? 'urgent' : ''}`}>
         {guidance.text}
@@ -538,7 +541,6 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
         </button>
       )}
       <SoundToggle />
-      <MediaDock media={media} players={room.lobby?.players ?? []} myPlayerId={room.myPlayerId} compact />
       <EmotePicker room={room} />
       <button
         className="info-toggle"
@@ -643,6 +645,7 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
             cabo={view.cabo?.callerId === me.id}
           />
           <span className="seat-name">{me.name} (you)</span>
+          <TalkControls media={media} playerId={me.id} isYou />
         </div>
 
         {/* centre: deck + discard */}
