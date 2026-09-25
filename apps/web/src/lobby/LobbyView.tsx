@@ -8,11 +8,10 @@ import { funnel } from '../analytics.js';
 import Avatar from '../table/Avatar.js';
 import AvatarCam from '../table/AvatarCam.js';
 import InfoModal from '../table/InfoModal.js';
-import { seriesStandings, seriesWinner } from './series.js';
 import { StylePanel } from './StylePanel.js';
 import { loadAvatar, randomAvatar, saveAvatar } from '../avatar.js';
 import { AVATAR_COLORS, EYE_STYLES, MOUTH_STYLES, HAT_STYLES } from '../avatar.js';
-import type { Avatar as AvatarModel, RoomLobbyState } from '../server-protocol.js';
+import type { Avatar as AvatarModel } from '../server-protocol.js';
 import type { MediaChat } from '../useMediaChat.js';
 
 const AI_PERSONA_LABELS: Record<string, string> = {
@@ -341,7 +340,6 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
                 onInfo={() => setRulesGame('seep')}
               />
             </div>
-            <SeriesPanel lobby={lobby} isHost={isHost} onSetTarget={(target) => room.setSeriesTarget(target)} />
             <StylePanel socket={room.socket} />
             {isHost ? (
               <div className="host-controls">
@@ -404,9 +402,6 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
           onClose={() => setRulesGame(null)}
           game={rulesGame ?? 'cabo'}
         />
-        <button className="ghost rules-again" onClick={() => setRulesGame(lobby.gameId as GameId)}>
-          📖 Show {GAME_META[lobby.gameId as GameId]?.label ?? 'game'} rules
-        </button>
       </aside>
     </div>
   );
@@ -420,69 +415,6 @@ const GAME_META: Record<GameId, { label: string }> = {
   pairone: { label: 'Pair One' },
   seep: { label: 'Seep' },
 };
-
-const SERIES_GOALS: Array<number | null> = [null, 2, 3, 5, 7];
-
-/**
- * "First to N wins" across rounds: the host picks the goal, everyone sees
- * live standings, and the series winner is celebrated until the goal changes.
- */
-function SeriesPanel({
-  lobby,
-  isHost,
-  onSetTarget,
-}: {
-  lobby: RoomLobbyState;
-  isHost: boolean;
-  onSetTarget: (target: number | null) => void;
-}) {
-  const target = lobby.seriesTarget ?? null;
-  const winner = seriesWinner(lobby.scoreboard, target);
-  const nameOf = (playerId: string): string =>
-    lobby.players.find((p) => p.id === playerId)?.name ?? 'A player';
-  const standings = seriesStandings(lobby.scoreboard, lobby.players).filter(
-    (s) => s.wins > 0 || winner !== null,
-  );
-  return (
-    <div className="series-panel">
-      <div className="series-head">
-        <span className="series-title">Series</span>
-        {isHost ? (
-          <div className="series-target-picker" role="group" aria-label="Series goal">
-            {SERIES_GOALS.map((goal) => (
-              <button
-                key={String(goal)}
-                className={`series-chip ${target === goal ? 'on' : ''}`}
-                onClick={() => onSetTarget(goal)}
-                aria-pressed={target === goal}
-                title={goal === null ? 'No series goal — free play' : `First player to win ${goal} rounds`}
-              >
-                {goal === null ? 'Free play' : `To ${goal}`}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <span className="series-state">{target === null ? 'Free play' : `First to ${target}`}</span>
-        )}
-      </div>
-      {winner && (
-        <div className="series-winner" role="status">
-          🏆 {nameOf(winner.playerId)} wins the series!
-        </div>
-      )}
-      {standings.length > 0 && (
-        <ol className="series-standings">
-          {standings.map((s) => (
-            <li key={s.playerId} className={winner?.playerId === s.playerId ? 'leading' : ''}>
-              <span>{s.name}{s.isAi ? ' 🤖' : ''}</span>
-              <strong>{s.wins}</strong>
-            </li>
-          ))}
-        </ol>
-      )}
-    </div>
-  );
-}
 
 /**
  * A game tile in the lobby: the host taps it to pick the game; anyone can tap

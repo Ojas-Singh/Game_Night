@@ -1,13 +1,21 @@
 import { test, expect } from '@playwright/test';
 
-test('discovery is responsive and each native game launches into its lobby', async ({ page }) => {
+test('front door is a single non-scrolling view and opens a room with every game', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: /Bring your people\./ })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Open Game Lab', exact: true })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
-  await page.getByRole('button', { name: /Create a Seep table/ }).click();
+  await expect(page.getByRole('heading', { name: /Take a seat\./ })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Game Lab' })).toBeVisible();
+  // The landing screen is a doorway, not a catalogue: it must never scroll.
+  const metrics = await page.evaluate(() => ({
+    scrollH: document.documentElement.scrollHeight,
+    innerH: window.innerHeight,
+    scrollW: document.documentElement.scrollWidth,
+    innerW: window.innerWidth,
+  }));
+  expect(metrics.scrollH).toBeLessThanOrEqual(metrics.innerH + 1);
+  expect(metrics.scrollW).toBeLessThanOrEqual(metrics.innerW);
+  await page.getByRole('button', { name: 'Deal me in' }).click();
   await expect(page).toHaveURL(/\/game\/[A-Z0-9]+/);
-  await expect(page.getByText('Seep', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /Seep/ }).first()).toBeVisible();
 });
 
 test('real gallery launch plays with AI and rematches retain the spec', async ({ page }) => {

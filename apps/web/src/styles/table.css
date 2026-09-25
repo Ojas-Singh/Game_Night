@@ -2,13 +2,7 @@
    The round table + cards + lobby.
 --------------------------------------------------------------------------- */
 
-/* ---- Home ---- */
-.home-wrap {
-  height: 100%;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-}
+/* ---- Home (shared card chrome — GamePage's waiting screens use these) ---- */
 .home-card {
   max-width: 460px;
   width: 100%;
@@ -23,78 +17,20 @@
 .home-card.compact {
   padding: 30px 28px;
 }
-.home-title {
-  font-size: 46px;
-  margin: 10px 0 6px;
-  letter-spacing: 0.02em;
-  color: var(--ink);
-}
 .home-sub {
   color: var(--ink-dim);
   margin: 0 0 24px;
   line-height: 1.5;
 }
-.home-form {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-}
-.home-form input {
-  flex: 1;
-}
-.home-hint {
-  color: var(--ink-dim);
-  font-size: 13px;
-  margin-top: 18px;
-  opacity: 0.8;
-}
-.home-status {
-  color: var(--accent);
-  font-size: 13px;
-  margin-top: 12px;
-}
-/* Join-by-code row on the home page. */
-.home-join-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 22px 0 12px;
-  color: var(--ink-dim);
-  font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.home-join-divider::before,
-.home-join-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: rgba(255, 220, 160, 0.14);
-}
-.home-join {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-}
-.home-join input {
-  flex: 1;
-}
-.home-join .join-code {
-  text-transform: uppercase;
-  letter-spacing: 0.22em;
-  text-align: center;
-  font-weight: 700;
-}
-.home-join-error {
-  color: var(--danger);
-  font-size: 13px;
-  margin-top: 10px;
-}
-/* Host kick button in the lobby player list. */
+/* Host kick button in the lobby player list. Compact icon controls have to
+   opt out of the global 44px text-button minimum, or a 26px-wide circle
+   reads as a narrow oval. */
 .kick-btn {
   margin-left: auto;
   width: 26px;
   height: 26px;
+  min-width: 26px;
+  min-height: 26px;
   flex: none;
   border-radius: 50%;
   font-size: 13px;
@@ -109,24 +45,7 @@
   background: rgba(210, 60, 45, 0.45);
   color: #ffd6d1;
 }
-.home-deck {
-  display: flex;
-  justify-content: center;
-  gap: 6px;
-  height: 66px;
-  align-items: center;
-}
-.mini-card {
-  width: 44px;
-  height: 62px;
-  border-radius: 6px;
-  background: linear-gradient(160deg, var(--card-back-1), var(--card-back-2));
-  box-shadow: var(--shadow-card);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-}
-.mc1 { transform: rotate(-10deg) translateY(6px); }
-.mc2 { transform: rotate(-1deg) translateY(-2px); background: linear-gradient(160deg, #f7f2e7, #e8e0cd); }
-.mc3 { transform: rotate(8deg) translateY(5px); }
+
 
 /* ---- Lobby ---- */
 .lobby-wrap {
@@ -1390,10 +1309,6 @@
 }
 .restart-toggle:hover {
   background: rgba(40, 20, 12, 0.85);
-}
-.rules-again {
-  margin-top: 10px;
-  width: 100%;
 }
 /* Leave button (game) */
 .leave-toggle {
