@@ -92,9 +92,12 @@ export function useMediaChat(
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analysersRef = useRef(new Map<string, AnalyserNode>());
 
-  const iceServers = useMemo(() => parseIceServers(
+  const buildIceServers = useMemo(() => parseIceServers(
     (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_ICE_SERVERS,
   ), []);
+  // The server can add a TURN relay at runtime (/api/ice); players on mobile
+  // data or strict NATs cannot reach each other without one.
+  const iceServersRef = useRef<RTCIceServer[]>(buildIceServers);
 
   const upsertPeer = useCallback((playerId: string, patch: Partial<MediaPeer>): void => {
     setPeerMap((prev) => {
@@ -163,21 +166,45 @@ export function useMediaChat(
   const createPeer = useCallback((peerId: string): RTCPeerConnection => {
     const existing = pcsRef.current.get(peerId);
     if (existing) return existing;
-    const pc = new RTCPeerConnection({ iceServers });
+    const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
     pcsRef.current.set(peerId, pc);
     upsertPeer(peerId, { connection: 'connecting' });
 
-    // Both m-lines exist from birth so toggling the camera later is a cheap
-    // replaceTrack. The direction MUST be sendrecv: if we ever negotiated a
-    // track-less m-line as recvonly, a later replaceTrack would be silently
-    // ignored by the browser and the picture would never reach the peer.
-    const audio = pc.addTransceiver('audio', { direction: 'sendrecv' });
-    const video = pc.addTransceiver('video', { direction: 'sendrecv' });
-    transceiversRef.current.set(peerId, { audio, video });
-    // Attach whatever we already have. replaceTrack resolves once the track is
-    // actually plugged in, so renegotiation that follows sees a live sender.
-    if (audioTrackRef.current) void audio.sender.replaceTrack(audioTrackRef.current).catch(() => undefined);
-    if (videoTrackRef.current) void video.sender.replaceTrack(videoTrackRef.current).catch(() => undefined);
+    // Exactly one side of each pair opens the connection (the lower player
+    // id). When both sides offered at once, the rollback that resolved the
+    // collision could leave Chrome's ICE gathering stalled with no candidates,
+    // and that pair never connected. The answering side adopts the
+    // transceivers the offer creates (see adoptTransceivers).
+    if (myPlayerId !== null && myPlayerId < peerId) {
+      // Both m-lines exist from birth so toggling the camera later is a cheap
+      // replaceTrack. The direction MUST be sendrecv: if we ever negotiated a
+      // track-less m-line as recvonly, a later replaceTrack would be silently
+      // ignored by the browser and the picture would never reach the peer.
+      const audio = pc.addTransceiver('audio', { direction: 'sendrecv' });
+      const video = pc.addTransceiver('video', { direction: 'sendrecv' });
+      transceiversRef.current.set(peerId, { audio, video });
+      // Attach whatever we already have. replaceTrack resolves once the track is
+      // actually plugged in, so renegotiation that follows sees a live sender.
+      if (audioTrackRef.current) void audio.sender.replaceTrack(audioTrackRef.current).catch(() => undefined);
+      if (videoTrackRef.current) void video.sender.replaceTrack(videoTrackRef.current).catch(() => undefined);
+    }
+
+    // Watchdog: a pair that has not connected after a few seconds gets an ICE
+    // restart (fresh candidates) — up to three tries.
+    let restarts = 0;
+    const watchdog = window.setInterval(() => {
+      const state = pc.connectionState;
+      if (state === 'closed' || state === 'connected' || restarts >= 3) {
+        window.clearInterval(watchdog);
+        return;
+      }
+      if (pc.signalingState !== 'stable' || !pc.remoteDescription) return;
+      restarts += 1;
+      try { pc.restartIce(); } catch { /* older browsers: next join rebuilds */ }
+    }, 6000);
+    pc.addEventListener('connectionstatechange', () => {
+      if (pc.connectionState === 'closed') window.clearInterval(watchdog);
+    });
 
     pc.onicecandidate = (event) => {
       if (event.candidate) sendSignal(peerId, { type: 'candidate', candidate: event.candidate.toJSON() });
@@ -230,7 +257,25 @@ export function useMediaChat(
       }
     };
     return pc;
-  }, [iceServers, sendSignal, upsertPeer, ensureAudioGraph]);
+  }, [sendSignal, upsertPeer, ensureAudioGraph, myPlayerId]);
+
+  /** Answering side: take over the transceivers the remote offer created and
+   *  send our own tracks on them. */
+  const adoptTransceivers = useCallback(async (peerId: string, pc: RTCPeerConnection): Promise<void> => {
+    if (transceiversRef.current.has(peerId)) return;
+    const all = pc.getTransceivers();
+    const audio = all.find((t) => t.receiver.track.kind === 'audio');
+    const video = all.find((t) => t.receiver.track.kind === 'video');
+    if (!audio && !video) return;
+    transceiversRef.current.set(peerId, { audio, video });
+    for (const t of [audio, video]) if (t) t.direction = 'sendrecv';
+    try {
+      if (audio && audioTrackRef.current) await audio.sender.replaceTrack(audioTrackRef.current);
+      if (video && videoTrackRef.current) await video.sender.replaceTrack(videoTrackRef.current);
+    } catch {
+      /* peer may be mid-teardown */
+    }
+  }, []);
 
   const teardown = useCallback((): void => {
     for (const pc of pcsRef.current.values()) pc.close();
@@ -322,7 +367,32 @@ export function useMediaChat(
       }
     };
 
-    const onSignal = async ({ from, data }: { from: string; data: { type: string; sdp?: string; candidate?: RTCIceCandidateInit } }): Promise<void> => {
+    // Signals from one peer MUST be applied strictly in order. The handler
+    // awaits browser calls, so letting messages run concurrently meant an
+    // offer that arrived while the previous answer was still being applied
+    // saw 'have-local-offer', was treated as a collision and dropped — the
+    // other side then never sent its audio (one-way voice).
+    const queues = new Map<string, Promise<void>>();
+    // ICE candidates can be emitted (and so arrive) before the description
+    // they belong to. Hold them until a remote description exists instead of
+    // letting addIceCandidate fail and silently lose the only route.
+    const pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
+    const flushCandidates = async (peerId: string, pc: RTCPeerConnection): Promise<void> => {
+      const held = pendingCandidates.get(peerId);
+      if (!held || !pc.remoteDescription) return;
+      pendingCandidates.delete(peerId);
+      for (const candidate of held) {
+        try { await pc.addIceCandidate(candidate); } catch { /* stale candidate from a rolled-back offer */ }
+      }
+    };
+    const onSignal = (msg: { from: string; data: { type: string; sdp?: string; candidate?: RTCIceCandidateInit } }): void => {
+      if (typeof msg?.from !== 'string') return;
+      const prev = queues.get(msg.from) ?? Promise.resolve();
+      const next = prev.then(() => handleSignal(msg)).catch(() => undefined);
+      queues.set(msg.from, next);
+    };
+
+    const handleSignal = async ({ from, data }: { from: string; data: { type: string; sdp?: string; candidate?: RTCIceCandidateInit } }): Promise<void> => {
       if (!joinedRef.current || typeof from !== 'string' || from === myPlayerId || !data || typeof data.type !== 'string') return;
       const pc = createPeer(from);
       const polite = myPlayerId > from;
@@ -332,17 +402,24 @@ export function useMediaChat(
         if (data.type === 'offer' && data.sdp) {
           if (offerCollision && !polite) return; // impolite peer's offer wins
           await pc.setRemoteDescription({ type: 'offer', sdp: data.sdp }); // implicit rollback when colliding
+          await adoptTransceivers(from, pc);
+          await flushCandidates(from, pc);
           await pc.setLocalDescription();
           if (pc.localDescription) sendSignal(from, { type: 'answer', sdp: pc.localDescription.sdp });
         } else if (data.type === 'answer' && data.sdp) {
           if (pc.signalingState === 'have-local-offer') {
             await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
+            await flushCandidates(from, pc);
           }
         } else if (data.type === 'candidate' && data.candidate) {
+          if (!pc.remoteDescription) {
+            pendingCandidates.set(from, [...(pendingCandidates.get(from) ?? []), data.candidate]);
+            return;
+          }
           try {
             await pc.addIceCandidate(data.candidate);
           } catch {
-            /* candidates can race the remote description; ICE retries */
+            /* a candidate for an offer we ignored in a collision */
           }
         }
       } catch {
@@ -359,7 +436,7 @@ export function useMediaChat(
       socket.off('media:signal', onSignal);
       socket.off('disconnect', onDisconnect);
     };
-  }, [socket, myPlayerId, createPeer, closePeer, upsertPeer, sendSignal, teardown]);
+  }, [socket, myPlayerId, createPeer, closePeer, upsertPeer, sendSignal, teardown, adoptTransceivers]);
 
   // Left the room or unmounted: hang up.
   useEffect(() => {
@@ -374,6 +451,17 @@ export function useMediaChat(
     }
     if (joinedRef.current) return true;
     setError(null);
+    try {
+      const res = await fetch('/api/ice', { cache: 'no-store' });
+      if (res.ok) {
+        const body = (await res.json()) as { iceServers?: RTCIceServer[] };
+        if (Array.isArray(body.iceServers) && body.iceServers.length > 0) {
+          iceServersRef.current = [...body.iceServers, ...buildIceServers.filter((b) => !body.iceServers!.some((s) => JSON.stringify(s.urls) === JSON.stringify(b.urls)))];
+        }
+      }
+    } catch {
+      /* offline or older server: keep the built-in list */
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -400,7 +488,7 @@ export function useMediaChat(
       teardown();
       return false;
     }
-  }, [socket, myPlayerId, supported, ensureAudioGraph, teardown]);
+  }, [socket, myPlayerId, supported, ensureAudioGraph, teardown, buildIceServers]);
 
   const leave = useCallback((): void => {
     socket?.emit('media:leave');

@@ -43,13 +43,18 @@ route there and re-add the client purchase surface.
 ## 4. Voice & video
 
 Peer-to-peer WebRTC, signaling relay only — media never touches the server.
-STUN-only ICE works for the majority of players; symmetric-NAT players (rare,
-mostly corporate networks) will see a "direct link failed" badge. To add a TURN
-relay, build the web client with:
+STUN-only ICE works on most home Wi-Fi, but players on mobile data (carrier
+NAT) or strict routers need a TURN relay, otherwise they see a "direct link
+failed" badge and hear nobody. The client asks the server for its ICE list at
+`/api/ice` when joining, so a relay is configured at runtime:
 
-```bash
-VITE_ICE_SERVERS='[{"urls":"turn:turn.example.com:3478","username":"u","credential":"c"}]'
-```
+- Self-hosted coturn (shipped in compose): `docker compose --profile turn up -d`,
+  set the same `TURN_SECRET` for the app and coturn, set
+  `TURN_URLS=turn:<public-host>:3478,turn:<public-host>:3478?transport=tcp`
+  on the app, and open 3478/udp+tcp and 49160-49200/udp on the host.
+- Or a hosted relay: `ICE_SERVERS='[{"urls":"turn:turn.example.com:3478","username":"u","credential":"c"}]'`.
+
+`VITE_ICE_SERVERS` (build time) still works as a fallback.
 
 Mic/camera access **requires HTTPS** — do not launch without the proxy profile.
 

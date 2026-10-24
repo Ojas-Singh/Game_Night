@@ -21,6 +21,10 @@ services:
       AGENT_API_URL: ${AGENT_API_URL:-}
       AGENT_API_KEY: ${AGENT_API_KEY:-}
       AGENT_MODEL: ${AGENT_MODEL:-}
+      # Voice/video relay (see the coturn service below and docs/DEPLOY.md).
+      ICE_SERVERS: ${ICE_SERVERS:-}
+      TURN_URLS: ${TURN_URLS:-}
+      TURN_SECRET: ${TURN_SECRET:-}
     depends_on:
       redis:
         condition: service_healthy
@@ -101,6 +105,35 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Optional TURN relay for voice/video. Players on mobile data or strict
+  # NATs cannot connect peer-to-peer without one. Start with:
+  #   docker compose --profile turn up -d
+  # Set TURN_SECRET (same value for app and coturn), TURN_REALM (your domain)
+  # and on the app TURN_URLS=turn:<host>:3478,turn:<host>:3478?transport=tcp.
+  # Open 3478/udp+tcp and 49160-49200/udp on the host firewall.
+  coturn:
+    image: coturn/coturn:4.6
+    profiles: ['turn']
+    network_mode: host
+    command:
+      - -n
+      - --log-file=stdout
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET:-change-me-turn}
+      - --realm=${TURN_REALM:-gamenight}
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --no-multicast-peers
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+    restart: unless-stopped
 
 volumes:
   redis-data:

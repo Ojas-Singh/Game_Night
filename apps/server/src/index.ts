@@ -20,10 +20,15 @@ import { RoomManager } from './roomManager.js';
 import { registerSocketHandlers } from './socket.js';
 import { ShopService, RedisShopStore, MemoryShopStore } from './shop.js';
 import { initServerObservability } from './observability.js';
+import { iceServers } from './ice.js';
 
 const app = express();
 app.disable('x-powered-by');
 app.get('/healthz', (_req, res) => res.json({ ok: true }));
+app.get('/api/ice', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ iceServers: iceServers() });
+});
 await initServerObservability(process.env.SENTRY_DSN, config.nodeEnv);
 
 const rooms = new RoomManager(config.roomTtlMs);
