@@ -562,15 +562,10 @@ export class CaboEngine {
    *  pending power. */
   private afterDiscard(playerId: string, card: Card): void {
     let power = powerForRank(card.rank, this.rules);
-    // A swap power is SKIPPED when it cannot apply: e.g. after a cabo call
-    // the caller may have no cards left on the table — there is nothing to
-    // swap with, so the turn simply ends instead of dead-locking.
-    if (power === 'BLIND_SWAP') {
-      const anyOther = this.getState().players.some(
-        (p) => p.id !== playerId && liveCount(this.getState().hands[p.id]!) > 0,
-      );
-      if (!anyOther || liveCount(this.getState().hands[playerId]!) === 0) power = null;
-    }
+    // A power is SKIPPED when it has nothing to act on: e.g. after a cabo call
+    // the caller may have no cards left on the table, so there is nothing to
+    // peek at or swap with, and the turn simply ends instead of dead-locking.
+    if (power && !this.powerCanApply(playerId, power)) power = null;
     if (power) {
       this.getState().pendingPower = { playerId, power, sourceCardId: card.id };
       this.getState().phase = 'POWER_PENDING';
@@ -682,6 +677,46 @@ export class CaboEngine {
       }
     }
     void playerId;
+    this.settleCurrentTurn();
+  }
+
+  /**
+   * A flush or transfer can empty the hand of the player whose turn it is
+   * (e.g. they flush their last card just as their turn starts), or remove
+   * every card a pending power could act on. Without this the turn would ask
+   * an empty-handed player to draw and they could never call Cabo. Resolve it
+   * the same way as reaching zero at the end of an action: auto-call Cabo
+   * (score 0) and move on; a power with nothing to act on is skipped.
+   */
+  private settleCurrentTurn(): void {
+    const s = this.getState();
+    const playerId = s.players[s.currentTurn]?.id;
+    if (!playerId) return;
+    if (s.phase === 'POWER_PENDING' && s.pendingPower?.playerId === playerId) {
+      if (!this.powerCanApply(playerId, s.pendingPower.power)) {
+        const power = s.pendingPower.power;
+        s.pendingPower = null;
+        this.emit('POWER_SKIPPED', { playerId, power });
+        this.endTurnIfActive(playerId);
+      }
+      return;
+    }
+    if (s.phase !== 'TURN_DRAW' || liveCount(s.hands[playerId]!) > 0) return;
+    if (this.rules.cabo.enabled && !s.cabo) {
+      s.cabo = { callerId: playerId, takenFinalTurn: [] };
+      this.emit('CABO_CALLED', { playerId, auto: true });
+    }
+    this.advanceTurn();
+  }
+
+  /** Whether the power has at least one legal target right now. */
+  private powerCanApply(playerId: string, power: CaboPower): boolean {
+    const s = this.getState();
+    const own = liveCount(s.hands[playerId]!) > 0;
+    const other = s.players.some((p) => p.id !== playerId && liveCount(s.hands[p.id]!) > 0);
+    if (power === 'PEEK_OWN') return own;
+    if (power === 'PEEK_OTHER') return other;
+    return own && other;
   }
 
   private checkPlayerOut(playerId: string): void {

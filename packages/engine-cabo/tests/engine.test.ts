@@ -788,6 +788,59 @@ describe('cabo call & final turns', () => {
     expect(e2.getState().phase).toBe('ROUND_COMPLETE');
   });
 
+  it('flushing to zero at the start of your own turn auto-calls Cabo instead of asking for a draw', () => {
+    const order = baseOrder();
+    // p2's hand: four 4s; p1 opens by discarding a 4.
+    order[1] = c('q1', S, 4);
+    order[4] = c('q2', H, 4);
+    order[7] = c('q3', CL, 4);
+    order[10] = c('q4', D, 4);
+    order[12] = c('open4', H, 4);
+    const e = setup(order);
+    peekAll(e);
+    mustOk(e, { type: 'DRAW', playerId: P1 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
+    mustOk(e, { type: 'END_TURN', playerId: P1 });
+    expect(e.getState().players[e.getState().currentTurn]!.id).toBe(P2);
+    expect(e.getState().phase).toBe('TURN_DRAW');
+    // The 4 is still on top: p2 flushes every card before drawing.
+    mustOk(e, { type: 'FLUSH_OWN', playerId: P2, cardIds: ['q1', 'q2', 'q3', 'q4'] });
+    let st = e.getState();
+    expect(st.cabo).toMatchObject({ callerId: P2 });
+    expect(st.players[st.currentTurn]!.id).toBe(P3);
+    expect(st.phase).toBe('TURN_DRAW');
+    mustFail(e, { type: 'DRAW', playerId: P2 });
+    for (const pid of [P3, P1]) {
+      mustOk(e, { type: 'DRAW', playerId: pid });
+      mustOk(e, { type: 'DISCARD_DRAWN', playerId: pid });
+      mustOk(e, { type: 'END_TURN', playerId: pid });
+    }
+    st = e.getState();
+    expect(st.phase).toBe('ROUND_COMPLETE');
+    expect(st.scores!.p2).toBe(0);
+  });
+
+  it('a pending peek with nothing left to peek at is skipped after a flush', () => {
+    const order = [
+      c('s1', S, 7), c('x1', S, 2),
+      c('s2', H, 7), c('x2', H, 2),
+      c('s3', CL, 7), c('x3', CL, 2),
+      c('s4', D, 7),
+      ...Array.from({ length: 20 }, (_, i) => c(`f${i}`, S, 3)),
+    ];
+    const e = setup(order, { players: 2, rules: { startingCards: 3 } });
+    for (const pid of [P1, P2]) mustOk(e, { type: 'PEEK_STARTING', playerId: pid, cardIndexes: [0, 1] });
+    mustOk(e, { type: 'DRAW', playerId: P1 });
+    mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
+    expect(e.getState().pendingPower).toMatchObject({ power: 'PEEK_OWN' });
+    mustOk(e, { type: 'FLUSH_OWN', playerId: P1, cardIds: ['s1', 's2', 's3'] });
+    const st = e.getState();
+    expect(st.pendingPower).toBeNull();
+    expect(st.cabo).toMatchObject({ callerId: P1 });
+    expect(st.players[st.currentTurn]!.id).toBe(P2);
+    expect(st.phase).toBe('TURN_DRAW');
+  });
+
   it('cabo can be disabled by rules', () => {
     const e = setup(baseOrder(), { rules: { cabo: { enabled: false, callerGetsFinalTurn: false, othersFinalTurns: 1 } } });
     peekAll(e);
