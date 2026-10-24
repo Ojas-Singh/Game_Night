@@ -29,16 +29,16 @@ export interface FeltStyle {
 }
 
 const DEFAULT_BACK: BackStyle = {
-  bg: '#25321f',
-  accent: 'rgba(255, 220, 160, 0.4)',
-  pattern: 'rgba(255, 220, 160, 0.10)',
+  bg: '#6a2a19',
+  accent: 'rgba(233, 194, 122, 0.5)',
+  pattern: 'rgba(233, 194, 122, 0.10)',
   glyph: '✦',
   light: true,
 };
 
 const DEFAULT_FELT: FeltStyle = {
-  center: '#2c5a35',
-  edge: '#1a3a22',
+  center: '#55613a',
+  edge: '#2c3320',
   rail: '#3a2b20',
   domClass: 'emerald',
 };

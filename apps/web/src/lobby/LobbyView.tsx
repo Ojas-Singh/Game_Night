@@ -10,6 +10,7 @@ import AvatarCam from '../table/AvatarCam.js';
 import InfoModal from '../table/InfoModal.js';
 import TalkControls, { PeerAudioSinks } from '../table/TalkControls.js';
 import { StylePanel } from './StylePanel.js';
+import GardenScene from '../scene/GardenScene.js';
 import { loadAvatar, randomAvatar, saveAvatar } from '../avatar.js';
 import { AVATAR_COLORS, EYE_STYLES, MOUTH_STYLES, HAT_STYLES } from '../avatar.js';
 import type { Avatar as AvatarModel } from '../server-protocol.js';
@@ -113,6 +114,8 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
 
   return (
     <div className="lobby-wrap">
+      <GardenScene variant="lobby" />
+      <div className="garden-veil lobby" aria-hidden />
       {/* Every peer's audio is attached exactly once, here. */}
       <PeerAudioSinks media={media} />
       <div className="lobby-main">

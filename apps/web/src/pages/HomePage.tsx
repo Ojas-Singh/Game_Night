@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import type { RoomApi } from '../useRoom.js';
 import { loadName } from '../session.js';
 import { funnel } from '../analytics.js';
+import GardenScene from '../scene/GardenScene.js';
 
 type Mode = 'create' | 'join';
 
@@ -69,6 +70,7 @@ export default function HomePage({ room }: { room: RoomApi }) {
 
   return (
     <div className="home-page">
+      <GardenScene variant="home" />
       <div className="home-backdrop" aria-hidden>
         <span className="home-spot" />
         <span className="home-card-ghost a">?</span>
@@ -85,9 +87,9 @@ export default function HomePage({ room }: { room: RoomApi }) {
       </header>
 
       <main className="home-scene">
-        <p className="home-eyebrow">THE TABLE IS SET</p>
-        <h1 className="home-title font-display">Take a seat.<br /><em>The night already started.</em></h1>
-        <p className="home-whisper">No accounts. No downloads. Just a name — and a hunch about who’s bluffing.</p>
+        <p className="home-eyebrow">Somewhere, past the garden wall</p>
+        <h1 className="home-title font-display">Pull up a stool.<br /><em>The lantern’s lit, the cards are dealt.</em></h1>
+        <p className="home-whisper">No accounts, no downloads. Just a name, a few friends, and a hunch about who’s bluffing.</p>
 
         <section className="home-door" aria-label="Start or join a table">
           <div className="home-tabs" role="tablist" aria-label="Start or join a table">

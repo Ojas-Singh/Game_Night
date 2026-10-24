@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { feltStyle } from '../cosmetics.js';
+import { backStyle, feltStyle } from '../cosmetics.js';
+import GardenScene from '../scene/GardenScene.js';
 import type { CSSProperties } from 'react';
 import type { RoomApi, CardFlight } from '../useRoom.js';
 import type { FlightPos } from './CardFlights.js';
@@ -473,8 +474,27 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
     }
   };
 
+  // First-person view: opponents' cards lie on the far side of the table, so
+  // each seat is tilted back and shrinks with distance. Only the seat box is
+  // transformed; the flight overlay measures the projected card rectangles.
+  const povSeatStyle = (seat: (typeof seats)[number]): CSSProperties => {
+    const top = parseFloat(String(seat.style.top)) || 30;
+    const near = Math.min(1, Math.max(0, (top - 12) / 34));
+    return {
+      ...seat.style,
+      transform: `translate(-50%, -50%) perspective(900px) rotateX(${32 - near * 10}deg) scale(${(0.84 + near * 0.16).toFixed(3)})`,
+    };
+  };
+  const hostBack = backStyle(room.lobby?.loadouts?.[room.lobby.hostId ?? '']?.cardBack);
+  const roomStyle = {
+    '--card-back-1': hostBack.bg,
+    '--card-back-2': `color-mix(in srgb, ${hostBack.bg} 62%, #000)`,
+  } as CSSProperties;
+
   return (
-    <div className="table-room">
+    <div className="table-room cabo-room" style={roomStyle}>
+      <GardenScene variant="table" />
+      <div className="garden-veil table" aria-hidden />
       {/* Every peer's audio is attached exactly once, here. */}
       <PeerAudioSinks media={media} />
       {/* status banner */}
@@ -568,7 +588,7 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
             <div
               key={p.id}
               className={`seat seat-opponent ${isTurn ? 'active' : ''} ${glowing ? 'glow' : ''}`}
-              style={seat.style}
+              style={povSeatStyle(seat)}
             >
               <FloatingEmote emote={room.emotes[p.id]} />
               {room.lobby?.hostId === room.myPlayerId &&

@@ -17,6 +17,7 @@ import FloatingEmote from '../table/FloatingEmote.js';
 import InfoModal from '../table/InfoModal.js';
 import Avatar from '../table/Avatar.js';
 import DebugControls from '../table/DebugControls.js';
+import GardenScene from '../scene/GardenScene.js';
 
 /**
  * The Seep table. Same physical room as Cabo — ellipse felt, seats around
@@ -324,6 +325,8 @@ export default function SeepTable({ room, view }: { room: RoomApi; view: SeepPla
 
   return (
     <div className="table-room seep-room">
+      <GardenScene variant="table" />
+      <div className="garden-veil table" aria-hidden />
       <div className={`status-banner ${error ? 'urgent' : ''}`}>{error ?? statusText}</div>
       {room.testMode && <div className="test-banner">TEST MODE — all cards revealed</div>}
       {sweepAnnounce && (

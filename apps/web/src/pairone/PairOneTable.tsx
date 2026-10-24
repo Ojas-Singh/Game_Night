@@ -12,6 +12,7 @@ import SoundToggle from '../SoundToggle.js';
 import EmotePicker from '../EmotePicker.js';
 import { playSound } from '../sound.js';
 import DebugControls from '../table/DebugControls.js';
+import GardenScene from '../scene/GardenScene.js';
 
 type Props = { room: RoomApi; view: PairOnePlayerView };
 
@@ -308,6 +309,8 @@ export default function PairOneTable({ room, view }: Props) {
 
   return (
     <div className="table-room po-room">
+      <GardenScene variant="table" />
+      <div className="garden-veil table" aria-hidden />
       {/* top-left controls (shared styles) */}
       <button
         className="leave-toggle"
