@@ -82,7 +82,8 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
   };
 
   // Seat geometry: 2..6 opponents distribute around the top arc.
-  const seats = useMemo(() => SeatPlanner(others.length), [others.length]);
+  const narrow = useNarrowScreen();
+  const seats = useMemo(() => SeatPlanner(others.length, { narrow }), [others.length, narrow]);
 
   const [infoOpen, setInfoOpen] = useState(false);
 
@@ -209,7 +210,7 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
     };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [captureCardPositions, measureAnchors, room.flights, others.length]);
+  }, [captureCardPositions, measureAnchors, room.flights, others.length, narrow]);
 
   // Keep the snapshot current after every authoritative view, including
   // swaps (which do not create a normal card flight and therefore would not
@@ -272,6 +273,9 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
   // Interaction state for powers / decisions.
   const [selectedOwn, setSelectedOwn] = useState<string | null>(null);
   const [targetPlayer, setTargetPlayer] = useState<string | null>(null);
+  // Swap (J/Q) may start from either side: an opponent's card picked first
+  // waits here until one of your own cards completes the swap.
+  const [selectedOther, setSelectedOther] = useState<{ playerId: string; cardId: string } | null>(null);
   const guidance = useGuidance(view, room.myPlayerId ?? me.id);
 
   const act = (action: Parameters<RoomApi['sendAction']>[0]) => {
@@ -280,7 +284,14 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
     });
     setSelectedOwn(null);
     setTargetPlayer(null);
+    setSelectedOther(null);
   };
+  // A new pending power starts with a clean selection.
+  useEffect(() => {
+    setSelectedOwn(null);
+    setSelectedOther(null);
+    setTargetPlayer(null);
+  }, [view.pendingPower?.sourceCardId]);
 
   // ---------------------------------------------------------------------
   // Action modes
@@ -329,13 +340,14 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
       return;
     }
     if (mode === 'power-blind-swap') {
-      if (!selectedOwn) {
-        setSelectedOwn(cardId);
-      } else if (targetPlayer) {
+      if (selectedOther) {
         act({
           type: 'POWER_APPLY',
-          payload: { power: 'BLIND_SWAP', ownCardId: selectedOwn, targetPlayerId: targetPlayer, targetCardId: cardId },
+          payload: { power: 'BLIND_SWAP', ownCardId: cardId, targetPlayerId: selectedOther.playerId, targetCardId: selectedOther.cardId },
         });
+      } else {
+        // Pick (or change, or un-pick) which of your cards goes across.
+        setSelectedOwn((cur) => (cur === cardId ? null : cardId));
       }
       return;
     }
@@ -358,11 +370,15 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
   const onOpponentCardClick = (playerId: string, cardId: string) => {
     if (mode === 'power-peek-other') {
       act({ type: 'POWER_APPLY', payload: { power: 'PEEK_OTHER', targetPlayerId: playerId, cardId } });
-    } else if (mode === 'power-blind-swap' && selectedOwn) {
-      act({
-        type: 'POWER_APPLY',
-        payload: { power: 'BLIND_SWAP', ownCardId: selectedOwn, targetPlayerId: playerId, targetCardId: cardId },
-      });
+    } else if (mode === 'power-blind-swap') {
+      if (selectedOwn) {
+        act({
+          type: 'POWER_APPLY',
+          payload: { power: 'BLIND_SWAP', ownCardId: selectedOwn, targetPlayerId: playerId, targetCardId: cardId },
+        });
+      } else {
+        setSelectedOther((cur) => (cur?.cardId === cardId ? null : { playerId, cardId }));
+      }
     } else if (
       (mode === 'idle' || mode === 'draw-decision' || mode === 'turn-end' || mode === 'transfer') &&
       view.discardTopRank !== null &&
@@ -387,7 +403,7 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
     // a helpful focus control, but it is not a hidden prerequisite for seeing
     // the card values.
     if (mode === 'power-peek-other') return targetPlayer === null || targetPlayer === playerId;
-    if (mode === 'power-blind-swap') return !!selectedOwn && (targetPlayer === playerId || targetPlayer === null);
+    if (mode === 'power-blind-swap') return targetPlayer === null || targetPlayer === playerId;
     if (mode === 'power-swap-others') return true;
     // Blind flushes: every card is clickable (you remember it or you don't).
     if (
@@ -420,6 +436,7 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
         test={room.testMode}
         peekedBy={peekedBy(cardId)}
         swapped={wasSwapped(cardId)}
+        highlight={mode === 'power-blind-swap' && selectedOther?.cardId === cardId}
         selectable={selectable}
         onClick={selectable ? () => onOpponentCardClick(playerId, cardId) : undefined}
       />
@@ -442,7 +459,7 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
         test={room.testMode}
         peekedBy={peekedBy(cardId)}
         swapped={wasSwapped(cardId)}
-        lifted={mode === 'draw-decision' || mode === 'power-peek-own' || mode === 'transfer'}
+        lifted={mode === 'draw-decision' || mode === 'power-peek-own' || mode === 'transfer' || mode === 'power-blind-swap'}
         onClick={() => onMyCardClick(cardId)}
       />
     );
@@ -463,7 +480,7 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
       // Upper-side players keep their avatar directly above their actual
       // deck, rather than being pushed to one shared screen-edge position.
       case 'above':
-        return { left: sx, top: Math.max(10, sy - 82), transform: 'translateX(-50%)' as const };
+        return { left: sx, top: Math.max(narrow ? 4 : 10, sy - (narrow ? 72 : 82)), transform: 'translateX(-50%)' as const };
       // Side players: their pill hugs the near edge at the seat's height.
       case 'left':
         return { right: 18, top: sy, transform: 'translateY(-50%)' as const };
@@ -641,7 +658,7 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
                 playerId={p.id}
                 myPlayerId={room.myPlayerId}
                 avatar={avatarOf(p.id)}
-                size={42}
+                size={narrow ? 30 : 42}
                 crown={isTurn}
                 ring={isTurn}
                 cabo={view.cabo?.callerId === p.id}
@@ -769,4 +786,18 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
       <ChatPanel room={room} floating />
     </div>
   );
+}
+
+/** True on phone-width screens (portrait); re-evaluated on resize/rotation. */
+function useNarrowScreen(): boolean {
+  const query = '(max-width: 640px)';
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia?.(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia?.(query);
+    if (!mq) return;
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return !!narrow;
 }

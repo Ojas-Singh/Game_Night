@@ -111,5 +111,5 @@ export function powerForRank(rank: Rank, rules: CaboRules): CaboPower | null {
 export const POWER_DESCRIPTIONS: Record<CaboPower, string> = {
   PEEK_OWN: 'Choose one of your own cards to view',
   PEEK_OTHER: "Choose another player's card to view",
-  BLIND_SWAP: 'Blind-swap one of your cards with another player\u2019s card',
+  BLIND_SWAP: 'Swap: tap one of your cards and one of another player\u2019s cards, in either order',
 };
