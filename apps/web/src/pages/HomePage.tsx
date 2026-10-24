@@ -4,6 +4,7 @@ import type { RoomApi } from '../useRoom.js';
 import { loadName } from '../session.js';
 import { funnel } from '../analytics.js';
 import GardenScene from '../scene/GardenScene.js';
+import FullscreenButton from '../FullscreenButton.js';
 
 type Mode = 'create' | 'join';
 
@@ -83,7 +84,10 @@ export default function HomePage({ room }: { room: RoomApi }) {
           <span className="home-brand-mark" aria-hidden>✦</span>
           <span className="home-brand-text"><strong>Game Night</strong><small>one table · every game</small></span>
         </Link>
-        <Link to="/gamelab" className="home-lab">Game Lab</Link>
+        <span className="home-nav-right">
+          <FullscreenButton />
+          <Link to="/gamelab" className="home-lab">Game Lab</Link>
+        </span>
       </header>
 
       <main className="home-scene">

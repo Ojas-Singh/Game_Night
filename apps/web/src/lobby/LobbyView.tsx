@@ -11,6 +11,7 @@ import InfoModal from '../table/InfoModal.js';
 import TalkControls, { PeerAudioSinks } from '../table/TalkControls.js';
 import { StylePanel } from './StylePanel.js';
 import GardenScene from '../scene/GardenScene.js';
+import FullscreenButton from '../FullscreenButton.js';
 import { loadAvatar, randomAvatar, saveAvatar } from '../avatar.js';
 import { AVATAR_COLORS, EYE_STYLES, MOUTH_STYLES, HAT_STYLES } from '../avatar.js';
 import type { Avatar as AvatarModel } from '../server-protocol.js';
@@ -124,6 +125,7 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
             Room <span className="room-code">{lobby.roomId}</span>
           </h1>
           <div className="invite-row">
+            <FullscreenButton />
             {confirmLeave ? (
               <div className="leave-confirm" role="alertdialog" aria-label="Leave room confirmation">
                 <span>Leave this table?</span>
@@ -390,8 +392,8 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
             <Avatar avatar={avatar} size={84} ring />
             <div className="avatar-options">
               <PickerRow
-                label="Color"
-                options={AVATAR_COLORS.map((_, i) => `Color ${i + 1}`)}
+                label="Coat"
+                options={AVATAR_COLORS.map((_, i) => `Coat ${i + 1}`)}
                 sel={avatar.color}
                 onPick={(i) => customize({ color: i })}
                 renderCurrent={(_, i) => <span className="picker-color" style={{ background: AVATAR_COLORS[i] }} />}

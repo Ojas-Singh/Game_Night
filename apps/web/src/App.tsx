@@ -7,6 +7,7 @@ import RuleZeroDemo from './rulezero/RuleZeroDemo.js';
 import GameLabPage from './pages/GameLabPage.js';
 import SharedGamePage from './pages/SharedGamePage.js';
 import { PrivacyPage, TosPage } from './pages/LegalPages.js';
+import FullscreenButton from './FullscreenButton.js';
 
 export default function App() {
   const room = useRoom();
@@ -31,6 +32,7 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <FullscreenButton className="fs-global" />
       {room.status === 'reconnecting' && room.roomId && (
         <div className="reconnect-banner" role="status">
           <span className="reconnect-dot" /> Connection lost — reconnecting…

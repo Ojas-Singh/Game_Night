@@ -1,28 +1,30 @@
 /**
- * Skribbl-style customizable avatars: option lists shared by the picker and
+ * Storybook-folk avatars: option lists shared by the picker and
  * the renderer, plus local persistence so your look survives across rooms.
  */
 
 import type { Avatar } from './server-protocol.js';
 
+/** Coat colour per look; each index also picks a skin tone and hair colour
+ *  (CHARACTER_TONES in table/Avatar.tsx). */
 export const AVATAR_COLORS = [
-  '#e8b04b', // gold
-  '#d9704a', // terracotta
-  '#b6533c', // brick
-  '#7a9a5c', // moss
-  '#4f8a8b', // teal
-  '#5b7db1', // slate blue
-  '#7b6aa8', // violet
-  '#a85b8f', // plum
-  '#c98bab', // rose
-  '#8d6e63', // cocoa
-  '#90a4ae', // steel
-  '#546e7a', // storm
+  '#a8432a', // rust
+  '#d27a2c', // pumpkin
+  '#c9a23a', // mustard
+  '#6f7d3c', // moss
+  '#3f6f6c', // pond teal
+  '#2f4462', // night blue
+  '#6a4a78', // plum
+  '#7c2a33', // berry
+  '#6b4a2e', // bark
+  '#5c6670', // slate
+  '#8a8a52', // reed
+  '#2e2a2b', // charcoal
 ];
 
-export const EYE_STYLES = ['round', 'happy', 'sleepy', 'wink', 'wide', 'star'] as const;
-export const MOUTH_STYLES = ['smile', 'grin', 'smirk', 'open', 'neutral', 'tongue'] as const;
-export const HAT_STYLES = ['none', 'cap', 'crown', 'beanie', 'tophat', 'flower'] as const;
+export const EYE_STYLES = ['dots', 'happy', 'sleepy', 'wink', 'wide', 'star'] as const;
+export const MOUTH_STYLES = ['smile', 'grin', 'smirk', 'oh', 'flat', 'tongue'] as const;
+export const HAT_STYLES = ['none', 'cone', 'teapot', 'toque', 'stovepipe', 'bluebird'] as const;
 
 export const DEFAULT_AVATAR: Avatar = { color: 0, eyes: 0, mouth: 0, hat: 0 };
 

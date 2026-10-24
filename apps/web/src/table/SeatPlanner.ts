@@ -32,7 +32,10 @@ export function orderPlayersForViewer<T extends { id: string }>(
   return [...players.slice(viewerIndex + 1), ...players.slice(0, viewerIndex)];
 }
 
-export default function SeatPlanner(opponentCount: number): Seat[] {
+export default function SeatPlanner(opponentCount: number, opts: { narrow?: boolean } = {}): Seat[] {
+  // Phones in portrait: pull side seats in from the screen edges so their
+  // hands stay fully visible, and put every name above its hand.
+  const xAmp = opts.narrow ? 33 : 44;
   const n = Math.max(1, opponentCount);
   // Angles in degrees measured from the top (0° = directly opposite you).
   // We fan opponents across the arc 20°..160° (leaving the bottom for you).
@@ -44,7 +47,7 @@ export default function SeatPlanner(opponentCount: number): Seat[] {
     const angle = start + t * (end - start);
     const rad = (angle * Math.PI) / 180;
     // Ellipse: a bit wider than tall so 6 players still fit.
-    const xPct = 50 + 44 * Math.cos(Math.PI - rad);
+    const xPct = 50 + xAmp * Math.cos(Math.PI - rad);
     const yPct = 46 - 34 * Math.sin(rad);
     // Cards face their OWNER: the card's top edge points from the player's
     // seat toward the table centre (like a real table). The opposite player
@@ -56,7 +59,7 @@ export default function SeatPlanner(opponentCount: number): Seat[] {
     // playing. Putting them on the fixed screen edges makes their avatars
     // look detached from the cards. The remaining seats sit at the sides.
     const whoSide: Seat['whoSide'] =
-      angle >= 55 && angle <= 125 ? 'above' : angle < 90 ? 'right' : 'left';
+      opts.narrow || (angle >= 55 && angle <= 125) ? 'above' : angle < 90 ? 'right' : 'left';
     seats.push({
       angle,
       facing,

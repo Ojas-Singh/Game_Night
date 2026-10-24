@@ -27,9 +27,6 @@
   --font-storybook: 'IM Fell English SC', 'IM Fell English', Georgia, serif;
   --shadow-card: 0 6px 12px rgba(10, 4, 2, 0.5), 0 1px 3px rgba(10, 4, 2, 0.45);
   --shadow-card-lift: 0 16px 30px rgba(10, 4, 2, 0.6), 0 3px 8px rgba(10, 4, 2, 0.45);
-  /* Card back: a rust field, double gilt frame, an oak leaf in a medallion and
-     acorns in the corners. */
-  --back-art: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 84'%3E%3Cg fill='none' stroke='%23e9c27a'%3E%3Crect x='3.5' y='3.5' width='53' height='77' rx='4' stroke-opacity='.6'/%3E%3Crect x='6.5' y='6.5' width='47' height='71' rx='2.5' stroke-opacity='.28'/%3E%3Ccircle cx='30' cy='42' r='15' stroke-opacity='.5'/%3E%3Ccircle cx='30' cy='42' r='17.5' stroke-opacity='.2' stroke-dasharray='1.5 2'/%3E%3C/g%3E%3Cpath d='M30 30c3 2 6 2 5 5 3 1 3 4 0 5 3 2 2 5-1 5 1 3-1 5-4 7-3-2-5-4-4-7-3 0-4-3-1-5-3-1-3-4 0-5-1-3 2-3 5-5z' fill='%23e9c27a' fill-opacity='.62'/%3E%3Cpath d='M30 32v24' stroke='%234a1a0f' stroke-width='.9'/%3E%3Cg fill='%23e9c27a' fill-opacity='.5'%3E%3Cellipse cx='13' cy='15' rx='2.4' ry='3'/%3E%3Cellipse cx='47' cy='69' rx='2.4' ry='3'/%3E%3C/g%3E%3Cg fill='%23e9c27a' fill-opacity='.75'%3E%3Cpath d='M10.2 13.2h5.6c0-1.7-1.3-2.6-2.8-2.6s-2.8.9-2.8 2.6z'/%3E%3Cpath d='M44.2 67.2h5.6c0-1.7-1.3-2.6-2.8-2.6s-2.8.9-2.8 2.6z'/%3E%3C/g%3E%3C/svg%3E");
 }
 
 body {
@@ -318,11 +315,11 @@ button {
 }
 .pcard-back,
 .deck-stack {
-  background:
-    var(--back-art) center / 100% 100% no-repeat,
-    repeating-linear-gradient(45deg, rgba(233, 194, 122, 0.05) 0 3px, transparent 3px 7px),
-    linear-gradient(160deg, var(--card-back-1), var(--card-back-2));
+  /* Plain backs: one flat colour and a thin inner rule, nothing that could be
+     mistaken for the "seen" dot. */
+  background: linear-gradient(160deg, var(--card-back-1), var(--card-back-2));
   border: 1px solid rgba(20, 6, 2, 0.6);
+  box-shadow: var(--shadow-card), inset 0 0 0 4px var(--card-back-2), inset 0 0 0 5px rgba(233, 194, 122, 0.28);
 }
 .back-pattern {
   display: none;
@@ -330,13 +327,27 @@ button {
 .flight-back {
   inset: 0;
   border-radius: var(--radius-card);
-  background:
-    var(--back-art) center / 100% 100% no-repeat,
-    linear-gradient(160deg, var(--card-back-1), var(--card-back-2));
+  background: linear-gradient(160deg, var(--card-back-1), var(--card-back-2));
   border: 1px solid rgba(20, 6, 2, 0.6);
+  box-shadow: inset 0 0 0 4px var(--card-back-2), inset 0 0 0 5px rgba(233, 194, 122, 0.28);
 }
 .flight-back::before {
   display: none;
+}
+/* "Seen" marker: a bright cream dot with a dark ring, readable on any back. */
+.pcard.seen::before {
+  top: 8%;
+  right: 10%;
+  width: 13px;
+  height: 13px;
+  background: #fff1c9;
+  border: 2.5px solid #2a1206;
+  box-shadow: 0 0 0 1.5px rgba(255, 241, 201, 0.7), 0 0 10px rgba(255, 220, 140, 0.9);
+}
+.pcard.small.seen::before {
+  width: 10px;
+  height: 10px;
+  border-width: 2px;
 }
 .flight-card3d {
   background: radial-gradient(ellipse at 50% 50%, #f3e6c8 40%, #e2cc9f 100%);
@@ -489,9 +500,58 @@ button {
     --card-w: 60px;
   }
   .memorize-note {
-    top: calc(50% - 168px) !important;
+    top: calc(50% + 34px) !important;
     font-size: 14px !important;
     white-space: nowrap;
+  }
+  /* Opponent name tags: avatar over a short name so a full table fits. */
+  .cabo-room .seat-who.who-above {
+    flex-direction: column;
+    gap: 1px;
+    max-width: 84px;
+  }
+  .cabo-room .seat-who .seat-name {
+    font-size: 10.5px;
+    max-width: 84px;
+  }
+  .cabo-room .seat-who.me-who .seat-name {
+    font-size: 13px;
+  }
+  /* Drawn card: compact column to the right of the hand, no hint text. */
+  .cabo-room .draw-slot {
+    left: calc(100% + 8px);
+    gap: 4px;
+  }
+  .cabo-room .draw-slot-hint {
+    display: none;
+  }
+  .cabo-room .draw-discard-btn {
+    font-size: 12px;
+    padding: 6px 8px;
+    white-space: normal;
+    width: 78px;
+    line-height: 1.15;
+  }
+  .cabo-room .emote-picker {
+    bottom: auto;
+    top: 60px;
+    right: 14px;
+  }
+  .status-banner {
+    white-space: normal;
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px);
+    font-size: 13.5px !important;
+    line-height: 1.2;
+    padding: 4px 12px;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+  .status-banner::before,
+  .status-banner::after {
+    display: none;
   }
   .status-banner {
     font-size: 15px;
@@ -548,4 +608,65 @@ button {
   .cabo-room .deck-pile.active .deck-stack.s3 {
     animation: none;
   }
+}
+
+/* ---- Storybook avatars: large ones ink themselves in ---- */
+.avatar svg {
+  border-radius: 50%;
+}
+.av-inking .av-ink {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: av-ink 1.1s cubic-bezier(0.4, 0.1, 0.3, 1) forwards;
+}
+.av-inking .av-fill {
+  opacity: 0;
+  animation: av-fill 0.6s 0.55s ease forwards;
+}
+@keyframes av-ink {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes av-fill {
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .av-inking .av-ink,
+  .av-inking .av-fill {
+    animation: none;
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+/* ---- Full-screen toggle ---- */
+.fullscreen-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 10px;
+  background: rgba(30, 20, 18, 0.78);
+  color: #f1d9a6;
+  border: 1px solid rgba(233, 194, 122, 0.4);
+  box-shadow: 0 4px 12px rgba(5, 2, 1, 0.45);
+  flex: none;
+}
+.fs-global {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 400;
+}
+body:has(.home-page) .fs-global,
+body:has(.lobby-wrap) .fs-global {
+  display: none;
+}
+body:has(.seep-room) .fs-global {
+  right: 64px;
+}
+.home-nav-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
