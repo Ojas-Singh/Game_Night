@@ -47,6 +47,8 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
+  // Phones: invite, look, table style, chat and leave live in a side drawer.
+  const [drawerOpen, setDrawerOpen] = useState(false);
   // Rules live on each game tile — tap a tile's ⓘ to read them. No auto-popup.
   const [rulesGame, setRulesGame] = useState<GameId | null>(null);
 
@@ -75,6 +77,20 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
+  };
+
+  // Phones: the native share sheet is the natural way to invite.
+  const shareLink = async () => {
+    const nav = navigator as Navigator & { share?: (data: ShareData) => Promise<void> };
+    if (nav.share) {
+      try {
+        await nav.share({ title: 'Join my Game Night table', text: `Room ${lobby.roomId}`, url: inviteLink });
+        return;
+      } catch {
+        /* dismissed or unsupported: fall back to copying */
+      }
+    }
+    await copyLink();
   };
 
   const commitName = () => {
@@ -124,6 +140,21 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
           <h1 className="font-display lobby-title">
             Room <span className="room-code">{lobby.roomId}</span>
           </h1>
+          <div className="lobby-mobile-actions">
+            <button className="lobby-share-btn" onClick={() => void shareLink()} title="Invite friends">
+              <Icon name={copied ? 'check' : 'link'} />
+              <span>{copied ? 'Copied' : 'Invite'}</span>
+            </button>
+            <button
+              className="lobby-burger"
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Open menu: invite, your look, table style, chat"
+              aria-expanded={drawerOpen}
+              title="Menu"
+            >
+              <span /><span /><span />
+            </button>
+          </div>
           <div className="invite-row">
             <FullscreenButton />
             {confirmLeave ? (
@@ -375,7 +406,33 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
         </div>
       </div>
 
-      <aside className="lobby-side">
+      {drawerOpen && <div className="lobby-drawer-backdrop" onClick={() => setDrawerOpen(false)} aria-hidden />}
+      <aside className={`lobby-side ${drawerOpen ? 'drawer-open' : ''}`}>
+        <div className="lobby-drawer-head">
+          <strong className="font-display">Room {lobby.roomId}</strong>
+          <FullscreenButton />
+          <button className="icon-btn lobby-drawer-close" onClick={() => setDrawerOpen(false)} aria-label="Close menu">
+            <Icon name="close" />
+          </button>
+        </div>
+        <div className="lobby-panel lobby-drawer-invite">
+          <h2 className="lobby-section-title">Invite friends</h2>
+          <div className="lobby-drawer-invite-row">
+            <button onClick={() => void shareLink()}>
+              <Icon name="link" /> Share link
+            </button>
+            <button className="ghost" onClick={() => void copyLink()}>
+              <Icon name={copied ? 'check' : 'copy'} /> {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          <div className="lobby-drawer-qr">
+            <QRCodeSVG value={inviteLink} size={132} level="M" />
+            <small>Scan to join this table</small>
+          </div>
+        </div>
+        <div className="lobby-panel lobby-drawer-style">
+          <StylePanel socket={room.socket} />
+        </div>
         <DebugPanel room={room} />
         <div className="lobby-panel avatar-panel">
           <div className="avatar-panel-head">
@@ -405,6 +462,10 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
           </div>
         </div>
         <ChatPanel room={room} expanded />
+        <button className="lobby-action leave-action lobby-drawer-leave" onClick={() => (window.confirm('Leave this table?') ? leaveRoom() : undefined)}>
+          <Icon name="logout" />
+          <span>Leave room</span>
+        </button>
         <InfoModal
           open={rulesGame !== null}
           onClose={() => setRulesGame(null)}

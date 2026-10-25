@@ -532,10 +532,107 @@ button {
     width: 78px;
     line-height: 1.15;
   }
+  /* ---- Bottom bar: rules, sound, chat | you + mic | emotes ---- */
+  .cabo-room .mobile-dock-bg {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(54px + env(safe-area-inset-bottom));
+    z-index: 30;
+    background: linear-gradient(180deg, rgba(30, 20, 18, 0.92), rgba(16, 10, 9, 0.97));
+    border-top: 1px solid rgba(233, 194, 122, 0.25);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
+  }
+  .cabo-room .info-toggle,
+  .cabo-room .sound-toggle {
+    position: fixed !important;
+    top: auto !important;
+    right: auto !important;
+    bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+    width: 38px !important;
+    height: 38px !important;
+    z-index: 45;
+  }
+  .cabo-room .info-toggle { left: 10px !important; }
+  .cabo-room .sound-toggle { left: 54px !important; }
+  .cabo-room .chat-panel.closed {
+    left: 98px !important;
+    right: auto !important;
+    bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+    z-index: 45;
+  }
+  .cabo-room .chat-panel.closed .chat-bubble {
+    width: 38px;
+    height: 38px;
+  }
+  .cabo-room .chat-panel.floating.open {
+    bottom: calc(62px + env(safe-area-inset-bottom)) !important;
+  }
   .cabo-room .emote-picker {
-    bottom: auto;
-    top: 60px;
-    right: 14px;
+    position: fixed !important;
+    top: auto !important;
+    right: 10px !important;
+    bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+    z-index: 45;
+  }
+  .cabo-room .seat-who.me-who {
+    left: 144px;
+    right: 56px;
+    transform: none;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    gap: 6px;
+    z-index: 45;
+  }
+  .cabo-room .seat-who.me-who .avatar,
+  .cabo-room .seat-who.me-who .voice-wrap,
+  .cabo-room .seat-who.me-who .avatar svg {
+    width: 38px !important;
+    height: 38px !important;
+  }
+  .cabo-room .seat-who.me-who .seat-name {
+    display: none;
+  }
+  .cabo-room .debug-panel,
+  .cabo-room .debug-toggle {
+    position: fixed !important;
+    top: 14px !important;
+    left: 110px !important;
+    bottom: auto !important;
+    z-index: 45;
+  }
+  .cabo-room .status-banner {
+    bottom: calc(62px + env(safe-area-inset-bottom));
+  }
+  /* The bell and End turn move from the felt into a strip above the bar. */
+  .cabo-room .cabo-ring-zone,
+  .cabo-room .end-turn-btn {
+    display: none;
+  }
+  .cabo-room:has(.turn-actions-mobile) .status-banner {
+    display: none;
+  }
+  .turn-actions-mobile {
+    position: fixed;
+    left: 50%;
+    bottom: calc(62px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 46;
+    display: flex;
+    gap: 10px;
+  }
+  .turn-actions-mobile button {
+    padding: 9px 16px;
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 400;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .turn-actions-mobile .end-turn-mobile {
+    background: linear-gradient(180deg, #3a2a1c, #22170f);
+    border: 1px solid rgba(233, 194, 122, 0.6);
+    color: #f1d9a6;
   }
   .status-banner {
     white-space: normal;
@@ -669,4 +766,268 @@ body:has(.seep-room) .fs-global {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+}
+
+/* ---------------------------------------------------------------------------
+   Lobby: drawer pieces exist only on phones
+--------------------------------------------------------------------------- */
+.lobby-mobile-actions,
+.lobby-drawer-head,
+.lobby-drawer-invite,
+.lobby-drawer-style,
+.lobby-drawer-leave,
+.lobby-drawer-backdrop {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .lobby-wrap {
+    display: block;
+    height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 12px 12px calc(96px + env(safe-area-inset-bottom));
+  }
+  .lobby-main {
+    min-width: 0;
+  }
+  .lobby-head {
+    flex-wrap: nowrap;
+    margin-bottom: 10px;
+  }
+  .lobby-title {
+    font-size: 19px;
+    white-space: nowrap;
+  }
+  .lobby-head .invite-row {
+    display: none;
+  }
+  .lobby-mobile-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .lobby-share-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    font-size: 14px;
+    border-radius: 10px;
+  }
+  .lobby-burger {
+    display: inline-flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    width: 40px;
+    height: 38px;
+    padding: 0 10px;
+    border-radius: 10px;
+    background: rgba(30, 20, 18, 0.85);
+    border: 1px solid rgba(233, 194, 122, 0.4);
+  }
+  .lobby-burger span {
+    display: block;
+    height: 2px;
+    border-radius: 2px;
+    background: #f1d9a6;
+  }
+  .lobby-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .lobby-panel {
+    padding: 12px;
+    min-width: 0;
+    /* backdrop-filter would make the panel the containing block of the
+       fixed Start bar below. */
+    backdrop-filter: none;
+  }
+  /* The style picker moves into the drawer. */
+  .game-panel .style-panel {
+    display: none;
+  }
+  .game-selector {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .game-tile {
+    min-width: 0;
+  }
+  .tile-pair-art {
+    transform: scale(0.75);
+  }
+  .game-tile small,
+  .game-tile .game-tile-tagline {
+    display: none;
+  }
+  .player-row {
+    flex-wrap: wrap;
+  }
+  /* Start / waiting pinned to the bottom of the screen. */
+  .host-controls,
+  .waiting-host {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    margin: 0;
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, rgba(14, 10, 10, 0), rgba(14, 10, 10, 0.92) 35%);
+    text-align: center;
+  }
+  .host-controls .start-btn {
+    width: 100%;
+  }
+
+  /* The drawer. */
+  .lobby-side {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 300;
+    width: min(90vw, 380px);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 12px calc(16px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    background: linear-gradient(180deg, #241917, #160f0e);
+    border-left: 1px solid rgba(233, 194, 122, 0.25);
+    box-shadow: -20px 0 50px rgba(0, 0, 0, 0.6);
+    transform: translateX(105%);
+    transition: transform 0.28s cubic-bezier(0.3, 0.8, 0.3, 1);
+  }
+  .lobby-side.drawer-open {
+    transform: none;
+  }
+  .lobby-drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 290;
+    background: rgba(6, 3, 3, 0.55);
+  }
+  .lobby-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .lobby-drawer-head strong {
+    flex: 1;
+    font-size: 20px;
+    font-weight: 400;
+  }
+  .lobby-drawer-invite,
+  .lobby-drawer-style {
+    display: block;
+  }
+  .lobby-drawer-invite-row {
+    display: flex;
+    gap: 8px;
+  }
+  .lobby-drawer-invite-row button {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 10px;
+    font-size: 14px;
+  }
+  .lobby-drawer-qr {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 10px;
+  }
+  .lobby-drawer-qr svg {
+    background: #fff;
+    padding: 6px;
+    border-radius: 8px;
+    flex: none;
+  }
+  .lobby-drawer-qr small {
+    color: var(--ink-dim);
+  }
+  .lobby-drawer-leave {
+    display: inline-flex;
+    justify-content: center;
+  }
+  .lobby-side .avatar-editor {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .lobby-side .chat-panel,
+  .lobby-side .chat-panel.open {
+    flex: none;
+    height: 300px;
+    max-height: none;
+  }
+}
+
+/* ---- Who is talking: mic badge + pulsing rings on every avatar ---- */
+.voice-wrap {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  line-height: 0;
+}
+.voice-mic {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 2px solid #1a1110;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+}
+.voice-mic.on {
+  background: #5fae63;
+  color: #10240f;
+}
+.voice-mic.off {
+  background: #c8492f;
+  color: #fff3e6;
+}
+.voice-wrap.speaking > .avatar,
+.voice-wrap.speaking > .avatar-cam {
+  box-shadow: 0 0 0 3px #7fd88a, 0 0 18px rgba(127, 216, 138, 0.75);
+  border-radius: 50%;
+}
+.voice-rings {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.voice-rings span {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid rgba(127, 216, 138, 0.8);
+  animation: voice-ring 1.2s ease-out infinite;
+}
+.voice-rings span + span {
+  animation-delay: 0.6s;
+}
+@keyframes voice-ring {
+  from { transform: scale(1); opacity: 0.9; }
+  to { transform: scale(1.55); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-rings span { animation: none; opacity: 0.6; transform: scale(1.15); }
+}
+
+/* On small (opponent) cards the "who peeked" tag is just the eye; the full
+   name sprawled across the neighbouring cards. */
+.pcard.small .eye-badge-name {
+  display: none;
 }

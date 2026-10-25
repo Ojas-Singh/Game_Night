@@ -778,6 +778,22 @@ export default function TableView({ room, view, media }: { room: RoomApi; view: 
         </div>
       </div>
 
+      {/* Phones: the bell and End turn live in a strip above the bottom bar
+          instead of floating over other players' cards. */}
+      {narrow && mode === 'turn-end' && (
+        <div className="turn-actions-mobile">
+          {!view.cabo && (
+            <button className="cabo-call-btn" onClick={() => act({ type: 'CALL_CABO' })} title="Call Cabo — everyone else gets one last turn">
+              <span aria-hidden>🔔</span> Call Cabo
+            </button>
+          )}
+          <button className="end-turn-mobile" onClick={() => act({ type: 'END_TURN' })}>
+            {view.cabo ? 'Finish round ▸' : 'End turn ▸'}
+          </button>
+        </div>
+      )}
+      {narrow && <div className="mobile-dock-bg" aria-hidden />}
+
       {/* round-over overlay */}
       {mode === 'round-over' && <ScoreBoard view={view} room={room} />}
 
