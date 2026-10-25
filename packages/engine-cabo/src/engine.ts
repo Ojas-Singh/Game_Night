@@ -433,6 +433,7 @@ export class CaboEngine {
           sNow.discard.push(card);
           this.emit('CARD_FLUSHED', { playerId: a.playerId, sourcePlayerId: a.playerId, cardId: card.id, rank: card.rank });
         }
+        this.dropTransfersFromEmptyHands();
         this.checkPlayerOutOrAdvance(a.playerId);
         return;
       }
@@ -453,6 +454,12 @@ export class CaboEngine {
             cardId: card.id,
             rank: card.rank,
           });
+          if (liveCount(s.hands[a.playerId]!) === 0) {
+            // The flusher has no card left to hand over: nothing to transfer.
+            this.emit('TRANSFER_SKIPPED', { fromPlayerId: a.playerId, toPlayerId: a.targetPlayerId });
+            this.checkPlayerOutOrAdvance(a.targetPlayerId);
+            return;
+          }
           const transferQueue = this.pendingTransferQueue();
           const phaseBefore = transferQueue[0]?.phaseBefore ?? s.phase;
           transferQueue.push({
@@ -708,6 +715,23 @@ export class CaboEngine {
       this.emit('CABO_CALLED', { playerId, auto: true });
     }
     this.advanceTurn();
+  }
+
+  /** A transfer owed by a player who has no cards left can never be paid;
+   *  drop it (and leave TRANSFER_PENDING when nothing else is owed). */
+  private dropTransfersFromEmptyHands(): void {
+    const s = this.getState();
+    const queue = this.pendingTransferQueue();
+    if (queue.length === 0) return;
+    const restore = queue[0]!.phaseBefore;
+    const kept = queue.filter((t) => liveCount(s.hands[t.fromPlayerId]!) > 0);
+    if (kept.length === queue.length) return;
+    for (const t of queue) {
+      if (!kept.includes(t)) this.emit('TRANSFER_SKIPPED', { fromPlayerId: t.fromPlayerId, toPlayerId: t.toPlayerId });
+    }
+    s.pendingTransfers = kept;
+    s.pendingTransfer = kept[0] ?? null;
+    if (kept.length === 0 && s.phase === 'TRANSFER_PENDING') s.phase = restore;
   }
 
   /** Whether the power has at least one legal target right now. */
