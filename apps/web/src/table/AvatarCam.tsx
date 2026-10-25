@@ -60,7 +60,14 @@ export default function AvatarCam({ media, playerId, myPlayerId, avatar, size = 
     if ((isSelf || !audioStream) && el.srcObject) el.srcObject = null;
   }, [peer?.stream, isSelf]);
 
-  const cam = live ? (
+  // Voice state: a mic badge for everyone in table talk (green on, red
+  // crossed out when muted) and pulsing rings while they are talking.
+  const inVoice = isSelf ? media.joined : Boolean(peer);
+  const micOn = isSelf ? media.micOn : Boolean(peer?.mic);
+  const speaking = inVoice && micOn && media.speaking.has(playerId);
+  const badge = Math.max(14, Math.round(size * 0.38));
+
+  const face = live ? (
     <span
       className={`avatar-cam ${crown ? 'is-turn' : ''}`}
       style={{ width: size, height: size }}
@@ -70,6 +77,31 @@ export default function AvatarCam({ media, playerId, myPlayerId, avatar, size = 
     </span>
   ) : (
     <Avatar avatar={avatar} size={size} crown={crown} ring={ring} cabo={cabo} />
+  );
+
+  const cam = (
+    <span
+      className={`voice-wrap ${speaking ? 'speaking' : ''}`}
+      style={{ width: size, height: size }}
+      title={inVoice ? (speaking ? 'Talking' : micOn ? 'Mic on' : 'Muted') : undefined}
+    >
+      {face}
+      {speaking && (
+        <span className="voice-rings" aria-hidden>
+          <span />
+          <span />
+        </span>
+      )}
+      {inVoice && (
+        <span className={`voice-mic ${micOn ? 'on' : 'off'}`} style={{ width: badge, height: badge }} aria-label={micOn ? 'mic on' : 'muted'}>
+          <svg viewBox="0 0 24 24" width={badge * 0.66} height={badge * 0.66} aria-hidden fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
+            <rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" stroke="none" />
+            <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" />
+            {!micOn && <path d="M4 4l16 16" />}
+          </svg>
+        </span>
+      )}
+    </span>
   );
 
   if (!audio || isSelf) return cam;

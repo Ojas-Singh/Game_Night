@@ -36,6 +36,9 @@ export interface MediaChat {
   peers: MediaPeer[];
   /** My own outbound stream when joined (for self-view in avatar slots). */
   localStream: MediaStream | null;
+  /** Player ids whose voice is currently above the speaking threshold
+   *  (includes me). */
+  speaking: ReadonlySet<string>;
   /** Resolves true when the call was actually joined. */
   join(opts: { mic: boolean; cam: boolean }): Promise<boolean>;
   leave(): void;
@@ -62,7 +65,12 @@ export function parseIceServers(raw: string | undefined): RTCIceServer[] {
 }
 
 const VIDEO_CONSTRAINTS: MediaTrackConstraints = { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 15 } };
-const SPEAK_THRESHOLD = 0.025;
+// RMS of the processed mic signal (browsers apply noise suppression and
+// gain control, so normal speech sits around 0.01-0.1).
+const SPEAK_THRESHOLD = 0.01;
+/** Keep "talking" on briefly after the last loud sample so it doesn't flicker
+ *  between words. */
+const SPEAK_HOLD_MS = 450;
 
 export function useMediaChat(
   socket: Socket | null,
@@ -79,6 +87,7 @@ export function useMediaChat(
   const [camOn, setCamOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [peerMap, setPeerMap] = useState<Map<string, MediaPeer>>(new Map());
+  const [speakingIds, setSpeakingIds] = useState<ReadonlySet<string>>(new Set());
 
   const pcsRef = useRef(new Map<string, RTCPeerConnection>());
   const transceiversRef = useRef(new Map<string, { audio?: RTCRtpTransceiver; video?: RTCRtpTransceiver }>());
@@ -89,6 +98,7 @@ export function useMediaChat(
   const joinedRef = useRef(false);
   const rosterRef = useRef(new Map<string, { mic: boolean; cam: boolean }>());
   const speakingRef = useRef(new Set<string>());
+  const lastLoudRef = useRef(new Map<string, number>());
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analysersRef = useRef(new Map<string, AnalyserNode>());
 
@@ -117,6 +127,7 @@ export function useMediaChat(
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0;
       source.connect(analyser);
       analysersRef.current.set(key, analyser);
     } catch {
@@ -293,6 +304,7 @@ export function useMediaChat(
     audioTrackRef.current = null;
     videoTrackRef.current = null;
     speakingRef.current.clear();
+    setSpeakingIds(new Set());
     joinedRef.current = false;
     setPeerMap(new Map());
     setJoined(false);
@@ -300,34 +312,34 @@ export function useMediaChat(
     setCamOn(false);
   }, []);
 
-  // Speaking detection: RMS over each analyser, batched at 200ms.
+  // Speaking detection: RMS over each analyser, sampled every 120ms.
   useEffect(() => {
     if (!joined) return;
     const timer = window.setInterval(() => {
       const ctx = audioCtxRef.current;
       if (!ctx || analysersRef.current.size === 0) return;
-      const data = new Uint8Array(256);
+      const data = new Float32Array(256);
+      const now = performance.now();
       const nextSpeaking = new Set<string>();
       for (const [key, analyser] of analysersRef.current) {
-        analyser.getByteTimeDomainData(data);
+        analyser.getFloatTimeDomainData(data);
         let sum = 0;
-        for (let i = 0; i < data.length; i++) {
-          const v = (data[i]! - 128) / 128;
-          sum += v * v;
-        }
-        if (Math.sqrt(sum / data.length) > SPEAK_THRESHOLD) nextSpeaking.add(key);
+        for (let i = 0; i < data.length; i++) sum += data[i]! * data[i]!;
+        if (Math.sqrt(sum / data.length) > SPEAK_THRESHOLD) lastLoudRef.current.set(key, now);
+        if (now - (lastLoudRef.current.get(key) ?? -Infinity) < SPEAK_HOLD_MS) nextSpeaking.add(key);
       }
       const prev = speakingRef.current;
       const changed = [...nextSpeaking].some((k) => !prev.has(k)) || [...prev].some((k) => !nextSpeaking.has(k));
       if (!changed) return;
       speakingRef.current = nextSpeaking;
+      setSpeakingIds(new Set(nextSpeaking));
       setPeerMap((current) => {
         const next = new Map(current);
         for (const [playerId, peer] of next) next.set(playerId, { ...peer, speaking: nextSpeaking.has(playerId) });
         return next;
       });
       void ctx;
-    }, 200);
+    }, 120);
     return () => window.clearInterval(timer);
   }, [joined]);
 
@@ -545,6 +557,7 @@ export function useMediaChat(
     camOn,
     error,
     localStream,
+    speaking: speakingIds,
     peers: useMemo(() => [...peerMap.values()], [peerMap]),
     join,
     leave,
