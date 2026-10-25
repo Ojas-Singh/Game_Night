@@ -8,6 +8,7 @@
 import {
   standardDeck,
   shuffle,
+  shuffleDeck,
   createRng,
   type Card,
   type GameAction,
@@ -107,7 +108,7 @@ export class CaboEngine {
     const seats = [...players].sort((a, b) => a.seat - b.seat);
     this.rng = createRng(options.seed);
 
-    const deck = options.forcedDeck ? options.forcedDeck.slice() : shuffle(standardDeck(), this.rng);
+    const deck = options.forcedDeck ? options.forcedDeck.slice() : shuffleDeck(standardDeck(), this.rng);
     // The host starts the room, but does not automatically get the first
     // turn. Use the authoritative RNG so production games are random while
     // seeded/debug games remain reproducible.

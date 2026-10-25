@@ -9,6 +9,7 @@ import {
   SUITS,
   createRng,
   shuffle,
+  shuffleDeck,
   type Card,
   type GameAction,
   type GameEvent,
@@ -98,7 +99,7 @@ export class PairOneEngine {
     if (rules.decks !== 1) rules.decks = 1;
     const gridCards: Card[] = options.forcedGrid
       ? options.forcedGrid.slice()
-      : shuffle(multiDeck(rules.decks), this.rng);
+      : shuffleDeck(multiDeck(rules.decks), this.rng);
 
     const state: PairOneState = {
       stateVersion: 1,

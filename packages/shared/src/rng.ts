@@ -54,6 +54,17 @@ export function createRng(seed?: number): Rng {
 }
 
 /** Fisher–Yates shuffle using the provided RNG. Returns a new array. */
+/**
+ * Shuffle a deck and give every card a fresh id from its shuffled position.
+ *
+ * Card ids are sent to every client (hands are referenced by id), so they
+ * must not encode the card: canonical-order ids (`c-0` = A♠ …) let anyone
+ * read face-down cards from the network payload.
+ */
+export function shuffleDeck<C extends { id: string }>(cards: readonly C[], rng: Rng): C[] {
+  return shuffle(cards, rng).map((card, i) => ({ ...card, id: `c-${i}` }));
+}
+
 export function shuffle<T>(items: readonly T[], rng: Rng): T[] {
   const out = items.slice();
   for (let i = out.length - 1; i > 0; i--) {

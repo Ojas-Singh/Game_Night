@@ -22,6 +22,26 @@ function baseOrder(): ReturnType<typeof c>[] {
 }
 
 describe('deck & dealing', () => {
+  it('card ids do not reveal the card (ids are re-issued after the shuffle)', () => {
+    // Every client sees every hand's card ids, so an id must carry no
+    // information about rank or suit.
+    const byId = new Map<string, Set<string>>();
+    for (let seed = 1; seed <= 40; seed++) {
+      const e = new CaboEngine();
+      e.createGame([{ id: 'x', name: 'X', seat: 0 }, { id: 'y', name: 'Y', seat: 1 }], { seed });
+      const s = e.getState();
+      for (const card of [...s.hands.x!, ...s.hands.y!, ...s.deck]) {
+        if (!card) continue;
+        const seen = byId.get(card.id) ?? new Set<string>();
+        seen.add(`${card.rank}${card.suit}`);
+        byId.set(card.id, seen);
+      }
+    }
+    // With canonical ids each id would always map to the same card.
+    const fixed = [...byId.values()].filter((v) => v.size === 1).length;
+    expect(fixed).toBeLessThan(5);
+  });
+
   it('deals 4 cards to each player from a 52-card deck', () => {
     const e = new CaboEngine();
     e.createGame(

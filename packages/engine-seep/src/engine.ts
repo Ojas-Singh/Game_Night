@@ -31,6 +31,7 @@
 import {
   standardDeck,
   shuffle,
+  shuffleDeck,
   createRng,
   type Card,
   type GameAction,
@@ -237,7 +238,7 @@ export class SeepEngine {
     }
 
     const bidder = s.players[bidderSeat]!;
-    let deck = this.forcedDeck ? [...this.forcedDeck] : shuffle(standardDeck(), this.rng);
+    let deck = this.forcedDeck ? [...this.forcedDeck] : shuffleDeck(standardDeck(), this.rng);
     // The bidder must hold a card worth announcing (9–13). If all four
     // opening cards are 8 or below the deal is repeated (same dealer, new
     // shuffle) — deterministic under a seeded RNG. A forced deck (tests)
@@ -245,7 +246,7 @@ export class SeepEngine {
     let redeals = 0;
     if (!this.forcedDeck) {
       while (deck.slice(-this.rules.openingHandCards).every((c) => c.rank < this.rules.minHouseTotal)) {
-        deck = shuffle(standardDeck(), this.rng);
+        deck = shuffleDeck(standardDeck(), this.rng);
         redeals += 1;
       }
     }
