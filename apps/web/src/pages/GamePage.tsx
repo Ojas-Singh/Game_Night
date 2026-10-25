@@ -17,6 +17,17 @@ export default function GamePage({ room, media }: { room: RoomApi; media: MediaC
   const [namePrompt, setNamePrompt] = useState<string | null>(null);
   const [pendingName, setPendingName] = useState('');
 
+  // Tab title follows the table: the site is Game Night, the game has a name.
+  const gameName = { cabo: 'Cabo', pairone: 'Pair One', seep: 'Seep', rulezero: 'Custom game' }[room.lobby?.gameId ?? ''] as string | undefined;
+  const inGame = Boolean(room.lobby?.inGame);
+  useEffect(() => {
+    const base = 'Game Night';
+    document.title = room.lobby ? `${inGame && gameName ? gameName : `Room ${room.lobby.roomId}`} · ${base}` : base;
+    return () => {
+      document.title = 'Game Night — card games with friends';
+    };
+  }, [room.lobby?.roomId, gameName, inGame]);
+
   useEffect(() => {
     if (!room.socket || !roomId || joinedRef.current) return;
     joinedRef.current = true;

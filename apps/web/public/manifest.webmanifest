@@ -1,7 +1,7 @@
 {
-  "name": "Game Night — Cabo",
+  "name": "Game Night",
   "short_name": "Game Night",
-  "description": "Play Cabo online with friends: live voice, webcam seats, AI opponents and a 3D table.",
+  "description": "Card games online with friends: Cabo, Seep and Pair One, with live voice, webcam seats and AI opponents.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1a1410",
