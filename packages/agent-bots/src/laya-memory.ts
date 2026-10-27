@@ -30,7 +30,8 @@ export interface TableMemory {
   unseen: Map<number, number>; // rank -> count not seen by the viewer
   unseenMean: number;
   unseenTotal: number;
-  seenBy: Map<string, Set<string>>; // card id -> players (other than its holder... any) who have seen it
+  seenBy: Map<string, Set<string>>; // card id -> players who have seen it
+  origin: Map<string, string>; // card id -> how it reached its hand ('kept' from the deck, or 'from <seat id>' in a swap)
   recent: string[];
 }
 
@@ -66,7 +67,8 @@ export function tableMemory(view: CaboPlayerView, me: string, recentPerPlayer = 
     if (!seenBy.has(cid)) seenBy.set(cid, new Set());
     seenBy.get(cid)!.add(pid);
   };
-  const forget = (cid: unknown) => { if (typeof cid === 'string') seenBy.delete(cid); };
+  const origin = new Map<string, string>();
+  const forget = (cid: unknown) => { if (typeof cid === 'string') { seenBy.delete(cid); origin.delete(cid); } };
   const lines = new Map<string, string[]>();
   const say = (pid: string | undefined, text: string) => {
     if (!pid) return;
@@ -91,6 +93,7 @@ export function tableMemory(view: CaboPlayerView, me: string, recentPerPlayer = 
         gone(p.replacedCardId, p.rank);
         forget(p.replacedCardId);
         see(p.keptCardId, who);
+        if (typeof p.keptCardId === 'string' && who) origin.set(p.keptCardId, 'kept');
         say(who, `kept the drawn card as ${placeOf(view, me, p.keptCardId as string)}, threw ${RANK(p.rank as number)}`);
         break;
       case 'CARD_FLUSHED': {
@@ -108,13 +111,16 @@ export function tableMemory(view: CaboPlayerView, me: string, recentPerPlayer = 
         say(who, `failed to flush ${placeOf(view, me, p.cardId as string)} (penalty)`);
         break;
       case 'POWER_RESOLVED':
-        if (p.power === 'PEEK_OWN') { see(p.cardId, who); say(who, `peeked own ${placeOf(view, me, p.cardId as string)}`); }
+        if (p.power === 'PEEK_OWN') { see(p.cardId, who); say(who, `peeked ${placeOf(view, me, p.cardId as string)}`); }
         else if (p.power === 'PEEK_OTHER') { see(p.cardId, who); say(who, `peeked ${placeOf(view, me, p.cardId as string)}`); }
         else if (p.power === 'BLIND_SWAP' && p.ownCardId) {
+          if (typeof p.targetCardId === 'string') origin.set(p.targetCardId, `from ${p.targetPlayerId as string}`);
+          if (typeof p.ownCardId === 'string' && who) origin.set(p.ownCardId, `from ${who}`);
           say(who, `swapped ${placeOf(view, me, p.targetCardId as string)} with ${placeOf(view, me, p.ownCardId as string)}`);
         }
         break;
       case 'CARD_TRANSFERRED':
+        if (typeof p.cardId === 'string') origin.set(p.cardId, `from ${p.fromPlayerId as string}`);
         say(p.fromPlayerId as string, `gave a card to ${nameOf(view, me, p.toPlayerId as string)} (now ${placeOf(view, me, p.cardId as string)})`);
         break;
       case 'CABO_CALLED':
@@ -144,7 +150,7 @@ export function tableMemory(view: CaboPlayerView, me: string, recentPerPlayer = 
     const l = lines.get(pl.id) ?? [];
     if (l.length) recent.push(`${nameOf(view, me, pl.id)}: ${l.slice(-recentPerPlayer).join('; ')}`);
   }
-  return { unseen, unseenMean: total ? sum / total : 0, unseenTotal: total, seenBy, recent };
+  return { unseen, unseenMean: total ? sum / total : 0, unseenTotal: total, seenBy, origin, recent };
 }
 
 /** The memory lines appended to the table text (prompt version 2). Kept short: Laya reads ~512 tokens. */
@@ -167,6 +173,17 @@ export function memoryText(view: CaboPlayerView, me: string): string {
     return `${p.name} ≈${Math.round(v)} (knows ~${knownToThem}/${ids.length})`;
   });
   if (est.length) out.push(`Estimated totals: ${est.join(', ')}.`);
+  // lasting facts about the cards still held: kept from the deck by the holder (usually low), or moved in from
+  // another hand; these stay true however long ago they happened, unlike the recent actions below
+  const notes = view.players.map((pl) => {
+    const facts = (view.handCardIds[pl.id] ?? []).map((cid, i) => {
+      const o = m.origin.get(cid);
+      if (!o) return null;
+      return `#${i + 1} ${o === 'kept' ? 'kept from deck' : `from ${nameOf(view, me, o.slice(5))}`}`;
+    }).filter(Boolean);
+    return facts.length ? `${nameOf(view, me, pl.id)}: ${facts.join(', ')}` : null;
+  }).filter(Boolean);
+  if (notes.length) out.push(`Hand history: ${notes.join(' | ')}.`);
   if (m.recent.length) out.push(`Recent: ${m.recent.join(' | ')}.`);
   return out.join('\n');
 }
