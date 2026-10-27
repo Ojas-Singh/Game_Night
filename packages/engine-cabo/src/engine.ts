@@ -502,6 +502,8 @@ export class CaboEngine {
           toPlayerId: t.toPlayerId,
           cardId: card.id,
         });
+        // Paying one transfer can empty the hand while another is still owed.
+        this.dropTransfersFromEmptyHands();
         this.checkPlayerOutOrAdvance(t.fromPlayerId);
         return;
       }
