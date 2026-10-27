@@ -16,12 +16,13 @@
 // a sample of the model's distribution (variety).
 //
 // usage: node search.mjs <server-url> <out.jsonl> <games> [budget] [seedBase] [concurrency]
-// env:   MODEL_PROMPT (1|2, the prompt the served model was trained on; 1 for v1-v3), RECORD_PROMPT (default 2),
+// env:   ROLLOUT_PLIES (0 = Laya to the end of the round; else Laya for that many decisions, then heuristic bots),
+//        MODEL_PROMPT (1|2, the prompt the served model was trained on; 1 for v1-v3), RECORD_PROMPT (default 2),
 //        FOLLOW (0.75), VALUE_CUTOFF (0 = play every rollout to the end of the round), TAU (0.05), PLAYERS (2,3,4)
 import { createWriteStream } from 'node:fs';
 import {
   actorOf, applyFor, buildDecision, candidateMoves, createAgentRng, determinize, engineFrom, newGame, payoff,
-  decisionText,
+  decisionText, heuristicBots, playOut,
 } from './cabo-common.mjs';
 import { enumerateLegalActions } from '@game-night/agent-core';
 
@@ -34,6 +35,10 @@ const MODEL_PROMPT = Number(process.env.MODEL_PROMPT ?? 1);
 const RECORD_PROMPT = Number(process.env.RECORD_PROMPT ?? 2);
 const FOLLOW = Number(process.env.FOLLOW ?? 0.75);
 const VALUE_CUTOFF = Number(process.env.VALUE_CUTOFF ?? 0);
+// Laya plays the first ROLLOUT_PLIES decisions of a rollout (every seat), the heuristic bots finish the round on the
+// CPU (0 = Laya to the end). Model calls are the cost of the search; until the model has a value head this keeps
+// a position affordable.
+const ROLLOUT_PLIES = Number(process.env.ROLLOUT_PLIES ?? 0);
 const TAU = Number(process.env.TAU ?? 0.05);
 const PLAYERS = (process.env.PLAYERS ?? '2,3,4').split(',').map(Number);
 const MAX_BATCH = 512;
@@ -119,6 +124,9 @@ async function rolloutValue(engine, me, rng) {
   for (let i = 0; i < 800; i++) {
     const who = actorOf(engine.getState());
     if (!who) return payoff(engine.getState(), me);
+    if (ROLLOUT_PLIES > 0 && i >= ROLLOUT_PLIES) {
+      return playOut(engine, heuristicBots(engine.getState().players), rng) ? payoff(engine.getState(), me) : null;
+    }
     if (VALUE_CUTOFF > 0 && i >= VALUE_CUTOFF) {
       const { order, question } = valueQuestion(engine.getPlayerState(me), me);
       const r = await ask(decisionText(named(engine.getPlayerState(me), me), me, MODEL_PROMPT), { winner: question });
@@ -182,7 +190,7 @@ async function generateGame(seed, sink) {
         rows.push({ who, order, row: {
           state: decisionText(v, who, RECORD_PROMPT), questions: { ...questions, winner: question }, gold: gold(q, TAU),
           meta: { seed, players: nPlayers, step: i, phase: s.phase, q: q.map((x) => +x.toFixed(4)), n, source: 'search',
-                  budget: BUDGET, model_prompt: MODEL_PROMPT, record_prompt: RECORD_PROMPT },
+                  budget: BUDGET, rollout_plies: ROLLOUT_PLIES, model_prompt: MODEL_PROMPT, record_prompt: RECORD_PROMPT },
         } });
         // follow the search (strong play), or sample the model (variety)
         let action;
