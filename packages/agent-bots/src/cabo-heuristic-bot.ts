@@ -53,14 +53,27 @@ function worstCard(view: CaboPlayerView, playerId: string): { id: string; index:
   return worst;
 }
 
-function strongestOpponent(view: CaboPlayerView, selfId: string) {
-  return view.players
-    .filter((p) => p.id !== selfId && p.cardCount > 0)
+type Rng = { next(): number };
+
+/** Fisher-Yates on a copy: ties below are broken at random, not by seat or slot order (which always singled out
+ *  the lowest seat and the first unknown slot). */
+function shuffled<T>(xs: T[], rng?: Rng): T[] {
+  const a = [...xs];
+  if (!rng) return a;
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng.next() * (i + 1));
+    [a[i], a[j]] = [a[j]!, a[i]!];
+  }
+  return a;
+}
+
+function strongestOpponent(view: CaboPlayerView, selfId: string, rng?: Rng) {
+  return shuffled(view.players.filter((p) => p.id !== selfId && p.cardCount > 0), rng)
     .sort((a, b) => estimatedHandValue(view, b.id) - estimatedHandValue(view, a.id))[0];
 }
 
-function bestTargetCard(view: CaboPlayerView, playerId: string): string | undefined {
-  const ids = ownCardIds(view, playerId);
+function bestTargetCard(view: CaboPlayerView, playerId: string, rng?: Rng): string | undefined {
+  const ids = shuffled(ownCardIds(view, playerId), rng);
   // An unknown card is the best blind target: it gives the bot a chance to
   // improve without voluntarily taking a card it already knows is good.
   return ids.find((id) => !view.knownCards[id]) ??
@@ -187,9 +200,9 @@ export class CaboHeuristicBot implements GameAgent {
           };
         }
         if (p.power === 'PEEK_OTHER') {
-          const target = strongestOpponent(v, obs.selfId);
+          const target = strongestOpponent(v, obs.selfId, ctx.rng);
           if (target) {
-            const targetCard = bestTargetCard(v, target.id);
+            const targetCard = bestTargetCard(v, target.id, ctx.rng);
             if (targetCard) {
               return {
                 action: { type: 'POWER_APPLY', ...me, payload: { power: 'PEEK_OTHER', targetPlayerId: target.id, cardId: targetCard } },
@@ -200,8 +213,8 @@ export class CaboHeuristicBot implements GameAgent {
         }
         if (p.power === 'BLIND_SWAP') {
           const give = worstCard(v, obs.selfId);
-          const t = strongestOpponent(v, obs.selfId);
-          const theirs = t ? bestTargetCard(v, t.id) : undefined;
+          const t = strongestOpponent(v, obs.selfId, ctx.rng);
+          const theirs = t ? bestTargetCard(v, t.id, ctx.rng) : undefined;
           if (!give || !t || !theirs) throw new AgentError('BLIND_SWAP without two live hands');
           return {
             action: {
