@@ -25,6 +25,9 @@ services:
       ICE_SERVERS: ${ICE_SERVERS:-}
       TURN_URLS: ${TURN_URLS:-}
       TURN_SECRET: ${TURN_SECRET:-}
+      # The "Laya" Cabo AI persona (services/laya); without it Laya seats play as the Balanced bot.
+      LAYA_URL: ${LAYA_URL:-http://laya:8000}
+      LAYA_TIMEOUT_MS: ${LAYA_TIMEOUT_MS:-8000}
     depends_on:
       redis:
         condition: service_healthy
@@ -38,6 +41,23 @@ services:
       resources:
         limits:
           memory: 512M
+
+  # Laya decision service for the "Laya" Cabo persona (CPU; model Ojas-Singh/laya-cabo from Hugging Face,
+  # downloaded once into the laya-hf volume, about 0.8 GB). The app falls back to the Balanced bot when it is
+  # down or slow.
+  laya:
+    build: ./services/laya
+    environment:
+      LAYA_MODEL: ${LAYA_MODEL:-Ojas-Singh/laya-cabo}
+      LAYA_THREADS: ${LAYA_THREADS:-4}
+    volumes:
+      - laya-hf:/data/hf
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 3G
 
   redis:
     image: redis:7-alpine
@@ -137,6 +157,7 @@ services:
 
 volumes:
   redis-data:
+  laya-hf:
   caddy-data:
   caddy-config:
   umami-db-data:

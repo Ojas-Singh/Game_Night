@@ -24,7 +24,7 @@ import {
   type AgentDecision,
   type GameAgent,
 } from '@game-night/agent-core';
-import { CaboHeuristicBot, PairOneHeuristicBot, SeepHeuristicBot } from '@game-night/agent-bots';
+import { CaboHeuristicBot, LayaCaboBot, PairOneHeuristicBot, SeepHeuristicBot } from '@game-night/agent-bots';
 import { LlmAgent } from '@game-night/agent-llm';
 import type { AiDecisionPatch, Room } from '../room.js';
 import { RoomError } from '../room.js';
@@ -298,7 +298,10 @@ export class AgentLoops {
     const existing = this.agents.get(key);
     if (existing) return existing;
     let agent: GameAgent;
-    if (config.agentApiUrl && (room.gameId === 'cabo' || room.gameId === 'pairone' || room.gameId === 'seep')) {
+    const persona = room.players.get(playerId)?.persona;
+    if (persona === 'laya' && room.gameId === 'cabo' && config.layaUrl) {
+      agent = new LayaCaboBot({ url: config.layaUrl, timeoutMs: config.layaTimeoutMs, idSuffix: `:${room.id.slice(0, 4)}` });
+    } else if (config.agentApiUrl && (room.gameId === 'cabo' || room.gameId === 'pairone' || room.gameId === 'seep')) {
       const configuredModel = config.agentModel.startsWith('opencode-go/')
         ? config.agentModel.slice('opencode-go/'.length)
         : config.agentModel;

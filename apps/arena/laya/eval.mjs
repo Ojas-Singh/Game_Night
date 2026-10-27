@@ -1,10 +1,12 @@
 // Head-to-head: seat p0 is the agent under test, the other seats are the
 // built-in heuristic bot. Reports p0's win rate (ties split) with a 95% CI.
 //
-// usage: node eval.mjs <agent> <games> <workers> [players] [seedBase]
+// usage: node eval.mjs <agent> <games> <workers> [players] [seedBase] [opponents]
+//   opponents: heuristic (default) | laya:<url>
 //   agent: heuristic | teacher:<rollouts> | laya:<http://host:port> | random
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
+import { layaRelabelView } from '@game-night/agent-bots';
 import {
   actorOf, applyFor, buildDecision, candidateMoves, createAgentRng, determinize, engineFrom,
   heuristicBots, newGame, payoff, playOut, stateText,
@@ -28,7 +30,7 @@ function teacherMove(state, me, moves, rollouts, rng) {
 }
 
 async function layaMove(url, view, me, moves, stats) {
-  const named = { ...view, players: view.players.map((p) => ({ ...p, name: p.id === me ? 'You' : { p1: 'Ada', p2: 'Byron', p3: 'Cora', p4: 'Dov', p5: 'Esme' }[p.id] ?? p.name })) };
+  const named = layaRelabelView(view, me);
   const { questions, decode } = buildDecision(moves, named, me);
   const t0 = Date.now();
   const res = await fetch(`${url}/decide`, {
@@ -44,7 +46,7 @@ async function layaMove(url, view, me, moves, stats) {
   return action ?? moves[0];
 }
 
-async function playGame(seed, agentSpec, nPlayers) {
+async function playGame(seed, agentSpec, nPlayers, oppSpec = 'heuristic') {
   const players = Array.from({ length: nPlayers }, (_, i) => ({ id: `p${i}`, name: `P${i}`, seat: i }));
   const engine = newGame(players, seed);
   const rng = createAgentRng(seed * 31 + 7);
@@ -63,6 +65,11 @@ async function playGame(seed, agentSpec, nPlayers) {
       else if (kind === 'teacher') action = teacherMove(s, who, moves, Number(arg || 64), rng);
       else if (kind === 'laya') action = await layaMove(arg, view, who, moves, stats);
       else action = rng.pick(moves);
+    } else if (oppSpec.startsWith('laya:') && s.phase !== 'INITIAL_PEEK') {
+      const moves = candidateMoves(view, who, rng);
+      action = moves.length === 0
+        ? bots[who].decide({ gameId: 'cabo', selfId: who, view, step }, { rng }).action
+        : moves.length === 1 ? moves[0] : await layaMove(oppSpec.slice(5), view, who, moves, { ms: 0, n: 0, bad: 0 });
     } else {
       action = bots[who].decide({ gameId: 'cabo', selfId: who, view, step }, { rng }).action;
     }
@@ -74,7 +81,8 @@ async function playGame(seed, agentSpec, nPlayers) {
 }
 
 if (isMainThread) {
-  const [agent, gamesArg, workersArg, playersArg, seedArg] = process.argv.slice(2);
+  const [agent, gamesArg, workersArg, playersArg, seedArg, oppArg] = process.argv.slice(2);
+  const opponents = oppArg ?? 'heuristic';
   const games = Number(gamesArg ?? 200);
   const workers = Number(workersArg ?? 4);
   const nPlayers = Number(playersArg ?? 3);
@@ -84,7 +92,7 @@ if (isMainThread) {
   await new Promise((resolve) => {
     let alive = workers;
     for (let k = 0; k < workers; k++) {
-      const w = new Worker(fileURLToPath(import.meta.url), { workerData: { agent, nPlayers } });
+      const w = new Worker(fileURLToPath(import.meta.url), { workerData: { agent, nPlayers, opponents } });
       const feed = () => w.postMessage(next < games ? seedBase + next++ : null);
       w.on('message', (r) => {
         done += 1; wins += r.win; scoreSum += r.score ?? 0; ms += r.stats.ms; n += r.stats.n; bad += r.stats.bad;
@@ -99,7 +107,7 @@ if (isMainThread) {
   const centre = (p + z * z / (2 * done)) / den;
   const half = (z * Math.sqrt(p * (1 - p) / done + z * z / (4 * done * done))) / den;
   console.log(JSON.stringify({
-    agent, games: done, players: nPlayers, winRate: +p.toFixed(4),
+    agent, opponents, games: done, players: nPlayers, winRate: +p.toFixed(4),
     ci95: [+(centre - half).toFixed(4), +(centre + half).toFixed(4)],
     meanScore: +(scoreSum / done).toFixed(2), seconds: Math.round((Date.now() - t0) / 1000),
     ...(n ? { modelCalls: n, msPerCall: +(ms / n).toFixed(1), undecodable: bad } : {}),
@@ -107,6 +115,6 @@ if (isMainThread) {
 } else {
   parentPort.on('message', async (seed) => {
     if (seed == null) process.exit(0);
-    parentPort.postMessage(await playGame(seed, workerData.agent, workerData.nPlayers));
+    parentPort.postMessage(await playGame(seed, workerData.agent, workerData.nPlayers, workerData.opponents));
   });
 }

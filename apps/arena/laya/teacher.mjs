@@ -8,7 +8,7 @@
 // greedily on these values improves on the rollout policy, and the soft
 // targets tell Laya how much better each move is, not just which one won.
 //
-// usage: node teacher.mjs <out.jsonl> <games> <workers> [rollouts] [seedBase]
+// usage: node teacher.mjs <out.jsonl> <games> <workers> [rollouts] [seedBase] [players]
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { createWriteStream } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -38,9 +38,9 @@ function scoreMoves(state, me, moves, rollouts, rng) {
   return totals.map((t, i) => (counts[i] ? t / counts[i] : 0));
 }
 
-function generateGame(seed, rollouts) {
+function generateGame(seed, rollouts, nPlayers = 3) {
   const rng = createAgentRng(seed * 7919 + 13);
-  const players = [0, 1, 2].map((i) => ({ id: `p${i}`, name: ['You', 'Ada', 'Byron'][i], seat: i }));
+  const players = Array.from({ length: nPlayers }, (_, i) => ({ id: `p${i}`, name: `P${i}`, seat: i }));
   // Each seat sees itself as "You" in its own state text.
   const engine = newGame(players, seed);
   const bots = heuristicBots(players);
@@ -61,7 +61,7 @@ function generateGame(seed, rollouts) {
         state: stateText(named, who),
         questions,
         gold: gold(q, TAU),
-        meta: { seed, step, phase: s.phase, q: q.map((v) => +v.toFixed(4)), heuristic: heurIdx, n: moves.length },
+        meta: { seed, players: nPlayers, step, phase: s.phase, q: q.map((v) => +v.toFixed(4)), heuristic: heurIdx, n: moves.length },
       });
     }
     // Behaviour: the heuristic bot, with some random moves for state variety.
@@ -84,7 +84,8 @@ function sameAction(a, b) {
 }
 
 if (isMainThread) {
-  const [out, gamesArg, workersArg, rolloutsArg, seedArg] = process.argv.slice(2);
+  const [out, gamesArg, workersArg, rolloutsArg, seedArg, playersArg] = process.argv.slice(2);
+  const nPlayers = Number(playersArg ?? 3);
   const games = Number(gamesArg ?? 10);
   const workers = Number(workersArg ?? 4);
   const rollouts = Number(rolloutsArg ?? 16);
@@ -95,7 +96,7 @@ if (isMainThread) {
   let rowsN = 0;
   const t0 = Date.now();
   const start = () => {
-    const w = new Worker(fileURLToPath(import.meta.url), { workerData: { rollouts } });
+    const w = new Worker(fileURLToPath(import.meta.url), { workerData: { rollouts, nPlayers } });
     const feed = () => {
       if (next >= games) { w.postMessage(null); return; }
       w.postMessage(seedBase + next++);
@@ -117,6 +118,6 @@ if (isMainThread) {
 } else {
   parentPort.on('message', (seed) => {
     if (seed == null) { process.exit(0); }
-    parentPort.postMessage(generateGame(seed, workerData.rollouts));
+    parentPort.postMessage(generateGame(seed, workerData.rollouts, workerData.nPlayers));
   });
 }

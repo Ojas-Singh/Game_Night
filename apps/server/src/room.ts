@@ -860,13 +860,14 @@ function sanitizeName(name: string | undefined): string | null {
   return clean.length >= 1 ? clean : null;
 }
 
-const AI_PERSONA_IDS = ['balanced', 'baiter', 'conservative', 'aggressor', 'scholar'];
+const AI_PERSONA_IDS = ['balanced', 'baiter', 'conservative', 'aggressor', 'scholar', 'laya'];
 const AI_PERSONA_LABELS: Record<string, string> = {
   balanced: 'Balanced',
   baiter: 'Baiter',
   conservative: 'Conservative',
   aggressor: 'Aggressor',
   scholar: 'Scholar',
+  laya: 'Laya',
 };
 
 /** Validate a requested AI persona; unknown/absent → balanced. */

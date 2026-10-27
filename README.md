@@ -22,6 +22,7 @@ docker compose up -d
 
 - Single `app` container serves the built web client and the Socket.IO server (WebSockets work through the Coolify proxy).
 - `redis` for future horizontal scaling; playing needs no database.
+- `laya` (CPU) answers the "Laya" Cabo AI persona with the fine-tuned model [Ojas-Singh/laya-cabo](https://huggingface.co/Ojas-Singh/laya-cabo), downloaded on first start into the `laya-hf` volume (~0.8 GB; 1-3 GB RAM, about 1 s per decision on 4 cores). The app reaches it at `LAYA_URL` and plays Laya seats as the Balanced bot when it is unset, down or slower than `LAYA_TIMEOUT_MS`. Training: `apps/arena/laya/README.md`.
 - Env vars: `NODE_ENV`, `PORT`, `PUBLIC_URL`, `REDIS_URL`, `ROOM_TTL_MINUTES`, `SESSION_SECRET`, `RECONNECT_GRACE_MINUTES`, `LOG_LEVEL`.
 
 Coolify: point a new Docker Compose resource at this repo; set `SESSION_SECRET`; expose port 3000.

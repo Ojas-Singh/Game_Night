@@ -58,6 +58,10 @@ export const config = {
       ? 'opencode-go'
       : 'endpoint'),
   agentTimeoutMs: intEnv('AGENT_TIMEOUT_MS', 30_000),
+  /** Laya decision service for the "Laya" Cabo persona (POST /decide). When
+   *  unset, Laya seats play as the Balanced heuristic bot. */
+  layaUrl: process.env.LAYA_URL || '',
+  layaTimeoutMs: intEnv('LAYA_TIMEOUT_MS', 8_000),
   // Cabo prompts include the full filtered observation and every legal flush
   // candidate. Leave enough response budget for a short rationale plus the
   // required JSON; operators can still lower this with AGENT_MAX_TOKENS.

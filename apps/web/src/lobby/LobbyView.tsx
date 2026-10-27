@@ -23,6 +23,7 @@ const AI_PERSONA_LABELS: Record<string, string> = {
   conservative: 'Conservative',
   aggressor: 'Aggressor',
   scholar: 'Scholar',
+  laya: 'Laya',
 };
 
 const AI_PERSONA_OPTIONS = [
@@ -31,6 +32,7 @@ const AI_PERSONA_OPTIONS = [
   { id: 'conservative', label: 'Conservative', description: 'Protects a low score and avoids wild guesses.' },
   { id: 'aggressor', label: 'Aggressor', description: 'Pressures opponents and attacks every opening.' },
   { id: 'baiter', label: 'Baiter', description: 'Sets traps with discards and deceptive plays.' },
+  { id: 'laya', label: 'Laya', description: 'A trained neural Cabo player. Plays Balanced in other games.' },
 ] as const;
 
 export default function LobbyView({ room, media }: { room: RoomApi; media: MediaChat }) {

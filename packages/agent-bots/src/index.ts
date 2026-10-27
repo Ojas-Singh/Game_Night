@@ -25,3 +25,15 @@ export function heuristicFor(gameId: GameId): GameAgent {
 export function randomBot(): GameAgent {
   return new RandomBot();
 }
+export { LayaCaboBot } from './laya-bot.js';
+export type { LayaBotOptions } from './laya-bot.js';
+export {
+  buildDecision as layaBuildDecision,
+  candidateMoves as layaCandidateMoves,
+  relabelView as layaRelabelView,
+  stateText as layaStateText,
+  describeMove as layaDescribeMove,
+  LAYA_INSTRUCTIONS,
+  LAYA_MAX_OPTIONS,
+} from './laya-cabo.js';
+export type { LayaDecision, LayaQuestions, LayaGold } from './laya-cabo.js';
