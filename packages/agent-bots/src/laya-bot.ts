@@ -13,12 +13,14 @@ import {
 } from '@game-night/agent-core';
 import type { CaboPlayerView } from '@game-night/engine-cabo';
 import { CaboHeuristicBot } from './cabo-heuristic-bot.js';
-import { buildDecision, candidateMoves, relabelView, stateText } from './laya-cabo.js';
+import { buildDecision, candidateMoves, decisionText, relabelView, type LayaPromptVersion } from './laya-cabo.js';
 
 export interface LayaBotOptions {
   url: string;
   timeoutMs?: number;
   idSuffix?: string;
+  /** Prompt version the served model was trained on (1: table only, models v1-v3; 2: table + memory). */
+  promptVersion?: LayaPromptVersion;
 }
 
 export class LayaCaboBot implements GameAgent {
@@ -27,11 +29,13 @@ export class LayaCaboBot implements GameAgent {
   private readonly url: string;
   private readonly timeoutMs: number;
   private readonly fallback: CaboHeuristicBot;
+  private readonly promptVersion: LayaPromptVersion;
 
   constructor(opts: LayaBotOptions) {
     this.id = `laya-cabo${opts.idSuffix ?? ''}`;
     this.url = opts.url.replace(/\/+$/, '');
     this.timeoutMs = opts.timeoutMs ?? 8_000;
+    this.promptVersion = opts.promptVersion ?? 1;
     this.fallback = new CaboHeuristicBot({ persona: 'balanced', idSuffix: opts.idSuffix });
   }
 
@@ -59,7 +63,7 @@ export class LayaCaboBot implements GameAgent {
       const res = await fetch(`${this.url}/decide`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ state: stateText(named, obs.selfId), questions }),
+        body: JSON.stringify({ state: decisionText(named, obs.selfId, this.promptVersion), questions }),
         signal: AbortSignal.timeout(this.timeoutMs),
       });
       if (!res.ok) return fallback(`http ${res.status}`);

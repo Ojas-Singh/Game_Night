@@ -3,13 +3,13 @@
 //
 // usage: node eval.mjs <agent> <games> <workers> [players] [seedBase] [opponents]
 //   opponents: heuristic (default) | laya:<url>
-//   agent: heuristic | teacher:<rollouts> | laya:<http://host:port> | random
+//   agent: heuristic | teacher:<rollouts> | laya:<http://host:port>[#p2] | random  (#p2: model trained on prompt v2)
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import { layaRelabelView } from '@game-night/agent-bots';
 import {
   actorOf, applyFor, buildDecision, candidateMoves, createAgentRng, determinize, engineFrom,
-  heuristicBots, newGame, payoff, playOut, stateText,
+  heuristicBots, newGame, payoff, playOut, decisionText,
 } from './cabo-common.mjs';
 
 function teacherMove(state, me, moves, rollouts, rng) {
@@ -29,14 +29,17 @@ function teacherMove(state, me, moves, rollouts, rng) {
   return moves[best];
 }
 
-async function layaMove(url, view, me, moves, stats) {
+async function layaMove(spec, view, me, moves, stats) {
+  // a model trained on prompt version 2 (table memory) is given as laya:<url>#p2
+  const [url, tag] = spec.split('#');
+  const version = tag === 'p2' ? 2 : 1;
   const named = layaRelabelView(view, me);
   const { questions, decode } = buildDecision(moves, named, me);
   const t0 = Date.now();
   const res = await fetch(`${url}/decide`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ state: stateText(named, me), questions }),
+    body: JSON.stringify({ state: decisionText(named, me, version), questions }),
   });
   stats.ms += Date.now() - t0;
   stats.n += 1;

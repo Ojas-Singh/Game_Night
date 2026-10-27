@@ -7,6 +7,7 @@
 import { enumerateLegalActions, type AnyGameAction, type RngLike } from '@game-night/agent-core';
 import type { CaboPlayerView } from '@game-night/engine-cabo';
 import type { Card } from '@game-night/shared';
+import { memoryText } from './laya-memory.js';
 
 export const LAYA_MAX_OPTIONS = 20;
 export const LAYA_INSTRUCTIONS = 'Cabo: pick the move most likely to win (lowest total wins, black K = -1).';
@@ -69,6 +70,14 @@ export function describeMove(a: AnyGameAction, view: CaboPlayerView, me: string)
     }
     default: return m.type;
   }
+}
+
+/** Prompt versions: 1 = the table only (models v1-v3); 2 = the table plus table memory (laya-memory.ts). */
+export type LayaPromptVersion = 1 | 2;
+
+/** The text Laya reads for a decision, in the given prompt version. */
+export function decisionText(view: CaboPlayerView, me: string, version: LayaPromptVersion = 1): string {
+  return version >= 2 ? `${stateText(view, me)}\n${memoryText(view, me)}` : stateText(view, me);
 }
 
 /** Compact table text with suits and pre-computed totals. */

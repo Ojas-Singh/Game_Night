@@ -12,6 +12,7 @@ export {
   layaCandidateMoves as candidateMoves,
   layaDescribeMove as describeAction,
   layaStateText as stateText,
+  layaDecisionText as decisionText,
   LAYA_INSTRUCTIONS as INSTRUCTIONS,
   LAYA_MAX_OPTIONS as MAX_OPTIONS,
 } from '@game-night/agent-bots';
