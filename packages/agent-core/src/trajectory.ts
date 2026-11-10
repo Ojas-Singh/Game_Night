@@ -1,7 +1,7 @@
 /**
  * Episode trajectory recorder — SCHEMA v2, the data plane for research.
  *
- * Design rules (RuleZero week 1):
+ * Design rules:
  *  - proposed vs executed actions are DISTINCT fields; a fallback must never
  *    be recorded as if the model chose it;
  *  - every record carries full provenance: schema version, engine/rules

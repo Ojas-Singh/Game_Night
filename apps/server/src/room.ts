@@ -8,8 +8,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { GameAction } from '@game-night/shared';
 import { CaboEngine, type CaboPlayerView, type CaboState } from '@game-night/engine-cabo';
-import { RuleZeroEngine, type RuleZeroPlayerView } from './rulezeroEngine.js';
-import { takeRulezeroSpec } from './gameLab.js';
 import { PairOneEngine, type PairOnePlayerView } from '@game-night/engine-pairone';
 import { SeepEngine, type SeepPlayerView, type SeepState } from '@game-night/engine-seep';
 import type { AiDecisionTrace, ChatMessage, LobbyPlayer, RoomLobbyState } from './protocol.js';
@@ -19,8 +17,8 @@ import { log } from './log.js';
 
 /** Any engine on the platform. Rooms talk to this union via the shared surface
  *  (createGame/getState/getPlayerState/handleAction/calculateScore/...). */
-export type AnyGameEngine = CaboEngine | PairOneEngine | SeepEngine | RuleZeroEngine;
-export type AnyGameView = CaboPlayerView | PairOnePlayerView | SeepPlayerView | RuleZeroPlayerView;
+export type AnyGameEngine = CaboEngine | PairOneEngine | SeepEngine;
+export type AnyGameView = CaboPlayerView | PairOnePlayerView | SeepPlayerView;
 
 type AiTraceAgent = { label: string; describe?: () => Record<string, unknown> };
 export type AiDecisionPatch = Partial<Pick<AiDecisionTrace,
@@ -51,16 +49,6 @@ const GAME_REGISTRY = {
     minPlayers: 4,
     maxPlayers: 4,
     create: () => new SeepEngine(),
-  },
-  // GameSpec/OpenSpiel game served by the internal rulezero service (§16).
-  // TS knows nothing about the rules — it forwards an opaque spec and
-  // renders whatever structured views come back.
-  rulezero: {
-    id: 'rulezero',
-    label: 'RuleZero Duel',
-    minPlayers: 2,
-    maxPlayers: 2,
-    create: () => new RuleZeroEngine(),
   },
 } as const;
 
@@ -106,10 +94,6 @@ export function randomName(): string {
 }
 
 export class Room {
-  /** One-shot gallery spec token consumed by dealNewGame (§38 flow). */
-  rulezeroSpecToken?: string;
-  aiPolicies: string[] = [];
-  rulezeroSpec?: object;
   spectators = new Map<string, RoomPlayer>();
   allowSpectators = true;
   get participants(): RoomPlayer[] { return [...this.players.values(), ...this.spectators.values()]; }
@@ -135,7 +119,7 @@ export class Room {
 
   roundScored = false;
   get requiredPlayers(): number {
-    return this.gameId === "rulezero" ? Number((this.rulezeroSpec as { players?: { count?: number } })?.players?.count ?? 2) : GAME_REGISTRY[this.gameId].minPlayers;
+    return GAME_REGISTRY[this.gameId].minPlayers;
   }
   private commandQueue: Promise<unknown> = Promise.resolve();
 
@@ -146,16 +130,6 @@ export class Room {
     return next;
   }
 
-  async whenReady(): Promise<void> {
-    if (this.engine instanceof RuleZeroEngine) await this.engine.whenReady();
-  }
-
-  dispose(): void {
-    if (this.engine instanceof RuleZeroEngine) this.engine.dispose();
-  }
-  /** Set by the socket layer: fired when an async engine session is ready
-   * so views + agent pumps re-run (service spawn is not synchronous). */
-  notifyHook?: () => void;
   readonly id: string;
   createdAt = Date.now();
   players = new Map<string, RoomPlayer>();
@@ -196,8 +170,6 @@ export class Room {
     room.gameId = (snap.gameId in GAME_REGISTRY ? snap.gameId : 'cabo') as GameId;
     room.chat = snap.chat;
     room.scoreboard = snap.scoreboard;
-    room.rulezeroSpec = snap.rulezeroSpec;
-    room.aiPolicies = snap.aiPolicies ?? [];
     room.allowSpectators = snap.allowSpectators ?? true;
     for (const p of snap.spectators ?? []) room.spectators.set(p.id, { ...p, sockets: new Set(), connected: false });
     room.roundScored = snap.roundScored ?? false;
@@ -221,19 +193,9 @@ export class Room {
         joinedAt: sp.joinedAt,
       });
     }
-    if (snap.engineState) {
-      if (snap.gameId === 'rulezero') {
-        const state = snap.engineState as import('./rulezeroEngine.js').RuleZeroPersistedState;
-        if (state.stateVersion === 2 && state.snapshot?.specHash) {
-          const engine = new RuleZeroEngine();
-          room.engine = engine;
-          room.rulezeroSpec = state.spec;
-          void engine.restoreState(state).catch(() => {
-            engine.dispose(); room.engine = null;
-            room.system('The saved game could not be restored. Start a fresh round.');
-          });
-        } else room.system('This older saved game cannot be resumed. Start a fresh round.');
-      } else if (snap.gameId === 'pairone') {
+    // A snapshot of a game this build does not ship is restored as a lobby.
+    if (snap.engineState && snap.gameId in GAME_REGISTRY) {
+      if (snap.gameId === 'pairone') {
         const engine = new PairOneEngine();
         engine.restoreState(snap.engineState as import('@game-night/engine-pairone').PairOneState);
         room.engine = engine;
@@ -276,7 +238,7 @@ export class Room {
       // Mid-game join without a valid token → reject (bots/spectators later).
       throw new RoomError('game already in progress');
     }
-    if (this.players.size >= (this.gameId === "rulezero" ? this.requiredPlayers : GAME_REGISTRY[this.gameId].maxPlayers)) {
+    if (this.players.size >= GAME_REGISTRY[this.gameId].maxPlayers) {
       throw new RoomError('room is full');
     }
     const player: RoomPlayer = {
@@ -305,7 +267,7 @@ export class Room {
   addAiPlayer(hostId: string, persona?: string): RoomPlayer {
     if (hostId !== this.hostId) throw new RoomError('only the host can add AI players');
     if (this.engine) throw new RoomError('game already in progress');
-    if (this.players.size >= (this.gameId === "rulezero" ? this.requiredPlayers : GAME_REGISTRY[this.gameId].maxPlayers)) {
+    if (this.players.size >= GAME_REGISTRY[this.gameId].maxPlayers) {
       throw new RoomError('room is full');
     }
     const clean = sanitizeAiPersona(persona);
@@ -371,7 +333,6 @@ export class Room {
   endGame(hostId: string): void {
     if (hostId !== this.hostId) throw new RoomError('only the host can end the game');
     if (!this.engine) throw new RoomError('no game is running');
-    this.dispose();
     this.engine = null;
     this.system('Host ended the game — back to the lobby');
   }
@@ -466,32 +427,6 @@ export class Room {
       throw new RoomError(`needs at least ${this.requiredPlayers} players`);
     }
     const seats = seated.map((p, i) => ({ id: p.id, name: p.name, seat: i }));
-    if (reg.id === 'rulezero') {
-      const rz = reg.create() as RuleZeroEngine;
-      const spec = takeRulezeroSpec(this.rulezeroSpecToken) ?? this.rulezeroSpec;
-      if (spec) this.rulezeroSpec = spec;
-      this.rulezeroSpecToken = undefined;
-      // Persona → solver kind: strong/balanced personas get CFR.
-      const SOLVER_PERSONAS = new Set(['balanced', 'strong', 'solver']);
-      const aiSeats = seated
-        .filter((p) => p.kind === 'ai')
-        .map((p, i) => ({
-          playerId: p.id,
-          kind: this.aiPolicies[i] ?? (SOLVER_PERSONAS.has(p.persona ?? '')
-            ? 'cfr'
-            : 'random') as 'cfr' | 'random',
-        }));
-      void rz
-        .createGame(seats, { seed: this.debug.seed, spec, aiSeats })
-        .then(() => this.notifyHook?.())
-        .catch((err) => {
-          rz.dispose();
-          if (this.engine === rz) this.engine = null;
-          this.system('Could not start this game: ' + String(err));
-          this.notifyHook?.();
-        });
-      return rz; // views arrive once the service session is live
-    }
     let engine: AnyGameEngine;
     if (reg.id === 'cabo') {
       const cabo = new CaboEngine();
@@ -533,7 +468,6 @@ export class Room {
     this.engine = this.dealNewGame();
     for (const p of this.players.values()) p.ready = false;
     const opener =
-      this.gameId === 'rulezero' ? 'Game started — choose an available action when it is your turn.' :
       this.gameId === 'pairone'
         ? 'Game started — Pair One! Flip two cards; match the numbers to collect the pair.'
         : this.gameId === 'seep'
@@ -656,7 +590,6 @@ export class Room {
     if (seated.length < this.requiredPlayers) {
       throw new RoomError(`needs at least ${this.requiredPlayers} players`);
     }
-    this.dispose();
     this.engine = null;
     this.startGame(playerId);
     this.system('Host restarted the game — fresh deal!');
@@ -664,7 +597,6 @@ export class Room {
 
   returnToLobby(playerId: string): void {
     if (playerId !== this.hostId) throw new RoomError('only the host can return to the lobby');
-    this.dispose();
     this.engine = null;
     this.system('Returned to the lobby');
   }
@@ -689,7 +621,6 @@ export class Room {
     if (this.engine && !this.engine.isGameFinished()) {
       throw new RoomError('current round is still in progress');
     }
-    this.dispose();
     this.engine = null;
     this.startGame(playerId);
     this.system(`Next round — ${label}!`);
@@ -719,25 +650,6 @@ export class Room {
       const scores = this.engine.calculateScore();
       for (const [pid, pts] of Object.entries(scores)) {
         this.scoreboard[pid] = (this.scoreboard[pid] ?? 0) + pts;
-      }
-      this.maybeAnnounceSeriesWinner();
-    }
-  }
-
-  async applyGameAction(playerId: string, action: GameAction): Promise<void> {
-    if (!(this.engine instanceof RuleZeroEngine)) {
-      this.handleGameAction(playerId, action);
-      return;
-    }
-    const input = action as GameAction & { actionIndex?: number; expectedRevision?: number; commandId?: string };
-    if (input.type !== 'RZ_APPLY' || !Number.isInteger(input.actionIndex)) throw new RoomError('invalid game action');
-    if (!Number.isInteger(input.expectedRevision) || typeof input.commandId !== 'string' || input.commandId.length > 100) throw new RoomError('revision and command id required');
-    const result = await this.engine.handleActionAsync(playerId, input.actionIndex!, input.expectedRevision, input.commandId);
-    if (!result.ok) throw new RoomError(result.error ?? 'action rejected');
-    if (this.engine.isGameFinished() && !this.roundScored) {
-      this.roundScored = true;
-      for (const [id, score] of Object.entries(this.engine.calculateScore())) {
-        this.scoreboard[id] = (this.scoreboard[id] ?? 0) + score;
       }
       this.maybeAnnounceSeriesWinner();
     }
@@ -778,32 +690,10 @@ export class Room {
 
   gameView(playerId: string, opts: { forAi?: boolean } = {}): AnyGameView | null {
     if (!this.engine) return null;
-    if (this.spectators.has(playerId)) {
-      return this.engine instanceof RuleZeroEngine ? null : this.engine.getSpectatorView();
-    }
+    if (this.spectators.has(playerId)) return this.engine.getSpectatorView();
     if (!this.participant(playerId)) return null;
-    if (this.engine instanceof RuleZeroEngine) {
-      // Service-backed: views are async; the socket layer uses
-      // gameViewAsync for these rooms.
-      return null; // sync callers get null; see gameViewAsync
-    }
     const viewOpts = this.testMode && !opts.forAi ? { revealAll: true } : undefined;
     return this.engine.getPlayerState(playerId, viewOpts);
-  }
-
-  /** Async variant for service-backed engines (rulezero). */
-  async gameViewAsync(playerId: string): Promise<AnyGameView | null> {
-    if (!this.engine) return null;
-    if (!this.participant(playerId)) return null;
-    if (this.engine instanceof RuleZeroEngine) {
-      try {
-        return await this.engine.getPlayerStateAsync(playerId);
-      } catch (err) {
-        console.error('[rulezero] view failed:', err);
-        return null;
-      }
-    }
-    return this.gameView(playerId);
   }
 
   // -------------------------------------------------------------------

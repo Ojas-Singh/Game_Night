@@ -12,7 +12,6 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import express from 'express';
-import { gameLabRouter } from './gameLab.js';
 import { Server as SocketServer } from 'socket.io';
 import { config } from './config.js';
 import { log } from './log.js';
@@ -65,10 +64,6 @@ if (config.redisUrl) {
 rooms.setLoadoutProvider((playerIds) => shop.loadoutsFor(playerIds));
 
 app.use(express.json());
-// Game Lab is a product feature: mount unconditionally (S33 caps are
-// enforced server-side inside the router). The debug router below stays
-// dev-only.
-app.use('/api/lab', gameLabRouter());
 if (config.debugEnabled) {
   // Dev-only debug endpoints. In production these do not exist at all.
   const { debugRouter } = await import('./debug.js');

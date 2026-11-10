@@ -28,20 +28,9 @@ export default function HomePage({ room }: { room: RoomApi }) {
     setBusy(true);
     setJoinError(null);
     const finalName = name.trim() || undefined;
-    const rawLaunch = sessionStorage.getItem('rulezeroLaunch');
-    sessionStorage.removeItem('rulezeroLaunch');
-    let rzToken: string | undefined;
-    let autoAi = false;
-    if (rawLaunch) {
-      try {
-        const parsed = JSON.parse(rawLaunch) as { token?: string; autoAi?: boolean };
-        rzToken = parsed.token;
-        autoAi = Boolean(parsed.autoAi);
-      } catch { /* ignore malformed */ }
-    }
-    const res = await room.createRoom(finalName ?? 'Host', rzToken, autoAi);
+    const res = await room.createRoom(finalName ?? 'Host');
     setBusy(false);
-    if (res.ok && res.roomId) { if (!rzToken) room.selectGame('cabo'); navigate(`/game/${res.roomId}`); }
+    if (res.ok && res.roomId) { room.selectGame('cabo'); navigate(`/game/${res.roomId}`); }
   };
 
   const joinGame = async () => {
@@ -86,7 +75,6 @@ export default function HomePage({ room }: { room: RoomApi }) {
         </Link>
         <span className="home-nav-right">
           <FullscreenButton />
-          <Link to="/gamelab" className="home-lab">Game Lab</Link>
         </span>
       </header>
 

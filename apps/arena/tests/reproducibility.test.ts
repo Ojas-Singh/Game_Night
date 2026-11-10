@@ -1,5 +1,5 @@
 /**
- * Research data-plane guarantees (RuleZero week 1):
+ * Research data-plane guarantees:
  *  - identical config → bit-identical canonical trajectory;
  *  - different seed → different trajectory;
  *  - proposed vs executed actions are recorded distinctly, including

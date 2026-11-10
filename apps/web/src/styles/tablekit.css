@@ -1,7 +1,6 @@
 /* ============================================================
    TableKit — shared design tokens for ALL game tables.
-   Cabo's table and the generic GameSpec renderer both consume
-   these variables. Future re-theming (new colour pass) edits
+   Every table consumes these variables. Future re-theming (new colour pass) edits
    ONLY this file; every table follows automatically.
    ============================================================ */
 :root {

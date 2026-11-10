@@ -18,13 +18,10 @@ import type { SeepState } from '@game-night/engine-seep';
 const SNAPSHOT_VERSION = 1;
 const KEY_PREFIX = 'game-night:room:';
 
-import type { RuleZeroPersistedState } from './rulezeroEngine.js';
-
 export type AnyEngineState =
   | CaboState
   | PairOneState
-  | SeepState
-  | RuleZeroPersistedState;
+  | SeepState;
 
 export interface RoomSnapshot {
   version: typeof SNAPSHOT_VERSION;
@@ -40,9 +37,7 @@ export interface RoomSnapshot {
   debug: Room['debug'];
   players: Array<Omit<RoomPlayer, 'sockets'> & { socketCount: number }>;
   engineState: AnyEngineState | null;
-  rulezeroSpec?: object;
   roundScored?: boolean;
-  aiPolicies?: string[];
   allowSpectators?: boolean;
   spectators?: Array<Omit<RoomPlayer, 'sockets'> & { socketCount: number }>;
 }
@@ -75,10 +70,8 @@ export function serializeRoom(room: Room): RoomSnapshot {
       disconnectedAt: p.disconnectedAt ?? room.createdAt,
       joinedAt: p.joinedAt,
     })),
-    aiPolicies: room.aiPolicies,
     allowSpectators: room.allowSpectators,
     spectators: [...room.spectators.values()].map(p => ({ ...p, sockets: undefined, socketCount: 0, connected: false })),
-    rulezeroSpec: room.rulezeroSpec,
     roundScored: room.roundScored,
     engineState: room.engine ? room.engine.getState() : null,
   };

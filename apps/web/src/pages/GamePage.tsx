@@ -5,10 +5,7 @@ import type { MediaChat } from '../useMediaChat.js';
 import LobbyView from '../lobby/LobbyView.js';
 import TableView from '../table/TableView.js';
 import PairOneTable from '../pairone/PairOneTable.js';
-import RuleZeroTable from '../rulezero/RuleZeroTable.js';
 import SeepTable from '../seep/SeepTable.js';
-import TableShell from '../table/TableShell.js';
-import ActionBar from '../table/ActionBar.js';
 
 export default function GamePage({ room, media }: { room: RoomApi; media: MediaChat }) {
   const { roomId } = useParams<{ roomId: string }>();
@@ -18,7 +15,7 @@ export default function GamePage({ room, media }: { room: RoomApi; media: MediaC
   const [pendingName, setPendingName] = useState('');
 
   // Tab title follows the table: the site is Game Night, the game has a name.
-  const gameName = { cabo: 'Cabo', pairone: 'Pair One', seep: 'Seep', rulezero: 'Custom game' }[room.lobby?.gameId ?? ''] as string | undefined;
+  const gameName = { cabo: 'Cabo', pairone: 'Pair One', seep: 'Seep'}[room.lobby?.gameId ?? ''] as string | undefined;
   const inGame = Boolean(room.lobby?.inGame);
   useEffect(() => {
     const base = 'Game Night';
@@ -81,23 +78,6 @@ export default function GamePage({ room, media }: { room: RoomApi; media: MediaC
     }
     if (view.gameId === 'seep') {
       return <SeepTable room={room} view={view} />;
-    }
-    if (view.gameId === 'rulezero') {
-      return (
-        <TableShell room={room} title="Game Night · Custom table" actor={view.rz.currentActor}>
-        <RuleZeroTable
-          view={view.rz}
-          review={view.review}
-          onAction={(envActionId) =>
-            room.sendAction({
-              type: 'RZ_APPLY',
-              actionIndex: envActionId,
-            } as never)
-          }
-        />
-        {view.rz.isTerminal && room.lobby.hostId === room.myPlayerId && <ActionBar actions={[{ id: "again", label: "Play again", run: room.playAgain }]} />}
-        </TableShell>
-      );
     }
     return <TableView room={room} view={view} media={media} />;
   }

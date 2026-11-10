@@ -27,18 +27,10 @@ RUN pnpm --filter @game-night/shared build \
   && pnpm --filter @game-night/server build
 
 # ---- Runtime stage ----
-# Debian (glibc) base so the RuleZero python venv above can run; Alpine's
-# musl cannot load manylinux wheels.
-FROM node:22-bookworm-slim
+FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
-ENV RULEZERO_HOME=/app/research/rulezero
-ENV PYTHONDONTWRITEBYTECODE=1
-RUN corepack enable \
- && apt-get update \
- && apt-get install -y --no-install-recommends \
-      wget python3 python3-venv python3-pip \
- && rm -rf /var/lib/apt/lists/*
+RUN corepack enable
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/engine-cabo/package.json packages/engine-cabo/
@@ -60,20 +52,6 @@ COPY --from=build /app/packages/agent-llm/dist packages/agent-llm/dist/
 COPY --from=build /app/apps/server/dist apps/server/dist/
 COPY --from=build /app/apps/web/dist apps/server/web/
 
-# RuleZero service: code + venv built IN THIS IMAGE so the interpreter
-# symlink target actually exists here (cross-stage venv copies break).
-COPY research/rulezero/pyproject.toml research/rulezero/pyproject.toml
-COPY research/rulezero/rulezero research/rulezero/rulezero
-# Soft-fail: if the solver wheel cannot install (network/mirror trouble),
-# ship anyway — Game Lab routes answer with clean JSON errors and the
-# rest of Game Night is fully functional.
-RUN python3 -m venv research/rulezero/.venv \
- && research/rulezero/.venv/bin/pip install --no-cache-dir open-spiel==2.0.2 \
- || { echo 'WARNING: open-spiel unavailable — Game Lab disabled'; \
-      rm -rf research/rulezero/.venv; }
-# writable dirs for solver-policy cache + shared-spec records
-RUN mkdir -p research/rulezero/cache/policies research/rulezero/reports/shared \
- && chown -R node:node research/rulezero
 EXPOSE 3000
 USER node
 CMD ["node", "apps/server/dist/index.js"]

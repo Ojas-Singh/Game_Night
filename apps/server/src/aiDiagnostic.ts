@@ -83,7 +83,6 @@ export async function runCaboDiagnostic(config: CaboDiagnosticConfig): Promise<C
       }
     }
     samples.push({ seed: 41_000 + scenario, decisions: localDecisions, finished: !!room.engine?.isGameFinished(), failures: localFailures });
-    room.dispose();
   }
   return { configured: Boolean(config.baseUrl && config.model), model: config.model, provider: config.provider, scenarios, decisions, modelAccepted, fallbacks, failures: failures.slice(0, 24), samples };
 }

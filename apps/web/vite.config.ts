@@ -22,9 +22,9 @@ export default defineConfig(({ mode }) => ({
         target: 'http://127.0.0.1:3000',
         ws: true,
       },
-      // Keep the Game Lab API on the same origin during local development.
-      // Without this, fetch('/api/lab/...') falls through to Vite's SPA
-      // fallback and the client attempts to parse index.html as JSON.
+      // Keep the server's HTTP API (/api/ice) on the same origin during local
+      // development. Without this, fetch('/api/...') falls through to Vite's
+      // SPA fallback and the client attempts to parse index.html as JSON.
       '/api': {
         target: 'http://127.0.0.1:3000',
       },

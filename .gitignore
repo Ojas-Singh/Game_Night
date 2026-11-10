@@ -8,12 +8,5 @@ coverage/
 .DS_Store
 apps/arena/trajectories/
 apps/arena/ladder.json
-research/rulezero/.venv/
-research/rulezero/artifacts/
 apps/web/test-results/
 apps/web/playwright-report/
-__pycache__/
-*.pyc
-.pytest_cache/
-__pycache__/
-*.pyc

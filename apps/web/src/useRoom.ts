@@ -21,7 +21,6 @@ import { funnel } from './analytics.js';
 
 /** Derive sound cues from view transitions by comparing event logs. */
 function playSoundsFor(prev: AnyGameView, next: AnyGameView): void {
-  if (prev?.gameId === 'rulezero' || next.gameId === 'rulezero') return; // no event log yet
   const seen = new Set(prev.events.map((e) => e.seq));
   for (const ev of next.events) {
     if (seen.has(ev.seq)) continue;
@@ -350,13 +349,7 @@ export interface RoomApi {
   sendEmote: (emote: string) => void;
   markChatRead: () => void;
   joinError: string | null;
-  createRoom: (
-    name: string,
-    rulezeroSpecToken?: string,
-    autoAi?: boolean,
-    watch?: boolean,
-    checkpointId?: string,
-  ) => Promise<JoinResult>;
+  createRoom: (name: string) => Promise<JoinResult>;
   joinRoom: (roomId: string, name?: string, spectator?: boolean) => Promise<JoinResult>;
   setName: (name: string) => void;
   /** Customize my avatar (persisted locally; broadcast to the room). */
@@ -724,12 +717,12 @@ export function useRoom(): RoomApi {
   }, []);
 
   const createRoom = useCallback(
-    (name: string, rulezeroSpecToken?: string, autoAi?: boolean, watch?: boolean, checkpointId?: string) =>
+    (name: string) =>
       new Promise<JoinResult>((resolve) => {
         saveName(name);
         socketRef.current?.emit(
           'room:create',
-          rulezeroSpecToken ? { name, rulezeroSpecToken, autoAi: !!autoAi, watch, checkpointId } : { name },
+          { name },
           (res: JoinResult) => {
             if (!res.ok) {
               setJoinError(res.error ?? 'failed to create room');
@@ -823,8 +816,7 @@ export function useRoom(): RoomApi {
       sendAction: (action) =>
         new Promise((resolve) => {
           if (lobby?.spectator) { resolve({ ok: false, error: 'Spectators cannot act' }); return; }
-          const sent = view?.gameId === 'rulezero' ? { ...action, expectedRevision: view.rz.revision, commandId: crypto.randomUUID() } : action;
-          socketRef.current?.emit('game:action', { action: sent }, resolve);
+          socketRef.current?.emit('game:action', { action }, resolve);
         }),
       playAgain: () =>
         new Promise((resolve) => {

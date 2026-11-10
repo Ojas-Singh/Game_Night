@@ -14,8 +14,6 @@
  *  - illegal proposals fall back to any engine-validated candidate;
  *  - works without AGENT_API_URL (heuristic bots only).
  */
-import { RuleZeroEngine } from '../rulezeroEngine.js';
-
 import { randomBytes } from 'node:crypto';
 import type { Server as SocketServer } from 'socket.io';
 import {
@@ -125,7 +123,7 @@ export class AgentLoops {
    */
   private aiFlushToAct(room: Room): string | null {
     const engine = room.engine;
-    if (!engine || engine instanceof RuleZeroEngine) return null;
+    if (!engine) return null;
     const state = engine.getState() as { phase: string };
     if (state.phase === 'INITIAL_PEEK' || state.phase === 'ROUND_REVEAL' || state.phase === 'ROUND_COMPLETE') return null;
     for (const player of room.players.values()) {
@@ -142,21 +140,6 @@ export class AgentLoops {
 
   private aiToAct(room: Room): string | null {
     const engine = room.engine!;
-    if (engine instanceof RuleZeroEngine) {
-      // Service-backed games: the engine reports its own actor, but applies
-      // settle asynchronously, so schedule a polling pump whenever an AI
-      // seat exists (actRulezero waits for the service + turn).
-      const hasAi = [...room.players.values()].some((p) => p.kind === 'ai');
-      if (hasAi) {
-        const t = setTimeout(() => {
-          this.timers.delete(room.id);
-          void this.actRulezero(room);
-        }, this.minThinkMs);
-        if (typeof t.unref === 'function') t.unref();
-        this.timers.set(room.id, t);
-      }
-      return null;
-    }
     const s = engine.getState() as {
       phase: string;
       players: Array<{ id: string }>;
@@ -176,121 +159,6 @@ export class AgentLoops {
     if (!who) return null;
     const p = room.players.get(who);
     return p?.kind === 'ai' ? who : null;
-  }
-
-  /**
-   * RuleZero seats act inside the python service: ask it to pick for the
-   * given AI player (CFR or random), then submit through the SAME room
-   * authority path as humans. Chance steps resolve internally (-1).
-   */
-  private sleep(ms: number): Promise<void> {
-    return new Promise((r) => setTimeout(r, ms));
-  }
-
-  /**
-   * Polling pump for RuleZero rooms: wait for the service session, then
-   * while it is an AI seat's turn ask the python service for a move
-   * (CFR or random) and submit through the SAME authority path as humans.
-   * Chance steps resolve inside the service (-1 sentinel).
-   */
-  private async actRulezero(room: Room): Promise<void> {
-    const guard = `${room.id}`;
-    if (this.busy.has(guard)) return;
-    this.busy.add(guard);
-    let activeTrace: AiDecisionTrace | null = null;
-    try {
-      const engine = room.engine;
-      if (!(engine instanceof RuleZeroEngine) || engine.isGameFinished()) return;
-      const aiIds = [...room.players.values()]
-        .filter((p) => p.kind === 'ai')
-        .map((p) => p.id);
-      const solver = {
-        label: 'RuleZero AI',
-        describe: () => ({ kind: 'solver', model: 'CFR / random OpenSpiel seat' }),
-      };
-
-      for (let attempt = 0; attempt < 24; attempt++) {
-        if (room.closed || engine.isGameFinished()) return;
-        const actor = await engine.currentPlayerId();
-        if (!actor) {
-          // Service still spawning or between phases — retry shortly.
-          await this.sleep(500);
-          continue;
-        }
-        if (!aiIds.includes(actor)) return; // humans turn — done pumping
-        const decisionTrace = room.beginAiDecision(actor, solver);
-        activeTrace = decisionTrace;
-        await this.publishTrace(room, decisionTrace);
-        const pick = await engine.chooseAiAction(actor);
-        if (pick === null) {
-          const failed = decisionTrace
-            ? room.updateAiDecision(decisionTrace.id, {
-                status: 'failed',
-                summary: 'The solver did not return an action.',
-                failure: 'solver_no_action',
-                decisionSource: 'solver',
-              })
-            : null;
-          await this.publishTrace(room, failed);
-          return;
-        }
-        const decided = decisionTrace
-          ? room.updateAiDecision(decisionTrace.id, {
-              status: 'decision',
-              summary: pick === -1 ? 'The solver advanced the service through a chance step.' : 'The solver selected a legal action from the service policy.',
-              proposedAction: pick === -1 ? 'CHANCE' : `ACTION_${pick}`,
-              decisionSource: 'solver',
-            })
-          : null;
-        await this.publishTrace(room, decided);
-        if (pick === -1) {
-          const chance = decisionTrace
-            ? room.updateAiDecision(decisionTrace.id, { status: 'executed', executedAction: 'CHANCE' })
-            : null;
-          activeTrace = null;
-          await this.publishTrace(room, chance);
-          continue; // chance resolved; keep pumping
-        }
-        await room.runCommand(async () => {
-          if (room.engine !== engine) {
-            const stale = decisionTrace
-              ? room.updateAiDecision(decisionTrace.id, {
-                  status: 'failed',
-                  summary: 'The table changed while the solver was deciding; the move was discarded.',
-                  failure: 'stale_decision',
-                  decisionSource: 'discarded',
-                })
-              : null;
-            activeTrace = null;
-            await this.publishTrace(room, stale);
-            return;
-          }
-          await room.applyGameAction(actor, { type: 'RZ_APPLY', playerId: actor,
-            actionIndex: pick, expectedRevision: engine.getState().snapshot.revision,
-            commandId: randomBytes(16).toString('hex') } as any);
-          const executed = decisionTrace
-            ? room.updateAiDecision(decisionTrace.id, { status: 'executed', executedAction: `ACTION_${pick}` })
-            : null;
-          activeTrace = null;
-          await this.publishTrace(room, executed);
-          await this.broadcaster.afterChange(room);
-        });
-        await this.sleep(200);
-      }
-    } catch (err) {
-      if (activeTrace) {
-        const failed = room.updateAiDecision(activeTrace.id, {
-          status: 'failed',
-          summary: 'The solver decision could not be completed.',
-          failure: 'solver_error',
-          decisionSource: 'failed',
-        });
-        await this.publishTrace(room, failed);
-      }
-      log.error('ai_loop_error', { roomId: room.id, error: String(err).slice(0, 160) });
-    } finally {
-      this.busy.delete(guard);
-    }
   }
 
   private agentFor(room: Room, playerId: string): GameAgent {
@@ -359,7 +227,6 @@ export class AgentLoops {
       // hidden-information leak and invalidates model evaluation.
       const view = room.gameView(aiId, { forAi: true });
       if (!view) return;
-      if (view.gameId === 'rulezero') return; // service games: human seats only (for now)
       const decisionRevision = view.revision;
       const decisionEngine = room.engine;
       const obs = { gameId: view.gameId, selfId: aiId, view, step: 0 };
@@ -419,7 +286,7 @@ export class AgentLoops {
       // revision while it was thinking. Never submit a stale flush (or any
       // other move) against a newer information state.
       const latestView = room.gameView(aiId, { forAi: true });
-      if (room.engine !== decisionEngine || !latestView || latestView.gameId === 'rulezero' || latestView.revision !== decisionRevision) {
+      if (room.engine !== decisionEngine || !latestView || latestView.revision !== decisionRevision) {
         const discarded = trace
           ? room.updateAiDecision(trace.id, {
               status: 'failed',
