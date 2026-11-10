@@ -58,7 +58,7 @@ describe('transfer owed, then the debtor flushes their last card', () => {
 describe('two transfers owed, the first one empties the hand', () => {
   it('skips the second instead of waiting for a card that does not exist', () => {
     // p1 holds [4, 9], p2 holds [4, 9], p3 holds [4, 7]. p2 flushes its own 4, then the 4s of p3 and p1, and owes
-    // each a card; paying p3 with its last card leaves nothing for p1 (found by Laya self-play, seed 50555).
+    // each a card; paying p3 with its last card leaves nothing for p1 (found in self-play, seed 50555).
     const order = [
       c('a1', S, 4), c('b1', S, 4), c('d1', D, 4),
       c('a2', H, 9), c('b2', H, 9), c('d2', D, 7),
