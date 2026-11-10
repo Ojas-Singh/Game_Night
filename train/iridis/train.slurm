@@ -4,6 +4,7 @@
 #   sbatch train/iridis/train.slurm <config.json> <run name>
 #SBATCH --job-name=gamelab
 #SBATCH --partition=a100
+#SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=24
 #SBATCH --mem=120G

@@ -10,7 +10,7 @@ fi
 export PATH=$CARGO_HOME/bin:$PATH
 [ -d "$root/env" ] || uv venv --managed-python --python 3.12 "$root/env"
 source "$root/env/bin/activate"
-uv pip install torch numpy maturin pytest
+uv pip install torch numpy maturin pytest onnx onnxruntime
 (cd "$root/core/gamelab-py" && maturin develop --release)
 uv pip install -e "$root/train" --no-deps
 (cd "$root/core" && cargo test --release)
