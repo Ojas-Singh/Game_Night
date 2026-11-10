@@ -85,7 +85,7 @@ export interface CaboHeuristicOptions {
   caboThreshold?: number;
   /** Probability of flushing an opponent's KNOWN matching card. */
   flushOtherAggression?: number;
-  /** Fallback strategy personality used when no LLM agent is configured. */
+  /** Strategy style preset (balanced, baiter, conservative, aggressor, scholar). */
   persona?: string;
 }
 

@@ -198,14 +198,11 @@ describe('Room', () => {
     const room = new Room({ roomId: 'AIDEBUG' });
     const { player: host } = room.addPlayer('Host');
     const { player: guest } = room.addPlayer('Guest');
-    const ai = room.addAiPlayer(host.id, 'scholar');
+    const ai = room.addAiPlayer(host.id);
     expect(() => room.setAiDebug(guest.id, true)).toThrow(/host/);
 
     room.setAiDebug(host.id, true);
-    const trace = room.beginAiDecision(
-      ai.id,
-      { label: 'Cabo Scholar', describe: () => ({ kind: 'llm', provider: 'test-provider', model: 'test-model' }) },
-    );
+    const trace = room.beginAiDecision(ai.id, { label: 'Cabo Heuristic' });
     const decided = trace && room.updateAiDecision(trace.id, {
       status: 'decision',
       summary: 'Choosing a safe discard',
@@ -215,7 +212,7 @@ describe('Room', () => {
       status: 'executed',
       executedAction: 'DISCARD_DRAWN',
     });
-    expect(executed?.source).toBe('LLM · test-provider · test-model');
+    expect(executed?.source).toBe('Heuristic · Cabo Heuristic');
     expect(executed?.version).toBe(3);
     expect(executed?.summary).toBe('Choosing a safe discard');
     expect(executed?.proposedAction).toBe('DISCARD_DRAWN');

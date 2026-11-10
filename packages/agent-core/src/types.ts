@@ -36,64 +36,23 @@ export interface AgentObservation {
   step: number;
 }
 
-/** What an agent returns: the action, plus optional human-readable reasoning. */
-export type AgentFailureKind =
-  | 'none'
-  | 'empty_response'
-  | 'malformed_response'
-  | 'illegal_action'
-  | 'timeout'
-  | 'http_error'
-  | 'provider_error'
-  | 'candidate_budget'
-  | 'agent_error'
-  | 'solver_error'
-  | 'unknown';
-
-/** Provider-reported usage for one model request or an aggregate decision. */
-export interface TokenUsage {
-  promptTokens?: number;
-  completionTokens?: number;
-  reasoningTokens?: number;
-  totalTokens?: number;
-}
-
-export interface AgentAttempt {
-  attempt: number;
-  status: 'accepted' | 'failed';
-  latencyMs: number;
-  httpStatus?: number;
-  finishReason?: string;
-  usage?: TokenUsage;
-  reasoningAvailable?: boolean;
-  /** Provider chain-of-thought text for this request, when it returned one. */
-  reasoning?: string;
-  failure?: AgentFailureKind;
-}
+/** Why the executed action is not the one the agent proposed. */
+export type AgentFailureKind = 'illegal_action' | 'agent_error';
 
 export interface AgentDecisionMeta {
-  source: 'model' | 'fallback' | 'heuristic' | 'solver';
-  provider?: string;
-  model?: string;
-  attempts?: AgentAttempt[];
+  source: 'fallback' | 'heuristic';
   failure?: AgentFailureKind;
   latencyMs?: number;
-  usage?: TokenUsage;
-  finishReason?: string;
-  /** Whether the provider returned a separate reasoning field or count. */
-  providerReasoningAvailable?: boolean;
-  /** Provider chain-of-thought text for the decision, when it was returned. */
-  providerReasoning?: string;
-  candidateCount?: number;
 }
 
+/** What an agent returns: the action, plus optional human-readable reasoning. */
 export interface AgentDecision {
   action: AnyGameAction;
-  /** Short model-provided rationale from the JSON answer (not the raw CoT — that is meta.providerReasoning). */
+  /** One-line explanation of the move. */
   thought?: string;
   /** Optional visible decision breakdown grounded in the filtered observation. */
   rationale?: string[];
-  /** Auditable execution metadata. Never contains provider credentials or hidden state. */
+  /** Auditable execution metadata. Never contains hidden state. */
   meta?: AgentDecisionMeta;
 }
 
@@ -107,8 +66,8 @@ export interface GameAgent {
   readonly label: string;
   decide(obs: AgentObservation, ctx: AgentContext): Promise<AgentDecision> | AgentDecision;
   /**
-   * Configuration provenance for trajectory records (model id, persona,
-   * temperature, search budget...). Optional; recorded verbatim.
+   * Configuration provenance for trajectory records (style preset, search
+   * budget...). Optional; recorded verbatim.
    */
   describe?(): Record<string, unknown>;
 }

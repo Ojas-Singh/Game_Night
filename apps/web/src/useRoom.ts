@@ -372,8 +372,8 @@ export interface RoomApi {
   startGame: () => Promise<{ ok: boolean; error?: string }>;
   /** Host-only: remove a player from the lobby. */
   kickPlayer: (playerId: string) => Promise<{ ok: boolean; error?: string }>;
-  /** Host-only: seat an AI player with the given strategy persona. */
-  addAiPlayer: (persona: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Host-only: seat an AI player. */
+  addAiPlayer: () => Promise<{ ok: boolean; error?: string }>;
   sendChat: (text: string) => void;
   sendAction: (action: ClientGameAction) => Promise<{ ok: boolean; error?: string }>;
   playAgain: () => Promise<{ ok: boolean; error?: string }>;
@@ -804,9 +804,9 @@ export function useRoom(): RoomApi {
         new Promise((resolve) => {
           socketRef.current?.emit('room:start_game', {}, resolve);
         }),
-      addAiPlayer: (persona: string) =>
+      addAiPlayer: () =>
         new Promise((resolve) => {
-          socketRef.current?.emit('room:add_ai', { persona }, (res: { ok: boolean; error?: string }) => resolve(res));
+          socketRef.current?.emit('room:add_ai', {}, (res: { ok: boolean; error?: string }) => resolve(res));
         }),
       kickPlayer: (playerId: string) =>
         new Promise((resolve) => {

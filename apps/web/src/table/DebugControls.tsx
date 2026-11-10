@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AiAttemptTrace, AiDecisionTrace, TokenUsage } from '../server-protocol.js';
+import type { AiDecisionTrace } from '../server-protocol.js';
 import type { RoomApi } from '../useRoom.js';
 
-/** Host-only controls for inspecting live AI decisions, including the model's chain of thought when the provider returns one. */
+/** Host-only controls for inspecting the AI seats' live decisions. */
 export default function DebugControls({ room, initiallyOpen = false }: { room: RoomApi; initiallyOpen?: boolean }) {
   const [open, setOpen] = useState(initiallyOpen);
   const [selectedPlayer, setSelectedPlayer] = useState('all');
@@ -33,17 +33,17 @@ export default function DebugControls({ room, initiallyOpen = false }: { room: R
           <div className="debug-menu-head">
             <div>
               <strong>AI decision inspector</strong>
-              <small>Host only · summaries, chain of thought, and provider telemetry</small>
+              <small>Host only · what each AI seat decided, and why</small>
             </div>
             <button className="debug-menu-close" onClick={() => setOpen(false)} aria-label="Close debug controls">×</button>
           </div>
           <label className="debug-option">
             <input type="checkbox" checked={room.testMode} onChange={(event) => room.setTestMode(event.target.checked)} />
-            <span><strong>Reveal every card</strong><small>Test Mode also permits filtered model inputs in the inspector.</small></span>
+            <span><strong>Reveal every card</strong><small>Test Mode also shows each AI seat’s filtered view in the inspector.</small></span>
           </label>
           <label className="debug-option">
             <input type="checkbox" checked={!!room.lobby?.aiDebug} onChange={(event) => room.setAiDebug(event.target.checked)} />
-            <span><strong>Show AI trace</strong><small>Shows model summaries, chain of thought when the provider returns it, attempts, token counts, and authoritative actions.</small></span>
+            <span><strong>Show AI trace</strong><small>Shows each AI seat’s summary, decision factors and the action the table accepted.</small></span>
           </label>
           <div className="debug-trace-toolbar">
             <div className="debug-trace-head"><span>Decision timeline</span><span>{visible.length} records</span></div>
@@ -89,7 +89,7 @@ function Trace({ trace }: { trace: AiDecisionTrace }) {
         <span>{statusLabel}{elapsedMs != null ? ` · ${formatElapsed(elapsedMs)}` : ''}</span>
       </div>
       <small className="debug-trace-source">{trace.source}</small>
-      <p>{trace.summary ?? (trace.status === 'thinking' ? 'Reviewing the filtered table…' : 'No model summary was provided.')}</p>
+      <p>{trace.summary ?? (trace.status === 'thinking' ? 'Reviewing the filtered table…' : 'No summary was provided.')}</p>
       <div className="debug-action-row">
         <span>Proposed <code>{trace.proposedAction ?? 'none'}</code></span>
         <span>Executed <code>{trace.executedAction ?? 'pending'}</code></span>
@@ -101,70 +101,16 @@ function Trace({ trace }: { trace: AiDecisionTrace }) {
           <ol>{trace.rationale.map((factor, index) => <li key={`${trace.id}-factor-${index}`}>{factor}</li>)}</ol>
         </details>
       )}
-      {trace.providerReasoning && (
-        <details className="debug-reasoning" open={trace.status === 'decision'}>
-          <summary>Chain of thought</summary>
-          <pre>{trace.providerReasoning}</pre>
-        </details>
-      )}
-      <UsageGrid usage={trace.usage} latencyMs={trace.latencyMs} finishReason={trace.finishReason} attempts={trace.attempts.length} />
       {trace.failure && <small className="debug-failure">Failure: {trace.failure}</small>}
-      {!trace.providerReasoning && trace.providerReasoningAvailable && (
-        <small className="debug-private-note">Reasoning tokens were reported, but the provider returned no reasoning text.</small>
-      )}
-      {trace.attempts.length > 0 && (
-        <details className="debug-attempts">
-          <summary>Request attempts ({trace.attempts.length})</summary>
-          <ol>
-            {trace.attempts.map((attempt) => <Attempt key={`${trace.id}-${attempt.attempt}`} attempt={attempt} />)}
-          </ol>
-        </details>
-      )}
       {(trace.candidates || trace.observation) && (
         <details className="debug-detail">
-          <summary>Filtered model input</summary>
+          <summary>Filtered view</summary>
           {trace.candidates && <pre>{trace.candidates.join('\n')}</pre>}
           {trace.observation && <pre>{trace.observation}</pre>}
         </details>
       )}
     </li>
   );
-}
-
-function Attempt({ attempt }: { attempt: AiAttemptTrace }) {
-  return (
-    <li className="debug-attempt">
-      <div><strong>Attempt {attempt.attempt}</strong><span className={attempt.status === 'accepted' ? 'debug-ok' : 'debug-bad'}>{attempt.status}</span></div>
-      <UsageGrid usage={attempt.usage} latencyMs={attempt.latencyMs} finishReason={attempt.finishReason} />
-      {attempt.httpStatus != null && <small>HTTP {attempt.httpStatus}</small>}
-      {attempt.failure && <small>{attempt.failure}</small>}
-      {attempt.reasoning && (
-        <details className="debug-reasoning">
-          <summary>Chain of thought</summary>
-          <pre>{attempt.reasoning}</pre>
-        </details>
-      )}
-      {!attempt.reasoning && attempt.reasoningAvailable && <small>Reasoning tokens reported; no reasoning text returned</small>}
-    </li>
-  );
-}
-
-function UsageGrid({ usage, latencyMs, finishReason, attempts }: { usage?: TokenUsage; latencyMs?: number; finishReason?: string; attempts?: number }) {
-  return (
-    <div className="debug-token-grid">
-      <span>Prompt <strong>{token(usage?.promptTokens)}</strong></span>
-      <span>Completion <strong>{token(usage?.completionTokens)}</strong></span>
-      <span>Reasoning <strong>{token(usage?.reasoningTokens)}</strong></span>
-      <span>Total <strong>{token(usage?.totalTokens)}</strong></span>
-      {latencyMs != null && <span>Latency <strong>{latencyMs}ms</strong></span>}
-      {finishReason && <span>Finish <strong>{finishReason}</strong></span>}
-      {attempts != null && <span>Attempts <strong>{attempts}</strong></span>}
-    </div>
-  );
-}
-
-function token(value: number | undefined): string {
-  return value == null ? 'not reported' : value.toLocaleString();
 }
 
 function formatElapsed(milliseconds: number): string {

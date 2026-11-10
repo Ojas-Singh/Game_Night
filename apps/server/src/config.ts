@@ -14,7 +14,7 @@ function loadLocalEnv(): void {
   for (let i = 0; i < 4; i += 1) {
     const candidate = join(dir, '.env');
     if (existsSync(candidate)) {
-      try { process.loadEnvFile(candidate); } catch { /* malformed local env is reported by provider diagnostics */ }
+      try { process.loadEnvFile(candidate); } catch { /* a malformed local .env is ignored */ }
       return;
     }
     const parent = dirname(dir);
@@ -44,25 +44,6 @@ export const config = {
   reconnectGraceMs: intEnv('RECONNECT_GRACE_MINUTES', 2) * 60_000,
   /** Debug capabilities are only ever enabled outside production. */
   debugEnabled: (process.env.NODE_ENV ?? 'development') !== 'production',
-  /** LLM agent backend (OpenAI-compatible: vLLM / Ollama / cloud). When unset,
-   *  AI seats play with built-in heuristic bots. */
-  agentApiUrl: process.env.AGENT_API_URL ||
-    (process.env.OPENCODE_API_KEY
-      ? (process.env.OPENCODE_GO_BASE_URL || 'https://opencode.ai/zen/go/v1')
-      : ''),
-  agentApiKey: process.env.AGENT_API_KEY || process.env.OPENCODE_API_KEY || '',
-  agentModel: process.env.AGENT_MODEL ||
-    (process.env.OPENCODE_API_KEY ? (process.env.OPENCODE_GO_MODEL || 'mimo-v2.5') : 'qwen3-8b'),
-  agentProvider: process.env.AGENT_PROVIDER ||
-    (process.env.OPENCODE_API_KEY || (process.env.AGENT_API_URL ?? '').includes('opencode.ai/zen/go')
-      ? 'opencode-go'
-      : 'endpoint'),
-  agentTimeoutMs: intEnv('AGENT_TIMEOUT_MS', 30_000),
-  // Cabo prompts include the full filtered observation and every legal flush
-  // candidate. Leave enough response budget for a short rationale plus the
-  // required JSON; operators can still lower this with AGENT_MAX_TOKENS.
-  agentMaxTokens: intEnv('AGENT_MAX_TOKENS', 4_096),
-  agentMaxCandidates: intEnv('AGENT_MAX_CANDIDATES', 0) || undefined,
 };
 
 export type AppConfig = typeof config;

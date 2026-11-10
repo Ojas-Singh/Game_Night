@@ -1,8 +1,8 @@
 /**
  * View → text serializers.
  *
- * Two consumers: LLM agents (prompt = rules + serialized observation) and
- * trajectory files (human/auditable episode transcripts). The output must be
+ * Used for trajectory files (human/auditable episode transcripts) and for any
+ * agent that reads its observation as text. The output must be
  * COMPLETE for decision-making: every legal-move ingredient the view carries
  * appears in the text.
  */

@@ -79,8 +79,8 @@ function startGame(sock: TestSocket): Promise<{ ok: boolean; error?: string }> {
   return new Promise((resolve) => sock.emit('room:start_game', {}, resolve));
 }
 
-function addAi(sock: TestSocket, persona = 'balanced'): Promise<{ ok: boolean; error?: string; playerId?: string }> {
-  return new Promise((resolve) => sock.emit('room:add_ai', { persona }, resolve));
+function addAi(sock: TestSocket): Promise<{ ok: boolean; error?: string; playerId?: string }> {
+  return new Promise((resolve) => sock.emit('room:add_ai', {}, resolve));
 }
 
 function gameAction(sock: TestSocket, action: unknown): Promise<{ ok: boolean; error?: string }> {
@@ -217,7 +217,7 @@ describe('socket integration', () => {
     const host = await connect();
     const tracker = new ViewTracker(host);
     const created = await createRoom(host, 'Host');
-    const ai = await addAi(host, 'scholar');
+    const ai = await addAi(host);
     expect(ai.ok).toBe(true);
     expect(ai.playerId).toBeTruthy();
 
@@ -286,7 +286,7 @@ describe('socket integration', () => {
     const created = await createRoom(host, 'Host');
     const joined = await joinRoom(guest, { roomId: created.roomId, name: 'Guest' });
     expect(joined.ok).toBe(true);
-    const ai = await addAi(host, 'balanced');
+    const ai = await addAi(host);
     expect(ai.ok).toBe(true);
 
     const hostTraces: Array<{ id: string; status: string; version: number }> = [];

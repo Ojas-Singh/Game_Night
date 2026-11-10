@@ -40,7 +40,6 @@ export interface LobbyPlayer {
   avatar: Avatar;
   /** 'ai' players are driven by the server's agent loop. */
   kind?: 'human' | 'ai';
-  aiPersona?: string;
 }
 
 export interface RoomLobbyState {
@@ -94,26 +93,6 @@ export interface ShopCatalogEntry {
   equipped: boolean;
 }
 
-export interface TokenUsage {
-  promptTokens?: number;
-  completionTokens?: number;
-  reasoningTokens?: number;
-  totalTokens?: number;
-}
-
-export interface AiAttemptTrace {
-  attempt: number;
-  status: 'accepted' | 'failed';
-  latencyMs: number;
-  httpStatus?: number;
-  finishReason?: string;
-  usage?: TokenUsage;
-  reasoningAvailable?: boolean;
-  /** Provider chain-of-thought text for this request, when it returned one. */
-  reasoning?: string;
-  failure?: string;
-}
-
 export interface AiDecisionTrace {
   id: string;
   version: number;
@@ -136,9 +115,6 @@ export interface AiDecisionTrace {
   decisionSource?: string;
   failure?: string;
   latencyMs?: number;
-  attempts: AiAttemptTrace[];
-  usage?: TokenUsage;
-  finishReason?: string;
   observation?: string;
   candidates?: string[];
 }

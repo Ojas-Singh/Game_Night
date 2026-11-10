@@ -6,7 +6,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Room } from '../src/room.js';
 import { AgentLoops } from '../src/agents/loop.js';
-import { config } from '../src/config.js';
 import { serializeRoom } from '../src/persistence.js';
 import { enumerateLegalActions, createAgentRng } from '@game-night/agent-core';
 import { CaboEngine } from '@game-night/engine-cabo';
@@ -20,21 +19,20 @@ describe('room AI seats', () => {
     const host = room.addPlayer('Host').player;
     const guest = room.addPlayer('Guest').player;
     expect(() => room.addAiPlayer(guest.id)).toThrow(/only the host/);
-    const ai = room.addAiPlayer(host.id, 'baiter');
+    const ai = room.addAiPlayer(host.id);
     expect(ai.kind).toBe('ai');
-    expect(ai.persona).toBe('baiter');
-    expect(ai.name).toContain('AI');
+    expect(ai.name).toBe('AI');
+    expect(room.addAiPlayer(host.id).name).toBe('AI Ada');
   });
 
   it('AI seats persist across snapshots and stay connected', () => {
     const room = new Room();
     room.addPlayer('Host');
-    const ai = room.addAiPlayer(room.hostId!, 'scholar');
+    const ai = room.addAiPlayer(room.hostId!);
     const snap = JSON.parse(JSON.stringify(serializeRoom(room))) as Parameters<typeof Room.fromSnapshot>[0];
     const restored = Room.fromSnapshot(snap);
     const back = restored.players.get(ai.id)!;
     expect(back.kind).toBe('ai');
-    expect(back.persona).toBe('scholar');
     expect(back.connected).toBe(true);
   });
 
@@ -51,8 +49,8 @@ describe('AgentLoops', () => {
     const room = new Room();
     room.addPlayer('Watcher'); // host watches two machines play
     room.gameId = 'pairone';
-    room.addAiPlayer(room.hostId!, 'balanced');
-    room.addAiPlayer(room.hostId!, 'aggressor');
+    room.addAiPlayer(room.hostId!);
+    room.addAiPlayer(room.hostId!);
     room.startGame(room.hostId!);
     expect(room.engine).not.toBeNull();
 
@@ -89,8 +87,8 @@ describe('AgentLoops', () => {
     const room = new Room();
     room.gameId = 'cabo';
     room.addPlayer('Watcher');
-    room.addAiPlayer(room.hostId!, 'conservative');
-    room.addAiPlayer(room.hostId!, 'baiter');
+    room.addAiPlayer(room.hostId!);
+    room.addAiPlayer(room.hostId!);
     room.startGame(room.hostId!);
     const rng2 = createAgentRng(7);
     loops.notify(room);
@@ -119,7 +117,7 @@ describe('AgentLoops', () => {
   it('wakes an AI flusher to complete a pending card transfer', async () => {
     const room = new Room();
     room.addPlayer('Watcher');
-    const ai = room.addAiPlayer(room.hostId!, 'balanced');
+    const ai = room.addAiPlayer(room.hostId!);
     room.startGame(room.hostId!);
     const engine = room.engine;
     expect(engine).toBeInstanceOf(CaboEngine);
@@ -155,7 +153,7 @@ describe('AgentLoops', () => {
   it('lets an AI flush a known card during a human player turn', async () => {
     const room = new Room();
     const host = room.addPlayer('Human turn').player;
-    const ai = room.addAiPlayer(host.id, 'balanced');
+    const ai = room.addAiPlayer(host.id);
     room.startGame(host.id);
     const cabo = room.engine as CaboEngine;
     const state = cabo.getState();
@@ -192,17 +190,10 @@ describe('AgentLoops', () => {
     }
   }, 5_000);
 
-  it('uses LLM agents only when configured', () => {
-    // With no AGENT_API_URL the heuristic path is used; env untouched here,
-    // so just assert config surface exists for deployments.
-    expect(typeof config.agentApiUrl).toBe('string');
-    expect(typeof config.agentModel).toBe('string');
-  });
-
   it('keeps Test Mode private from an AI seat', () => {
     const room = new Room();
     const host = room.addPlayer('Watcher').player;
-    const ai = room.addAiPlayer(host.id, 'balanced');
+    const ai = room.addAiPlayer(host.id);
     room.startGame(host.id);
     room.setTestMode(host.id, true);
     const humanView = room.gameView(host.id)!;

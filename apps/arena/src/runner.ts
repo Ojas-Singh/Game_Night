@@ -98,7 +98,7 @@ export async function runEpisode(opts: EpisodeOptions): Promise<EpisodeOutcome> 
       }
     } catch (err) {
       // Agent blew up: substitute a neutral random legal move, but RECORD the
-      // failure — never credit the model with a move it did not make.
+      // failure — never credit the agent with a move it did not make.
       if (!(err instanceof AgentError)) throw err;
       const candidates = enumerateLegalActions(view, who).filter((a) => world.validate(a));
       if (candidates.length === 0) break;

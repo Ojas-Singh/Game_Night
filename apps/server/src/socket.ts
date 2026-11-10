@@ -451,11 +451,11 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opt
     // -----------------------------------------------------------------
 
     // Host seats an AI player (lobby only). The agent loop drives its turns.
-    socket.on('room:add_ai', ({ persona }: { persona?: string }, ack) => {
+    socket.on('room:add_ai', (_payload, ack) => {
       try {
         const { room, playerId } = requireRoom();
-        const player = room.addAiPlayer(playerId, typeof persona === 'string' ? persona : undefined);
-        log.info('ai_added', { roomId: room.id, aiId: player.id, persona: player.persona });
+        const player = room.addAiPlayer(playerId);
+        log.info('ai_added', { roomId: room.id, aiId: player.id });
         ack?.({ ok: true as const, playerId: player.id });
         afterChange(room);
       } catch (err) {

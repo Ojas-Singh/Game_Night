@@ -17,22 +17,6 @@ import { AVATAR_COLORS, EYE_STYLES, MOUTH_STYLES, HAT_STYLES } from '../avatar.j
 import type { Avatar as AvatarModel } from '../server-protocol.js';
 import type { MediaChat } from '../useMediaChat.js';
 
-const AI_PERSONA_LABELS: Record<string, string> = {
-  balanced: 'Balanced',
-  baiter: 'Baiter',
-  conservative: 'Conservative',
-  aggressor: 'Aggressor',
-  scholar: 'Scholar',
-};
-
-const AI_PERSONA_OPTIONS = [
-  { id: 'balanced', label: 'Balanced', description: 'Adapts to the table and takes solid value lines.' },
-  { id: 'scholar', label: 'Scholar', description: 'Tracks information carefully and plays the odds.' },
-  { id: 'conservative', label: 'Conservative', description: 'Protects a low score and avoids wild guesses.' },
-  { id: 'aggressor', label: 'Aggressor', description: 'Pressures opponents and attacks every opening.' },
-  { id: 'baiter', label: 'Baiter', description: 'Sets traps with discards and deceptive plays.' },
-] as const;
-
 export default function LobbyView({ room, media }: { room: RoomApi; media: MediaChat }) {
   const lobby = room.lobby!;
   const me = lobby.players.find((p) => p.isYou);
@@ -41,8 +25,7 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
   const [editingName, setEditingName] = useState(false);
   const [avatar, setAvatar] = useState<AvatarModel>(me?.avatar ?? loadAvatar());
   const [copied, setCopied] = useState(false);
-  const [aiMenuOpen, setAiMenuOpen] = useState(false);
-  const [addingPersona, setAddingPersona] = useState<string | null>(null);
+  const [addingAi, setAddingAi] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
@@ -106,11 +89,10 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
     room.setAvatar(next);
   };
 
-  const addAi = async (selectedPersona: string) => {
-    setAddingPersona(selectedPersona);
-    const result = await room.addAiPlayer(selectedPersona);
-    setAddingPersona(null);
-    if (result.ok) setAiMenuOpen(false);
+  const addAi = async () => {
+    setAddingAi(true);
+    await room.addAiPlayer();
+    setAddingAi(false);
   };
 
   const leaveRoom = () => {
@@ -212,36 +194,13 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
                 <div className="ai-seat-control">
                   <button
                     className="add-seat-btn"
-                    onClick={() => setAiMenuOpen((open) => !open)}
-                    disabled={lobby.players.length >= 6}
-                    aria-expanded={aiMenuOpen}
-                    aria-haspopup="menu"
+                    onClick={() => void addAi()}
+                    disabled={addingAi || lobby.players.length >= 6}
                     title={lobby.players.length >= 6 ? 'Table is full' : 'Add an AI player'}
                   >
                     <Icon name="plus" />
                     <span>AI seat</span>
                   </button>
-                  {aiMenuOpen && lobby.players.length < 6 && (
-                    <div className="ai-menu" role="menu">
-                      <div className="ai-menu-title">Choose an opponent</div>
-                      {AI_PERSONA_OPTIONS.map((option) => (
-                        <button
-                          key={option.id}
-                          className="ai-option"
-                          role="menuitem"
-                          disabled={addingPersona !== null}
-                          onClick={() => void addAi(option.id)}
-                        >
-                          <span className="ai-option-icon"><Icon name="bot" /></span>
-                          <span className="ai-option-copy">
-                            <strong>{option.label}</strong>
-                            <small>{option.description}</small>
-                          </span>
-                          {addingPersona === option.id && <span className="ai-option-loading">…</span>}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -285,15 +244,12 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
                     </div>
                     <span className="player-subtitle">
                       {p.kind === 'ai'
-                        ? `${AI_PERSONA_LABELS[p.aiPersona ?? 'balanced'] ?? 'Balanced'} strategy`
+                        ? 'AI player'
                         : p.isYou ? 'That’s you' : p.connected ? 'Ready to play' : 'Reconnecting…'}
                     </span>
                   </div>
                   {p.kind === 'ai' && (
-                    <span
-                      className="badge ai"
-                      title={`AI player — ${AI_PERSONA_LABELS[p.aiPersona ?? 'balanced'] ?? 'Balanced'} strategy`}
-                    >
+                    <span className="badge ai" title="AI player">
                       AI
                     </span>
                   )}

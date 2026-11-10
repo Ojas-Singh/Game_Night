@@ -12,27 +12,13 @@ const trace: AiDecisionTrace = {
   startedAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:01.250Z',
   playerId: 'ai-1',
-  playerName: 'AI Scholar',
-  source: 'LLM · test-provider · test-model',
-  model: 'test-model',
+  playerName: 'AI',
+  source: 'Heuristic · Cabo Heuristic',
   summary: 'Keep the known low card.',
   rationale: ['low visible value', 'no safer flush'],
   proposedAction: 'DISCARD_DRAWN',
   executedAction: 'DISCARD_DRAWN',
-  decisionSource: 'model',
-  attempts: [{
-    attempt: 1,
-    status: 'accepted',
-    latencyMs: 1_250,
-    httpStatus: 200,
-    finishReason: 'stop',
-    usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 },
-    reasoningAvailable: true,
-    reasoning: 'Compare every candidate before committing.',
-  }],
-  usage: { promptTokens: 100, completionTokens: 20, totalTokens: 120 },
-  providerReasoningAvailable: true,
-  providerReasoning: 'The drawn nine is known low, so discarding keeps my total safe.',
+  decisionSource: 'heuristic',
 };
 
 function room(): RoomApi {
@@ -45,7 +31,7 @@ function room(): RoomApi {
       inGame: true,
       players: [
         { id: 'host', name: 'Host', avatar: { color: 0, eyes: 0, mouth: 0, hat: 0 }, isHost: true, ready: true, connected: true, kind: 'human', isYou: true },
-        { id: 'ai-1', name: 'AI Scholar', avatar: { color: 1, eyes: 1, mouth: 1, hat: 1 }, isHost: false, ready: true, connected: true, kind: 'ai', isYou: false },
+        { id: 'ai-1', name: 'AI', avatar: { color: 1, eyes: 1, mouth: 1, hat: 1 }, isHost: false, ready: true, connected: true, kind: 'ai', isYou: false },
       ],
       scoreboard: {},
       testMode: false,
@@ -59,30 +45,30 @@ function room(): RoomApi {
 }
 
 describe('AI decision inspector', () => {
-  it('renders one trace card with telemetry and the provider chain of thought', () => {
+  it('renders one trace card with the summary, decision factors and actions', () => {
     const markup = renderToStaticMarkup(<DebugControls room={room()} initiallyOpen />);
     expect(markup).toContain('AI decision inspector');
+    expect(markup).toContain('Heuristic · Cabo Heuristic');
+    expect(markup).toContain('Keep the known low card.');
+    expect(markup).toContain('Decision factors');
+    expect(markup).toContain('no safer flush');
     expect(markup).toContain('DISCARD_DRAWN');
-    expect(markup).toContain('Prompt');
-    expect(markup).toContain('100');
-    expect(markup).toContain('not reported');
-    expect(markup).toContain('Request attempts (1)');
-    expect(markup).toContain('Chain of thought');
-    expect(markup).toContain('The drawn nine is known low');
-    expect(markup).toContain('Compare every candidate before committing.');
+    expect(markup).not.toContain('Failure:');
     expect(markup.match(/data-trace-id=/g)).toHaveLength(1);
   });
 
-  it('explains when only reasoning tokens were reported without text', () => {
-    const tokensOnly: AiDecisionTrace = {
+  it('shows why a fallback move was played', () => {
+    const fallback: AiDecisionTrace = {
       ...trace,
-      providerReasoning: undefined,
-      attempts: [{ ...trace.attempts[0]!, reasoning: undefined }],
+      proposedAction: 'SWAP_DRAWN',
+      decisionSource: 'fallback',
+      failure: 'illegal_action',
     };
     const markup = renderToStaticMarkup(
-      <DebugControls room={{ ...room(), lobby: { ...room().lobby!, aiThoughts: [tokensOnly] } }} initiallyOpen />,
+      <DebugControls room={{ ...room(), lobby: { ...room().lobby!, aiThoughts: [fallback] } }} initiallyOpen />,
     );
-    expect(markup).not.toContain('Chain of thought');
-    expect(markup).toContain('Reasoning tokens were reported, but the provider returned no reasoning text.');
+    expect(markup).toContain('SWAP_DRAWN');
+    expect(markup).toContain('fallback');
+    expect(markup).toContain('Failure: illegal_action');
   });
 });

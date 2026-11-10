@@ -12,8 +12,7 @@ function trace(version: number, status: AiDecisionTrace['status'] = 'thinking'):
     updatedAt: `2026-01-01T00:00:0${version}.000Z`,
     playerId: 'ai-1',
     playerName: 'AI',
-    source: 'LLM · test',
-    attempts: [],
+    source: 'Heuristic · test',
   };
 }
 

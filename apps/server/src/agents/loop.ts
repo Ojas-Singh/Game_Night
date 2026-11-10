@@ -9,10 +9,9 @@
  *
  * Guarantees:
  *  - one pending timer per room (re-entrant notifications collapse);
- *  - the server NEVER blocks on an LLM: bounded HTTP timeout + heuristic
- *    fallback on any failure;
- *  - illegal proposals fall back to any engine-validated candidate;
- *  - works without AGENT_API_URL (heuristic bots only).
+ *  - every seat is driven by the built-in heuristic bot for its game;
+ *  - a bot that throws, or proposes an illegal move, falls back to any
+ *    engine-validated candidate.
  */
 import { randomBytes } from 'node:crypto';
 import type { Server as SocketServer } from 'socket.io';
@@ -23,10 +22,8 @@ import {
   type GameAgent,
 } from '@game-night/agent-core';
 import { CaboHeuristicBot, PairOneHeuristicBot, SeepHeuristicBot } from '@game-night/agent-bots';
-import { LlmAgent } from '@game-night/agent-llm';
 import type { AiDecisionPatch, Room } from '../room.js';
 import { RoomError } from '../room.js';
-import { config } from '../config.js';
 import { log } from '../log.js';
 import type { AiDecisionTrace } from '../protocol.js';
 
@@ -36,7 +33,7 @@ const DEFAULT_MAX_THINK_MS = 2200;
 export interface AgentBroadcaster {
   /** Re-broadcast lobby + game views + persist (same as human actions). */
   afterChange(room: Room): void | Promise<void>;
-  /** Send host-only AI debug traces while a model is thinking/acting. */
+  /** Send host-only AI debug traces while a bot is thinking/acting. */
   aiThought?(room: Room, trace: AiDecisionTrace): void | Promise<void>;
 }
 
@@ -49,7 +46,6 @@ export class AgentLoops {
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private agents = new Map<string, GameAgent>(); // roomId:playerId → agent
   private engineRefs = new Map<string, object>();
-  private engineEpoch = new Map<string, number>();
   private busy = new Set<string>();
   /** At most one interrupt runs per room; normal AI thinking may overlap it. */
   private flushBusy = new Set<string>();
@@ -71,11 +67,6 @@ export class AgentLoops {
 
   private traceMeta(meta: AgentDecision['meta']): AiDecisionPatch {
     return {
-      ...(meta?.attempts ? { attempts: meta.attempts } : {}),
-      ...(meta?.usage ? { usage: meta.usage } : {}),
-      ...(meta?.finishReason ? { finishReason: meta.finishReason } : {}),
-      ...(meta?.providerReasoningAvailable ? { providerReasoningAvailable: true } : {}),
-      ...(meta?.providerReasoning ? { providerReasoning: meta.providerReasoning } : {}),
       ...(meta?.latencyMs != null ? { latencyMs: meta.latencyMs } : {}),
       ...(meta?.failure ? { failure: meta.failure } : {}),
       ...(meta?.source ? { decisionSource: meta.source } : {}),
@@ -93,7 +84,6 @@ export class AgentLoops {
     if (room.engine && this.engineRefs.get(room.id) !== room.engine) {
       for (const key of this.agents.keys()) if (key.startsWith(`${room.id}:`)) this.agents.delete(key);
       this.engineRefs.set(room.id, room.engine);
-      this.engineEpoch.set(room.id, (this.engineEpoch.get(room.id) ?? 0) + 1);
     }
     const prev = this.timers.get(room.id);
     if (prev) clearTimeout(prev);
@@ -165,36 +155,12 @@ export class AgentLoops {
     const key = `${room.id}:${playerId}`;
     const existing = this.agents.get(key);
     if (existing) return existing;
-    let agent: GameAgent;
-    if (config.agentApiUrl && (room.gameId === 'cabo' || room.gameId === 'pairone' || room.gameId === 'seep')) {
-      const configuredModel = config.agentModel.startsWith('opencode-go/')
-        ? config.agentModel.slice('opencode-go/'.length)
-        : config.agentModel;
-      agent = new LlmAgent({
-        baseUrl: config.agentApiUrl,
-        apiKey: config.agentApiKey || undefined,
-        model: configuredModel,
-        persona: room.players.get(playerId)?.persona,
-        idSuffix: `:${room.id.slice(0, 4)}`,
-        timeoutMs: config.agentTimeoutMs,
-        maxTokens: config.agentMaxTokens,
-        maxCandidates: config.agentMaxCandidates,
-        sessionId: config.agentProvider === 'opencode-go'
-          ? `room-${room.id}-match-${this.engineEpoch.get(room.id) ?? 0}-seat-${playerId}`
-          : undefined,
-        provider: config.agentProvider,
-      });
-    } else {
-      agent =
-        room.gameId === 'cabo'
-          ? new CaboHeuristicBot({
-              idSuffix: `:${room.id.slice(0, 4)}`,
-              persona: room.players.get(playerId)?.persona,
-            })
-          : room.gameId === 'seep'
-            ? new SeepHeuristicBot({ persona: room.players.get(playerId)?.persona })
-            : new PairOneHeuristicBot(`:${room.id.slice(0, 4)}`);
-    }
+    const agent: GameAgent =
+      room.gameId === 'cabo'
+        ? new CaboHeuristicBot({ idSuffix: `:${room.id.slice(0, 4)}` })
+        : room.gameId === 'seep'
+          ? new SeepHeuristicBot()
+          : new PairOneHeuristicBot(`:${room.id.slice(0, 4)}`);
     // Bound memory: drop stale entries when the map gets long.
     if (this.agents.size > 512) this.agents.clear();
     this.agents.set(key, agent);
@@ -224,7 +190,7 @@ export class AgentLoops {
       if (!room.engine || room.engine.isGameFinished()) return;
       // Test Mode is a human debugging aid. AI seats always receive their
       // normal filtered view, otherwise the host's reveal switch becomes a
-      // hidden-information leak and invalidates model evaluation.
+      // hidden-information leak.
       const view = room.gameView(aiId, { forAi: true });
       if (!view) return;
       const decisionRevision = view.revision;
@@ -251,9 +217,8 @@ export class AgentLoops {
               status: 'decision',
               summary: decision.thought ?? 'Selected a legal move.',
               rationale: decision.rationale,
-              // A live-safe fallback returns the rescue bot's action as the
-              // decision value; it is executed, but was not proposed by the
-              // provider and must remain distinguishable in the inspector.
+              // A fallback action is executed but was not proposed by the
+              // agent; keep the two distinguishable in the inspector.
               proposedAction: decision.meta?.source === 'fallback' ? undefined : action.type,
               observation: JSON.stringify(view),
               candidates: legalCandidates.map((candidate) => JSON.stringify(candidate)),
@@ -281,7 +246,7 @@ export class AgentLoops {
           : null;
         await this.publishTrace(room, fallback);
       }
-      // An LLM response is asynchronous. The room may have been restarted,
+      // A decision is asynchronous. The room may have been restarted,
       // the seat may have changed, or a newer command may have advanced the
       // revision while it was thinking. Never submit a stale flush (or any
       // other move) against a newer information state.
@@ -303,7 +268,7 @@ export class AgentLoops {
         room.handleGameAction(aiId, action);
       } catch (err) {
         if (!(err instanceof RoomError)) throw err;
-        // Illegal proposal (LLM drift): submit any engine-validated candidate.
+        // Illegal proposal: submit any engine-validated candidate.
         const legal = legalCandidates.filter((a) => room.engine?.validateAction(a));
         if (legal.length === 0) {
           const failed = trace
@@ -342,7 +307,7 @@ export class AgentLoops {
         : null;
       // The engine has accepted the command. Transport/persistence errors
       // after this point must not rewrite an authoritative execution as a
-      // failed model decision.
+      // failed decision.
       activeTrace = null;
       await this.publishTrace(room, executed);
       await this.broadcaster.afterChange(room);

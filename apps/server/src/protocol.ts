@@ -129,7 +129,6 @@ export interface LobbyPlayer {
   avatar: Avatar;
   /** 'ai' players are driven by the server's agent loop. */
   kind?: 'human' | 'ai';
-  aiPersona?: string;
 }
 
 export interface RoomLobbyState {
@@ -156,26 +155,6 @@ export interface RoomLobbyState {
   loadouts?: Record<string, { cardBack?: string; feltTheme?: string }>;
 }
 
-export interface TokenUsage {
-  promptTokens?: number;
-  completionTokens?: number;
-  reasoningTokens?: number;
-  totalTokens?: number;
-}
-
-export interface AiAttemptTrace {
-  attempt: number;
-  status: 'accepted' | 'failed';
-  latencyMs: number;
-  httpStatus?: number;
-  finishReason?: string;
-  usage?: TokenUsage;
-  reasoningAvailable?: boolean;
-  /** Provider chain-of-thought text for this request, when it returned one. */
-  reasoning?: string;
-  failure?: string;
-}
-
 export interface AiDecisionTrace {
   id: string;
   version: number;
@@ -185,23 +164,16 @@ export interface AiDecisionTrace {
   updatedAt: string;
   playerId: string;
   playerName: string;
-  /** Concise model-provided explanation from the JSON answer. */
+  /** The bot's one-line explanation of its move. */
   summary?: string;
-  /** Model-provided decision factors grounded in the filtered observation. */
+  /** The bot's decision factors, grounded in the filtered observation. */
   rationale?: string[];
-  providerReasoningAvailable?: boolean;
-  /** Provider chain-of-thought text, when the model returned one (host-only inspector). */
-  providerReasoning?: string;
   source: string;
-  model?: string;
   proposedAction?: string;
   executedAction?: string;
   decisionSource?: string;
   failure?: string;
   latencyMs?: number;
-  attempts: AiAttemptTrace[];
-  usage?: TokenUsage;
-  finishReason?: string;
   /** Available only in an explicitly marked Test Mode inspection room. */
   observation?: string;
   candidates?: string[];

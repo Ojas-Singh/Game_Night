@@ -20,11 +20,10 @@ import { log } from './log.js';
 export type AnyGameEngine = CaboEngine | PairOneEngine | SeepEngine;
 export type AnyGameView = CaboPlayerView | PairOnePlayerView | SeepPlayerView;
 
-type AiTraceAgent = { label: string; describe?: () => Record<string, unknown> };
+type AiTraceAgent = { label: string };
 export type AiDecisionPatch = Partial<Pick<AiDecisionTrace,
   'status' | 'summary' | 'rationale' | 'proposedAction' | 'executedAction' |
-  'decisionSource' | 'attempts' | 'usage' | 'finishReason' |
-  'providerReasoningAvailable' | 'providerReasoning' | 'failure' | 'latencyMs' | 'observation' | 'candidates'
+  'decisionSource' | 'failure' | 'latencyMs' | 'observation' | 'candidates'
 >>;
 
 /** Available games on the platform. Adding one here lights it up everywhere. */
@@ -61,8 +60,6 @@ export interface RoomPlayer {
   avatar: Avatar;
   /** 'ai' seats are driven by the server's agent loop, never by sockets. */
   kind: 'human' | 'ai';
-  /** Strategy persona for AI seats (agent-llm PERSONAS id). */
-  persona?: string;
   /** Secret token stored in the player's browser; never broadcast. */
   token: string;
   ready: boolean;
@@ -183,7 +180,6 @@ export class Room {
         name: sp.name,
         avatar: isValidAvatar(sp.avatar) ? sp.avatar : randomAvatar(),
         kind: sp.kind === 'ai' ? 'ai' : 'human',
-        persona: sp.persona,
         token: sp.token,
         ready: sp.kind === 'ai' ? true : sp.ready,
         // AI seats are always "connected" — the agent loop speaks for them.
@@ -264,16 +260,15 @@ export class Room {
   }
 
   /** Host seats an AI player (lobby only). The agent loop drives its turns. */
-  addAiPlayer(hostId: string, persona?: string): RoomPlayer {
+  addAiPlayer(hostId: string): RoomPlayer {
     if (hostId !== this.hostId) throw new RoomError('only the host can add AI players');
     if (this.engine) throw new RoomError('game already in progress');
     if (this.players.size >= GAME_REGISTRY[this.gameId].maxPlayers) {
       throw new RoomError('room is full');
     }
-    const clean = sanitizeAiPersona(persona);
     const names = ['Ada', 'Byron', 'Cortez', 'Dijkstra', 'Erdos', 'Fibonacci'];
     const used = new Set([...this.players.values()].map((p) => p.name));
-    const base = `AI ${clean.label}`;
+    const base = 'AI';
     let name = base;
     for (const n of names) {
       if (!used.has(`${base} ${n}`)) {
@@ -286,7 +281,6 @@ export class Room {
       name,
       avatar: randomAvatar(),
       kind: 'ai',
-      persona: clean.id,
       token: randomBytes(24).toString('base64url'),
       ready: true,
       connected: true,
@@ -324,7 +318,6 @@ export class Room {
     // table never stalls waiting for someone who is not there.
     if (this.engine) {
       p.kind = 'ai';
-      p.persona = p.persona ?? 'balanced';
       this.system(`${p.name}'s seat is on autopilot until they return`);
     }
   }
@@ -347,7 +340,6 @@ export class Room {
     if (!p) throw new RoomError('not in room');
     if (p.kind === 'ai') throw new RoomError('already an AI seat');
     p.kind = 'ai';
-    p.persona = p.persona ?? 'balanced';
     this.system(`${p.name} was handed to the autopilot by the host`);
   }
 
@@ -533,10 +525,6 @@ export class Room {
     if (!this.aiDebug) return null;
     const player = this.players.get(playerId);
     if (!player) return null;
-    const description = agent.describe?.() ?? {};
-    const kind = description.kind === 'llm' ? 'LLM' : description.kind === 'solver' ? 'Solver' : 'Heuristic';
-    const provider = typeof description.provider === 'string' ? description.provider : undefined;
-    const model = typeof description.model === 'string' ? description.model : undefined;
     const now = new Date().toISOString();
     const entry: AiDecisionTrace = {
       id: randomUUID(),
@@ -547,9 +535,7 @@ export class Room {
       updatedAt: now,
       playerId,
       playerName: player.name,
-      attempts: [],
-      source: [kind, provider, model].filter(Boolean).join(' · ') || `${kind} · ${agent.label}`,
-      ...(model ? { model } : {}),
+      source: `Heuristic · ${agent.label}`,
     };
     this.aiThoughts = [...this.aiThoughts, entry].slice(-80);
     return entry;
@@ -570,11 +556,6 @@ export class Room {
       updatedAt: new Date().toISOString(),
       ...(patch.summary !== undefined ? { summary: patch.summary.slice(0, 500) } : {}),
       ...(patch.rationale !== undefined ? { rationale: patch.rationale.slice(0, 4).map((item) => item.slice(0, 220)) } : {}),
-      ...(patch.providerReasoning !== undefined ? { providerReasoning: patch.providerReasoning.slice(0, 12_000) } : {}),
-      ...(patch.attempts !== undefined ? { attempts: patch.attempts.map((attempt) => ({
-        ...attempt,
-        ...(attempt.reasoning !== undefined ? { reasoning: attempt.reasoning.slice(0, 12_000) } : {}),
-      })) } : {}),
       ...(patch.observation !== undefined ? { observation: this.testMode ? patch.observation.slice(0, 6_000) : undefined } : {}),
       ...(patch.candidates !== undefined ? { candidates: this.testMode ? patch.candidates.slice(0, 200) : undefined } : {}),
     };
@@ -675,7 +656,6 @@ export class Room {
           ready: p.ready,
           connected: p.connected,
           kind: p.kind,
-          aiPersona: p.kind === 'ai' ? (p.persona ?? 'balanced') : undefined,
           isYou: false, // client marks its own player
         })),
       inGame: !!this.engine,
@@ -748,19 +728,4 @@ function sanitizeName(name: string | undefined): string | null {
   if (!name) return null;
   const clean = name.trim().replace(/\s+/g, ' ').slice(0, 24);
   return clean.length >= 1 ? clean : null;
-}
-
-const AI_PERSONA_IDS = ['balanced', 'baiter', 'conservative', 'aggressor', 'scholar'];
-const AI_PERSONA_LABELS: Record<string, string> = {
-  balanced: 'Balanced',
-  baiter: 'Baiter',
-  conservative: 'Conservative',
-  aggressor: 'Aggressor',
-  scholar: 'Scholar',
-};
-
-/** Validate a requested AI persona; unknown/absent → balanced. */
-export function sanitizeAiPersona(persona?: string): { id: string; label: string } {
-  const id = persona && AI_PERSONA_IDS.includes(persona) ? persona : 'balanced';
-  return { id, label: AI_PERSONA_LABELS[id] ?? 'Balanced' };
 }

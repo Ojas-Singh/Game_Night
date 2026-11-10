@@ -10,13 +10,6 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       ROOM_TTL_MINUTES: ${ROOM_TTL_MINUTES:-360}
       SESSION_SECRET: ${SESSION_SECRET:-change-me}
-      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
-      OPENCODE_GO_MODEL: ${OPENCODE_GO_MODEL:-mimo-v2.5}
-      OPENCODE_GO_BASE_URL: ${OPENCODE_GO_BASE_URL:-}
-      AGENT_PROVIDER: ${AGENT_PROVIDER:-}
-      AGENT_API_URL: ${AGENT_API_URL:-}
-      AGENT_API_KEY: ${AGENT_API_KEY:-}
-      AGENT_MODEL: ${AGENT_MODEL:-}
       # Voice/video relay (see the coturn service below and docs/DEPLOY.md).
       ICE_SERVERS: ${ICE_SERVERS:-}
       TURN_URLS: ${TURN_URLS:-}

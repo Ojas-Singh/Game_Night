@@ -3,7 +3,7 @@
  *
  * Design rules:
  *  - proposed vs executed actions are DISTINCT fields; a fallback must never
- *    be recorded as if the model chose it;
+ *    be recorded as if the agent chose it;
  *  - every record carries full provenance: schema version, engine/rules
  *    hashes, seed, seat permutation, agent configurations;
  *  - observations are hashed so datasets can dedupe on decision CONTENT;

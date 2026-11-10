@@ -436,39 +436,11 @@ button, .button-link { min-height: 44px; }
 .debug-trace-source { display: block; margin-top: 3px; overflow-wrap: anywhere; }
 .debug-action-row { display: flex; flex-wrap: wrap; gap: 6px 12px; color: var(--ink-dim); font-size: 10px; }
 .debug-action-row code { color: var(--ink); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
-.debug-token-grid { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 7px; color: var(--ink-dim); font-size: 9px; line-height: 1.35; }
-.debug-token-grid span { padding: 3px 5px; border: 1px solid rgba(255, 220, 160, .09); border-radius: 5px; background: rgba(0, 0, 0, .14); }
-.debug-token-grid strong { color: var(--ink); font-weight: 700; }
 .debug-failure { display: block; margin-top: 6px; color: #ffb1a0 !important; }
-.debug-private-note { display: block; margin-top: 6px; color: var(--accent-strong) !important; }
-.debug-attempts { margin-top: 8px; border-top: 1px solid rgba(255, 220, 160, .1); padding-top: 7px; color: var(--ink-dim); font-size: 10px; }
-.debug-attempts summary { cursor: pointer; color: var(--accent-strong); font-weight: 700; }
-.debug-attempts ol { display: grid; gap: 5px; margin: 6px 0 0; padding: 0; list-style: none; }
-.debug-attempt { padding: 6px 7px; border: 1px solid rgba(255, 220, 160, .1); border-radius: 6px; background: rgba(0, 0, 0, .14); }
-.debug-attempt > div { display: flex; justify-content: space-between; gap: 8px; color: var(--ink); }
-.debug-ok { color: #9fe4ae; }
-.debug-bad { color: #ffb1a0; }
-.debug-attempt small { display: block; margin-top: 4px; }
 .debug-rationale { margin: 7px 0; color: var(--ink-dim); font-size: 10.5px; }
 .debug-rationale summary { cursor: pointer; color: var(--accent-strong); font-weight: 700; }
 .debug-rationale ol { display: grid; gap: 3px; margin: 5px 0 0 16px; padding: 0; line-height: 1.35; }
 .debug-rationale li { padding-left: 2px; }
-.debug-reasoning { margin: 7px 0 0; color: var(--ink-dim); font-size: 10.5px; }
-.debug-reasoning summary { cursor: pointer; color: var(--accent-strong); font-weight: 700; }
-.debug-reasoning pre {
-  max-height: 220px;
-  margin: 6px 0 0;
-  padding: 7px 8px;
-  border: 1px solid rgba(255, 220, 160, .1);
-  border-radius: 6px;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--ink);
-  background: rgba(0, 0, 0, .18);
-  font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
-  line-height: 1.45;
-}
 .debug-trace small { color: var(--ink-dim); font-size: 10px; }
 .debug-empty { margin: 11px 0 2px; color: var(--ink-dim); font-size: 11px; line-height: 1.45; }
 
