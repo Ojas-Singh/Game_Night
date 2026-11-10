@@ -200,6 +200,24 @@ class Trainer:
         order = self.rng.permutation(count)
         return [order[i : i + self.cfg.minibatch] for i in range(0, count, self.cfg.minibatch)]
 
+    def _chunks(self, rows, lengths):
+        """Split a minibatch into pieces that fit the GPU: rows sorted by length,
+        each piece within `token_budget`. Their gradients are added up, so the
+        update is the same as for the whole minibatch at once."""
+        rows = rows[np.argsort(lengths[rows], kind="stable")]
+        n = lengths[rows].astype(np.float64) + 1
+        cost = n * (1 + n / 256)
+        start = 0
+        while start < len(rows):
+            end = start + 1
+            while end < len(rows) and cost[end] * (end + 1 - start) <= self.cfg.token_budget:
+                end += 1
+            yield rows[start:end]
+            start = end
+
+    def _autocast(self):
+        return torch.autocast("cuda", dtype=torch.bfloat16, enabled=self.cfg.amp and self.device.type == "cuda")
+
     def _targets(self, d, step, table):
         """Targets counted from the seat to move, and which entries are real seats."""
         dev = self.device
@@ -223,47 +241,59 @@ class Trainer:
         log = {k: [] for k in ("policy", "value", "entropy", "kl", "clipped", "judge")}
         self.net.train()
         for _ in range(cfg.epochs):
-            for rows in self._batches(len(adv)):
-                tok, tc = d["tokens"].take(rows)
-                act, ac = d["actions"].take(rows)
-                scores, value = self.net(tensor(tok, dev), tensor(tc, dev), tensor(act, dev), tensor(ac, dev))
-                logp_all = torch.log_softmax(scores, dim=-1)
-                logp = logp_all.gather(1, torch.from_numpy(d["choice"][rows]).to(dev)[:, None]).squeeze(1)
-                old = torch.from_numpy(d["logp"][rows]).to(dev)
-                a = torch.from_numpy(adv[rows]).to(dev)
-                ratio = (logp - old).exp()
-                policy = -torch.minimum(ratio * a, ratio.clamp(1 - cfg.clip, 1 + cfg.clip) * a).mean()
-                entropy = -(logp_all.exp() * logp_all).sum(-1).mean()
-                target, real = self._targets(d, d["step"][rows], d["table"][rows])
-                vloss = (F.smooth_l1_loss(value, target, reduction="none") * real).sum() / real.sum()
-                loss = policy - entropy_coef * entropy + cfg.value_coef * vloss
-                if cfg.step_cost:
-                    before = torch.from_numpy(d["old"].take(rows)[0][:, :, 0]).to(dev)
-                    moved = (logp_all.exp() * (logp_all - before)).sum(-1).mean()
-                    loss = loss + cfg.step_cost * moved
+            for batch in self._batches(len(adv)):
+                seats = float(d["players"][d["step"][batch], d["table"][batch]].sum())
+                part = {k: 0.0 for k in ("policy", "value", "entropy", "kl", "clipped")}
                 self.opt.zero_grad(set_to_none=True)
-                loss.backward()
+                for rows in self._chunks(batch, d["tokens"].len):
+                    share = len(rows) / len(batch)
+                    tok, tc = d["tokens"].take(rows)
+                    act, ac = d["actions"].take(rows)
+                    with self._autocast():
+                        scores, value = self.net(tensor(tok, dev), tensor(tc, dev), tensor(act, dev), tensor(ac, dev))
+                    logp_all = torch.log_softmax(scores, dim=-1)
+                    logp = logp_all.gather(1, torch.from_numpy(d["choice"][rows]).to(dev)[:, None]).squeeze(1)
+                    old = torch.from_numpy(d["logp"][rows]).to(dev)
+                    a = torch.from_numpy(adv[rows]).to(dev)
+                    ratio = (logp - old).exp()
+                    policy = -torch.minimum(ratio * a, ratio.clamp(1 - cfg.clip, 1 + cfg.clip) * a).mean() * share
+                    entropy = -(logp_all.exp() * logp_all).sum(-1).mean() * share
+                    target, real = self._targets(d, d["step"][rows], d["table"][rows])
+                    vloss = (F.smooth_l1_loss(value, target, reduction="none") * real).sum() / seats
+                    loss = policy - entropy_coef * entropy + cfg.value_coef * vloss
+                    if cfg.step_cost:
+                        before = torch.from_numpy(d["old"].take(rows)[0][:, :, 0]).to(dev)
+                        moved = (logp_all.exp() * (logp_all - before)).sum(-1).mean() * share
+                        loss = loss + cfg.step_cost * moved
+                    loss.backward()
+                    part["policy"] += policy.item()
+                    part["value"] += vloss.item()
+                    part["entropy"] += entropy.item()
+                    part["kl"] += (old - logp).mean().item() * share
+                    part["clipped"] += ((ratio - 1).abs() > cfg.clip).float().mean().item() * share
                 torch.nn.utils.clip_grad_norm_(self.net.parameters(), cfg.grad_clip)
                 self.opt.step()
-                log["policy"].append(policy.item())
-                log["value"].append(vloss.item())
-                log["entropy"].append(entropy.item())
-                log["kl"].append((old - logp).mean().item())
-                log["clipped"].append(((ratio - 1).abs() > cfg.clip).float().mean().item())
+                for k, v in part.items():
+                    log[k].append(v)
 
         self.critic.train()
         steps, n = d["seat"].shape
         for _ in range(cfg.epochs):
-            for rows in self._batches(steps * n):
-                tok, tc = d["omni"].take(rows)
-                _, value = self.critic(tensor(tok, dev), tensor(tc, dev))
-                target, real = self._targets(d, rows // n, rows % n)
-                loss = (F.smooth_l1_loss(value, target, reduction="none") * real).sum() / real.sum()
+            for batch in self._batches(steps * n):
+                seats = float(d["players"].reshape(-1)[batch].sum())
+                total = 0.0
                 self.critic_opt.zero_grad(set_to_none=True)
-                loss.backward()
+                for rows in self._chunks(batch, d["omni"].len):
+                    tok, tc = d["omni"].take(rows)
+                    with self._autocast():
+                        _, value = self.critic(tensor(tok, dev), tensor(tc, dev))
+                    target, real = self._targets(d, rows // n, rows % n)
+                    loss = (F.smooth_l1_loss(value, target, reduction="none") * real).sum() / seats
+                    loss.backward()
+                    total += loss.item()
                 torch.nn.utils.clip_grad_norm_(self.critic.parameters(), cfg.grad_clip)
                 self.critic_opt.step()
-                log["judge"].append(loss.item())
+                log["judge"].append(total)
         self.critic.eval()
         self.net.eval()
 

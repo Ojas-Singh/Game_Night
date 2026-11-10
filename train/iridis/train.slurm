@@ -13,6 +13,7 @@
 set -euo pipefail
 root=/scratch/$USER/gamelab
 source "$root/env/bin/activate"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export RAYON_NUM_THREADS=$SLURM_CPUS_PER_TASK OMP_NUM_THREADS=4
 cd "$root/train"
 python -m gamelab_train.train --config "$1" --out "$root/runs/$2"

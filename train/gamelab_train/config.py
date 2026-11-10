@@ -59,6 +59,11 @@ class Config:
 
     seed: int = 0
     device: str = "cuda"
+    #: A minibatch is learned from in pieces of about this many tokens (long
+    #: positions count for more), which bounds the GPU memory of an update.
+    token_budget: int = 400_000
+    #: Half-precision arithmetic on the GPU.
+    amp: bool = True
     #: Rows per network call while playing.
     infer_batch: int = 8192
 
