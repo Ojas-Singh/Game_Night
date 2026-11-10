@@ -48,23 +48,6 @@ Point the web build at it with `VITE_UMAMI_SRC=https://<host>/script.js` and
 (see `apps/web/src/analytics.ts`). See `docs/LAUNCH_CHECKLIST.md` for the full
 publication checklist (naming/trademark, moderation, funnels).
 
-### Rules → Play compiler
-
-Game Lab keeps model access on the server and sends only validated GameSpec data
-to the runtime. For a generic OpenAI-compatible gateway set
-`RULEZERO_COMPILER_URL`, `RULEZERO_COMPILER_MODEL`, and optionally
-`RULEZERO_COMPILER_API_KEY`. OpenCode Go is supported directly: set
-`OPENCODE_API_KEY` (and optionally `OPENCODE_GO_MODEL`, default
-`mimo-v2.5`). The adapter uses OpenCode Go's OpenAI-compatible endpoint at
-`https://opencode.ai/zen/go/v1`, sends a stable `x-opencode-session` per compile
-job, and identifies itself as `gamenight-rulezero/1.0`. Set
-`RULEZERO_COMPILER_PROVIDER=opencode-go` to select Go explicitly when using a
-custom base URL (`OPENCODE_GO_BASE_URL`). The same key automatically enables
-OpenCode Go for Cabo's optional live LLM seats; explicit `AGENT_*` settings take
-precedence (`AGENT_PROVIDER=opencode-go` preserves Go session routing when a
-custom `AGENT_API_URL` is supplied). The CPU Torch learner remains the
-trainable checkpoint path.
-
 ## Architecture
 
 ```
@@ -116,12 +99,11 @@ apps/web                # React client (round-table Cabo, memory-grid Pair One, 
 
 ## AI players & self-play
 
-- **AI seats in live games**: the host clicks "Seat AI" in the lobby and picks a
-  persona (Balanced / Baiter / Conservative / Aggressor / Scholar). AI turns run
-  through the server's agent loop with human-like think delays. Without any
-  model configured they use built-in heuristic bots; point `AGENT_API_URL`
-  (OpenAI-compatible: vLLM, Ollama, …), `AGENT_API_KEY`, `AGENT_MODEL` at your
-  own GPU box to make them LLM-driven.
+- **AI seats in live games**: the host clicks "AI seat" in the lobby. The seat
+  is played by the built-in heuristic bot for the chosen game (Cabo, Pair One
+  or Seep). AI turns run through the server's agent loop with human-like think
+  delays and go through the same action path as human moves. The host can
+  open the AI inspector at the table to see each decision.
 - **Self-play arena** (`apps/arena`): headless engine-level episodes with an
   ELO ladder and JSONL trajectory recording:
 
@@ -132,39 +114,12 @@ apps/web                # React client (round-table Cabo, memory-grid Pair One, 
 
 - **Packages**: `agent-core` (agent contract, legal-action enumeration,
   view serializers, trajectory recorder), `agent-bots` (random, heuristics,
-  flat Monte-Carlo search over a `SearchWorld` port), `agent-llm` (persona
-  prompts + strict-JSON action protocol with corrective retry and heuristic
-  fallback).
-- **Self-play training loop** (`apps/trainer`, runs on your own GPU box):
-
-  ```
-  # 1. record episodes with raw views
-  pnpm --filter @game-night/arena arena --game pairone --episodes 500 \
-      --seats llm,llm,heuristic --record --raw --out trajectories
-
-  # 2. build SFT dataset (winner moves only, deduped, chat format)
-  pnpm --filter @game-night/trainer dataset --in trajectories/pairone-episodes.jsonl \
-      --out sft-data --include-bots
-
-  # 3. QLoRA fine-tune (transformers+peft+bitsandbytes, ~32 GB card)
-  cp apps/trainer/python/train.config.example.json train.config.json  # edit it
-  pnpm --filter @game-night/trainer train --config train.config.json
-
-  # 4. serve the adapter and evaluate head-to-head vs bots
-  vllm serve Qwen/Qwen3-8B --enable-lora --lora-modules gen1=adapters/gen1
-  pnpm --filter @game-night/trainer eval --url http://localhost:8000/v1 \
-      --model gen1 --game pairone --episodes 20 --opponent heuristic
-  ```
-
-  Training prompts are byte-identical to live inference prompts (shared
-  `buildLlmPrompt`), so the model improves at exactly the task the server
-  asks of it. Each generation: record → filter winners → tune → eval →
-  repeat; the arena ELO ladder tracks progress across generations.
+  flat Monte-Carlo search over a `SearchWorld` port).
 
 ## Tests
 
 ```bash
-pnpm test   # 188 core tests — 100 engine (Cabo + Pair One + Seep, incl. exhaustive Seep legal-action parity fuzz) + 44 server/transport (incl. full-game socket integration & persistence) + 44 web logic — plus agent (16), arena (12) and trainer (9) suites
+pnpm test   # 270 tests — 106 engine (Cabo + Pair One + Seep, incl. exhaustive Seep legal-action parity fuzz) + 68 server/transport (incl. full-game socket integration & persistence) + 75 web + 9 agent + 12 arena
 ```
 
 House rules are data: Seep's scoring table, sweep bonus and deal shape live in
