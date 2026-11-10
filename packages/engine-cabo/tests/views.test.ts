@@ -16,7 +16,7 @@ function order(): ReturnType<typeof c>[] {
 
 describe('hidden-information filtering', () => {
   it('never sends other players\u2019 hidden card values', () => {
-    const e = setup(order(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(order(), { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     const v1 = e.getPlayerState('p1');
     // p1 knows exactly their two peeked cards (indexes 0,1).
@@ -54,7 +54,7 @@ describe('hidden-information filtering', () => {
   });
 
   it('drawn card value is visible only to the drawing player', () => {
-    const e = setup(order(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(order(), { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: 'p1' });
     const v1 = e.getPlayerState('p1');
@@ -67,7 +67,7 @@ describe('hidden-information filtering', () => {
   it('removes a flushed card from the viewer hand view while preserving its slot', () => {
     const forced = order();
     forced[12] = c('draw4', H, 4);
-    const e = setup(forced, { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(forced, { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: 'p1' });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: 'p1' });
@@ -83,7 +83,7 @@ describe('hidden-information filtering', () => {
   it('peek powers do not leak into other players\u2019 views', () => {
     const o = order();
     o[12] = c('draw9', H, 9);
-    const e = setup(o, { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(o, { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: 'p1' });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: 'p1' }); // 9 → PEEK_OTHER
@@ -98,7 +98,7 @@ describe('hidden-information filtering', () => {
   });
 
   it('public events reveal a card ONLY when the rules say so (misflush is visible)', () => {
-    const e = setup(order(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(order(), { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: 'p1' });
     mustOk(e, { type: 'KEEP_DRAWN', playerId: 'p1', handIndex: 3 }); // replaces a4 (7 → PEEK_OWN)
@@ -126,7 +126,7 @@ describe('hidden-information filtering', () => {
   });
 
   it('reveal at round end grants everyone full knowledge', () => {
-    const e = setup(order(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(order(), { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: 'p1' });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: 'p1' });
@@ -146,7 +146,7 @@ describe('hidden-information filtering', () => {
   });
 
   it('restoreState preserves knowledge filtering', () => {
-    const e = setup(order(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(order(), { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     const json = JSON.parse(JSON.stringify(e.getState()));
     const e2 = new CaboEngine();
@@ -155,7 +155,7 @@ describe('hidden-information filtering', () => {
   });
 
   it('Test Mode (revealAll) exposes every card, but is OFF by default', () => {
-    const e = setup(order(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(order(), { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     // No revealAll → only the viewer's own knowledge leaks (hidden-info safe).
     const v1 = e.getPlayerState('p1');

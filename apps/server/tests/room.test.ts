@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Room, RoomError, randomRoomCode } from '../src/room.js';
 import { RoomManager } from '../src/roomManager.js';
 import { serializeRoom } from '../src/persistence.js';
+import { enumerateLegalActions } from '@game-night/agent-core';
 
 describe('room codes', () => {
   it('generates 6-char unambiguous codes', () => {
@@ -275,14 +276,38 @@ describe('Room', () => {
     expect(restored.engine!.getState().flippedThisTurn).toEqual([firstCard]);
   });
 
+  it('restores a room as a lobby when its saved game cannot be read', () => {
+    const room = new Room({ roomId: 'OLD001' });
+    const { player: p1 } = room.addPlayer('A');
+    room.addPlayer('B');
+    room.startGame(p1.id);
+    const snap = serializeRoom(room);
+    // A game saved by an earlier build.
+    snap.engineState = { ...(snap.engineState as object), stateVersion: 1, core: undefined } as never;
+    const restored = Room.fromSnapshot(snap);
+    expect(restored.engine).toBeNull();
+    expect(restored.lobbyState().inGame).toBe(false);
+    expect(restored.players.size).toBe(2);
+  });
+
   it('play again works after a pair-one round completes', () => {
     const room = new Room({ roomId: 'PAIR02' });
     const { player: p1 } = room.addPlayer('A');
     room.addPlayer('B');
     room.selectGame(p1.id, 'pairone');
     room.startGame(p1.id);
-    const engine = room.engine as unknown as { finishRound(reason?: string): void; isGameFinished(): boolean };
-    engine.finishRound();
+    const engine = room.engine!;
+    // Play the round out with arbitrary legal moves (a fixed sequence of picks).
+    let pick = 12345;
+    let steps = 0;
+    for (; !engine.isGameFinished() && steps < 20000; steps++) {
+      const s = engine.getState();
+      const who = s.players[s.currentTurn]!.id;
+      const moves = enumerateLegalActions(room.gameView(who)!, who).filter((a) => engine.validateAction(a));
+      expect(moves.length).toBeGreaterThan(0);
+      pick = (pick * 1103515245 + 12345) % 2147483648;
+      room.handleGameAction(who, moves[pick % moves.length]!);
+    }
     expect(engine.isGameFinished()).toBe(true);
     // Non-host cannot start the next round.
     const p2 = [...room.players.values()].find((p) => p.id !== p1.id)!;

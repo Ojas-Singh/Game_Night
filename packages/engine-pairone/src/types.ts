@@ -6,6 +6,9 @@
  * Matching numbers → you collect the pair and flip again. A miss flips both
  * back and passes the turn. The round ends when the grid is empty.
  *
+ * The rules are played by the core (`@game-night/core`); this file must not
+ * load it, because the web client imports these types.
+ *
  * State is plain JSON at all times so it can be persisted (Redis),
  * versioned and restored after a server restart.
  */
@@ -18,25 +21,33 @@ import type { Card, GameEvent, GamePlayer } from '@game-night/shared';
  */
 export type PairOnePhase = 'TURN' | 'ROUND_COMPLETE';
 
+/** The core's settings for Pair One (`gameInfo('pairone').settings`). */
 export interface PairOneRules {
-  /** Always 1 — Pair One uses exactly one standard 52-card deck (locked). */
-  decks: number;
-  minPlayers: number;
-  maxPlayers: number;
+  /** Ranks in the grid, counted up from the ace (2-13). */
+  ranks: number;
+  /** Cards of each rank: 2 or 4. */
+  copies: number;
+  /** A player who finds a pair plays again. */
+  extraTurn: boolean;
 }
 
+/** The core's "Standard" preset: one whole deck. */
 export const DEFAULT_PAIRONE_RULES: PairOneRules = {
-  decks: 1,
-  minPlayers: 2,
-  maxPlayers: 6,
+  ranks: 13,
+  copies: 4,
+  extraTurn: true,
 };
 
 /** Grid layout hint: the dealt cards form `gridCols` columns row-major. */
 export const GRID_COLS = 13;
 
 export interface PairOneState {
-  stateVersion: 1;
+  stateVersion: 2;
   gameId: 'pairone';
+  /** The round as the rules core saves it; a restore plays on from this. */
+  core: unknown;
+  /** The table's card for each of the core's card numbers. */
+  cards: Record<string, Card>;
   phase: PairOnePhase;
   players: GamePlayer[];
   /**

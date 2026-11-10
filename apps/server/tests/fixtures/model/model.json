@@ -1,0 +1,24 @@
+{
+ "fields": 10,
+ "actionFields": 5,
+ "maxSeats": 8,
+ "noArg": 65535,
+ "player": {
+  "width": 16,
+  "layers": 1,
+  "heads": 2,
+  "policy": true
+ },
+ "judge": {
+  "width": 16,
+  "layers": 1,
+  "heads": 2,
+  "policy": false
+ },
+ "scale": {
+  "cabo": 10.0,
+  "minipoker": 10.0,
+  "pairone": 10.0,
+  "seep": 10.0
+ }
+}

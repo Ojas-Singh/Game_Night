@@ -1,0 +1,25 @@
+{
+  "name": "@game-night/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build:wasm": "cd ../../core && cargo build --release -p gamelab-wasm --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir ../packages/core/pkg target/wasm32-unknown-unknown/release/gamelab_wasm.wasm",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

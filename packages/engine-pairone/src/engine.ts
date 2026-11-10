@@ -1,22 +1,17 @@
 /**
- * Server-authoritative Pair One engine.
+ * Server-authoritative Pair One, played by the rules core.
  *
- * Pure state-machine over JSON state: no networking, no timers, no DOM.
- * All validation happens here — clients only ever send intentions.
+ * Rules: the deck is shuffled into one face-down grid. On your turn flip two
+ * cards — everyone sees every flip. Matching numbers are collected and you
+ * flip again; a miss turns both back and the turn passes. Most pairs wins.
+ *
+ * The core (`core/gamelab`, loaded through `@game-night/core`) holds the
+ * round and decides every action. This class names players and cards, keeps
+ * the state in the shape the views read, and writes the event log.
  */
 
-import {
-  SUITS,
-  createRng,
-  shuffle,
-  shuffleDeck,
-  type Card,
-  type GameAction,
-  type GameEvent,
-  type GamePlayer,
-  type Rank,
-  type Rng,
-} from '@game-night/shared';
+import { apply, check, deal, gameInfo, load, type Round } from '@game-night/core';
+import { SUITS, type Card, type GameAction, type GameEvent, type GamePlayer, type Rank } from '@game-night/shared';
 import { DEFAULT_PAIRONE_RULES, GRID_COLS, type PairOneAction, type PairOneGameOptions, type PairOneRules, type PairOneState } from './types.js';
 import { buildPlayerView } from './views.js';
 
@@ -34,16 +29,32 @@ function INVALID(msg: string): never {
   throw new PairOneEngineError(msg);
 }
 
-/** Lightweight structured warn (no card values / secrets). */
 function logWarn(msg: string, fields?: Record<string, unknown>): void {
   // eslint-disable-next-line no-console
   console.warn(JSON.stringify({ ts: new Date().toISOString(), level: 'warn', msg, ...fields }));
 }
 
-/**
- * `decks` standard 52-card decks combined into one array with globally
- * unique ids (c-0 .. c-52n-1).
- */
+/** The round as `Round.save` writes it (the fields used here). */
+interface CoreGame {
+  grid: (number | null)[];
+  turn: number;
+  flipped: number | null;
+  collections: number[][];
+  last_miss: { seat: number; slots: [number, number] } | null;
+  over: boolean;
+}
+
+interface CoreSave {
+  rules: PairOneRules;
+  game: CoreGame;
+}
+
+/** The face a card number stands for in the core. */
+function faceOf(n: number): { suit: Card['suit']; rank: Rank } {
+  return { suit: SUITS[Math.floor((n % 52) / 13)]!, rank: ((n % 13) + 1) as Rank };
+}
+
+/** `decks` standard 52-card decks with globally-unique ids. */
 export function multiDeck(decks: number): Card[] {
   const cards: Card[] = [];
   let n = 0;
@@ -59,11 +70,11 @@ export function multiDeck(decks: number): Card[] {
 
 export class PairOneEngine {
   readonly gameId = 'pairone';
-  readonly stateVersion = 1 as const;
+  readonly stateVersion = 2 as const;
 
   private state: PairOneState | null = null;
+  private round: Round | null = null;
   private rules: PairOneRules = { ...DEFAULT_PAIRONE_RULES };
-  private rng: Rng = createRng();
 
   getState(): PairOneState {
     if (!this.state) INVALID('game not created');
@@ -74,43 +85,71 @@ export class PairOneEngine {
     return this.rules;
   }
 
-  /** Restore a previously serialized state (reconnect / redis restore). */
+  /** Restore a previously serialized state (reconnect / redis restore). The
+   *  round continues from `state.core`. */
   restoreState(state: PairOneState): void {
-    if (state.stateVersion !== 1) INVALID('unsupported state version');
+    if (state.stateVersion !== 2) INVALID('unsupported state version');
+    try {
+      this.round = load('pairone', state.core);
+    } catch (err) {
+      INVALID(String((err as Error).message ?? err));
+    }
+    this.rules = (state.core as CoreSave).rules;
     this.state = state;
-    this.rng = createRng();
+    this.refresh();
   }
 
   // -------------------------------------------------------------------
-  // Lifecycle
+  // Game creation
   // -------------------------------------------------------------------
 
   createGame(players: GamePlayer[], options: PairOneGameOptions = {}): void {
-    this.rules = { ...DEFAULT_PAIRONE_RULES, ...options.rules };
-    const rules = this.rules;
-    if (players.length < rules.minPlayers || players.length > rules.maxPlayers) {
-      INVALID(`pair one requires ${rules.minPlayers}-${rules.maxPlayers} players`);
+    const rules: PairOneRules = { ...DEFAULT_PAIRONE_RULES, ...options.rules };
+    const info = gameInfo('pairone');
+    if (players.length < info.minPlayers || players.length > info.maxPlayers) {
+      INVALID(`pair one requires ${info.minPlayers}-${info.maxPlayers} players`);
     }
     const seats = [...players].sort((a, b) => a.seat - b.seat);
-    this.rng = createRng(options.seed);
 
-    // House rule: Pair One is played with EXACTLY ONE deck. Any configured
-    // value is clamped so stale clients cannot grow the grid again.
-    if (rules.decks !== 1) rules.decks = 1;
-    const gridCards: Card[] = options.forcedGrid
-      ? options.forcedGrid.slice()
-      : shuffleDeck(multiDeck(rules.decks), this.rng);
+    let round: Round;
+    try {
+      round = deal('pairone', rules, seats.length, options.seed);
+    } catch (err) {
+      INVALID(String((err as Error).message ?? err));
+    }
+    const saved = JSON.parse(round.save()) as CoreSave;
+    const cards: Record<string, Card> = {};
+    if (options.forcedGrid) {
+      saved.game.grid = this.numberForced(options.forcedGrid, cards);
+    } else {
+      // A card's id is its place in the grid, so it says nothing about the face.
+      saved.game.grid.forEach((n, i) => {
+        cards[n!] = { id: `c-${i}`, ...faceOf(n!) };
+      });
+    }
+    if (options.firstTurnSeat !== undefined) saved.game.turn = options.firstTurnSeat;
+    if (options.forcedGrid || options.firstTurnSeat !== undefined) {
+      try {
+        round = load('pairone', saved);
+      } catch (err) {
+        INVALID(String((err as Error).message ?? err));
+      }
+    }
 
-    const state: PairOneState = {
-      stateVersion: 1,
+    this.round = round;
+    this.rules = rules;
+    this.state = {
+      stateVersion: 2,
       gameId: 'pairone',
+      core: null,
+      cards,
       phase: 'TURN',
       players: seats,
-      grid: gridCards.slice(),
-      currentTurn: options.firstTurnSeat ?? 0,
+      grid: [],
+      currentTurn: 0,
       flippedThisTurn: [],
       collections: {},
-      knowledge: {},
+      knowledge: Object.fromEntries(seats.map((p) => [p.id, []])),
       lastMiss: null,
       scores: null,
       roundWinnerId: null,
@@ -119,18 +158,32 @@ export class PairOneEngine {
       revision: 1,
       eventSeq: 0,
     };
-    for (const p of seats) {
-      state.collections[p.id] = [];
-      state.knowledge[p.id] = [];
-    }
-
-    this.state = state;
+    this.refresh();
     this.emit('ROUND_STARTED', {
       playerIds: seats.map((p) => p.id),
-      cardCount: gridCards.length,
+      cardCount: this.state.grid.length,
       gridCols: GRID_COLS,
     });
     this.emit('TURN_STARTED', { playerId: this.currentPlayerId() });
+  }
+
+  /** Core numbers for a forced grid: each card gets a free number of its own
+   *  rank (the core holds numbers below 128), its own suit when that is free. */
+  private numberForced(grid: Card[], cards: Record<string, Card>): number[] {
+    return grid.map((card) => {
+      const own = SUITS.indexOf(card.suit);
+      const suits = [own, ...[0, 1, 2, 3].filter((s) => s !== own)];
+      for (let copy = 0; copy < 3; copy++) {
+        for (const suit of suits) {
+          const n = copy * 52 + suit * 13 + card.rank - 1;
+          if (n < 128 && !(n in cards)) {
+            cards[n] = card;
+            return n;
+          }
+        }
+      }
+      INVALID('too many copies of one rank in the forced grid');
+    });
   }
 
   // -------------------------------------------------------------------
@@ -141,7 +194,7 @@ export class PairOneEngine {
     return this.getState().phase === 'ROUND_COMPLETE';
   }
 
-  /** Score = pairs collected (higher is better). */
+  /** Score = pairs collected. */
   calculateScore(): Record<string, number> {
     const s = this.getState();
     const out: Record<string, number> = {};
@@ -151,7 +204,7 @@ export class PairOneEngine {
     return out;
   }
 
-  /** Number of cards still face-down on the table. */
+  /** Cards still on the table. */
   remainingCount(): number {
     const s = this.getState();
     return s.grid.reduce((n, c) => (c ? n + 1 : n), 0);
@@ -163,9 +216,7 @@ export class PairOneEngine {
       phase: s.phase,
       currentTurnPlayerId: s.players[s.currentTurn]?.id ?? null,
       remainingCount: this.remainingCount(),
-      collectedCounts: Object.fromEntries(
-        s.players.map((p) => [p.id, Math.floor((s.collections[p.id]?.length ?? 0) / 2)]),
-      ),
+      collectedCounts: this.calculateScore(),
       revision: s.revision,
     };
   }
@@ -179,13 +230,13 @@ export class PairOneEngine {
   }
 
   // -------------------------------------------------------------------
-  // Actions
+  // Action entry points
   // -------------------------------------------------------------------
 
   validateAction(action: GameAction): boolean {
     try {
-      this.checkAction(action as PairOneAction);
-      return true;
+      const { seat, slot } = this.translate(action as PairOneAction);
+      return check(this.round!, seat, { type: 'FLIP', slot }) === null;
     } catch {
       return false;
     }
@@ -199,8 +250,6 @@ export class PairOneEngine {
       if (err instanceof PairOneEngineError) {
         return { ok: false, error: err.message, events: [] };
       }
-      // Malformed/unknown action shape: never leak a raw JS TypeError to the
-      // client. Report it as a plain invalid action and log for debugging.
       logWarn('invalid_action_shape', { type: (action as { type?: string }).type, error: String(err) });
       return { ok: false, error: 'invalid action', events: [] };
     }
@@ -208,148 +257,135 @@ export class PairOneEngine {
     return { ok: true, events: s.events.filter((e) => e.seq > before) };
   }
 
+  // -------------------------------------------------------------------
+  // Internals
+  // -------------------------------------------------------------------
+
   private currentPlayerId(): string {
     const s = this.getState();
     return s.players[s.currentTurn]?.id ?? INVALID('no current player');
   }
 
-  private findInGrid(cardId: string): number {
-    const s = this.getState();
-    return s.grid.findIndex((c) => c?.id === cardId);
+  /** The action in the core's terms: a seat and a place in the grid. A card
+   *  that is not on the table becomes a place outside the grid, so the core
+   *  still gives its refusals in order. */
+/** The round in the rules core, as it stands (for the model seat; do not change it). */
+  get table(): Round {
+    return this.round ?? INVALID('game not started');
   }
 
-  private checkAction(a: PairOneAction): void {
+  /** An action of the rules core, by `seat`, as the action the table takes. */
+  fromCore(seat: number, move: unknown): PairOneAction {
+    const s = this.getState();
+    const m = move as { type: string; slot: number };
+    const playerId = s.players[seat]?.id ?? INVALID('player not in this game');
+    if (m.type !== 'FLIP') INVALID(`unknown action type: ${m.type}`);
+    return { type: 'FLIP_CARD', playerId, cardId: s.grid[m.slot]?.id ?? INVALID('card is not on the table') };
+  }
+
+    private translate(a: PairOneAction): { seat: number; slot: number } {
     const s = this.getState();
     if (a.type !== 'FLIP_CARD') INVALID(`unknown action type: ${(a as { type: string }).type}`);
-    if (!s.players.some((p) => p.id === a.playerId)) INVALID('player not in this game');
-    if (s.phase !== 'TURN') INVALID('the round is over');
-    if (a.playerId !== this.currentPlayerId()) INVALID('not your turn');
-    if (typeof a.cardId !== 'string' || !a.cardId) INVALID('cardId required');
-    if (this.findInGrid(a.cardId) < 0) INVALID('card is not on the table');
-    if (s.flippedThisTurn.includes(a.cardId)) INVALID('that card is already flipped');
-    if (s.flippedThisTurn.length >= 2) INVALID('two cards are already up');
+    const seat = s.players.findIndex((p) => p.id === a.playerId);
+    if (seat < 0) INVALID('player not in this game');
+    const slot = s.grid.findIndex((c) => c?.id === a.cardId);
+    return { seat, slot: slot < 0 ? 255 : slot };
   }
 
-  // -------------------------------------------------------------------
-  // Mutations
-  // -------------------------------------------------------------------
-
   private applyAction(a: PairOneAction): void {
-    this.checkAction(a);
+    const { seat, slot } = this.translate(a);
     const s = this.getState();
+    const refused = apply(this.round!, seat, { type: 'FLIP', slot });
+    if (refused !== null) {
+      const noId = typeof a.cardId !== 'string' || !a.cardId;
+      INVALID(noId && refused === 'card is not on the table' ? 'cardId required' : refused);
+    }
 
-    const index = this.findInGrid(a.cardId);
-    const card = s.grid[index]!;
-    s.lastMiss = null;
+    const first = s.flippedThisTurn[0];
+    const firstIndex = s.grid.findIndex((c) => c?.id === first);
+    const card = s.grid[slot]!;
+    const firstCard = s.grid[firstIndex];
+    const was = s.currentTurn;
+    this.refresh();
 
-    // A flip is PUBLIC: every player sees and remembers the card.
-    for (const p of s.players) this.learn(p.id, card.id);
-    s.flippedThisTurn.push(card.id);
+    for (const p of s.players) {
+      const k = s.knowledge[p.id]!;
+      if (!k.includes(card.id)) k.push(card.id);
+    }
     this.emit('CARD_FLIPPED', {
       playerId: a.playerId,
       cardId: card.id,
-      index,
+      index: slot,
       rank: card.rank,
       suit: card.suit,
-      flipNumber: s.flippedThisTurn.length,
+      flipNumber: firstCard ? 2 : 1,
     });
+    if (!firstCard) return; // first flip — turn continues
 
-    if (s.flippedThisTurn.length < 2) return; // first flip — turn continues
-
-    // --- Second flip: resolve -------------------------------------
-    const [idA, idB] = [s.flippedThisTurn[0]!, s.flippedThisTurn[1]!];
-    const idxA = this.findInGrid(idA);
-    const idxB = this.findInGrid(idB);
-    const cardA = s.grid[idxA]!;
-    const cardB = s.grid[idxB]!;
-    s.flippedThisTurn = [];
-
-    if (cardA.rank === cardB.rank) {
-      // MATCH: collect both cards into the player's pile; same player goes again.
-      s.grid[idxA] = null;
-      s.grid[idxB] = null;
-      s.collections[a.playerId]!.push(cardA, cardB);
+    if (firstCard.rank === card.rank) {
+      const again = s.phase === 'ROUND_COMPLETE' || s.currentTurn === was;
       this.emit('PAIR_COLLECTED', {
         playerId: a.playerId,
-        cardIds: [cardA.id, cardB.id],
-        ranks: [cardA.rank, cardB.rank],
-        indexes: [idxA, idxB],
+        cardIds: [firstCard.id, card.id],
+        ranks: [firstCard.rank, card.rank],
+        indexes: [firstIndex, slot],
         pairCount: Math.floor(s.collections[a.playerId]!.length / 2),
-        again: true,
+        again,
       });
-
-      if (this.remainingCount() === 0) {
-        this.endRound('GRID_EMPTY');
-        return;
+      if (s.phase === 'ROUND_COMPLETE') {
+        this.emit('ROUND_REVEALED', {
+          reason: 'GRID_EMPTY',
+          collections: Object.fromEntries(s.players.map((p) => [p.id, s.collections[p.id]!.length])),
+        });
+        this.emit('ROUND_SCORED', { scores: s.scores!, winners: s.tiedWinnerIds });
+      } else if (again) {
+        this.emit('EXTRA_TURN', { playerId: a.playerId });
+      } else {
+        this.emit('TURN_STARTED', { playerId: this.currentPlayerId() });
       }
-      this.emit('EXTRA_TURN', { playerId: a.playerId });
       return;
     }
 
-    // MISS: both cards flip back where they were; turn passes left.
-    s.lastMiss = { playerId: a.playerId, cardIds: [cardA.id, cardB.id] };
     this.emit('PAIR_MISSED', {
       playerId: a.playerId,
-      cardIds: [cardA.id, cardB.id],
-      ranks: [cardA.rank, cardB.rank],
+      cardIds: [firstCard.id, card.id],
+      ranks: [firstCard.rank, card.rank],
     });
-    this.advanceTurn();
+    this.emit('TURN_STARTED', { playerId: this.currentPlayerId() });
   }
 
-  // -------------------------------------------------------------------
-  // Turn / round progression
-  // -------------------------------------------------------------------
-
-  private advanceTurn(): void {
+  /** Rewrite the table's view of the round from the core's. */
+  private refresh(): void {
     const s = this.getState();
-    // Everyone is always in the game — pass the turn one seat to the left.
-    const next = (s.currentTurn + 1) % s.players.length;
-    s.currentTurn = next;
-    this.emit('TURN_STARTED', { playerId: s.players[next]!.id });
+    const saved = JSON.parse(this.round!.save()) as CoreSave;
+    const g = saved.game;
+    const card = (n: number): Card => s.cards[n] ?? INVALID('the saved round holds an unknown card');
+    s.core = saved;
+    s.phase = g.over ? 'ROUND_COMPLETE' : 'TURN';
+    s.grid = g.grid.map((n) => (n === null ? null : card(n)));
+    s.currentTurn = g.turn;
+    s.flippedThisTurn = g.flipped === null ? [] : [s.grid[g.flipped]!.id];
+    s.collections = Object.fromEntries(s.players.map((p, i) => [p.id, g.collections[i]!.map(card)]));
+    s.lastMiss = g.last_miss
+      ? { playerId: s.players[g.last_miss.seat]!.id, cardIds: g.last_miss.slots.map((i) => s.grid[i]!.id) }
+      : null;
+    if (g.over) {
+      const scores = this.calculateScore();
+      const best = Math.max(...Object.values(scores));
+      const winners = s.players.filter((p) => scores[p.id] === best).map((p) => p.id);
+      s.scores = scores;
+      s.roundWinnerId = winners.length === 1 ? winners[0]! : null;
+      s.tiedWinnerIds = winners;
+    }
   }
 
-  /**
-   * Finalize the round: tally scores, crown winners. Internal, but exposed
-   * for persistence/test tooling that finalizes a crafted state.
-   */
-  finishRound(reason = 'GRID_EMPTY'): void {
-    this.endRound(reason);
-  }
-
-  private endRound(reason: string): void {
-    const s = this.getState();
-    s.phase = 'ROUND_COMPLETE';
-    s.flippedThisTurn = [];
-    const scores = this.calculateScore();
-    s.scores = scores;
-    const best = Math.max(...Object.values(scores));
-    const winners = s.players.filter((p) => scores[p.id] === best).map((p) => p.id);
-    s.roundWinnerId = winners.length === 1 ? winners[0]! : null;
-    s.tiedWinnerIds = winners;
-    this.emit('ROUND_REVEALED', {
-      reason,
-      collections: Object.fromEntries(s.players.map((p) => [p.id, s.collections[p.id]!.length])),
-    });
-    this.emit('ROUND_SCORED', { scores, winners });
-  }
-
-  // -------------------------------------------------------------------
-  // Knowledge & events
-  // -------------------------------------------------------------------
-
-  private learn(playerId: string, cardId: string): void {
-    const s = this.getState();
-    const k = s.knowledge[playerId]!;
-    if (!k.includes(cardId)) k.push(cardId);
-  }
-
-  private emit(type: string, payload?: Record<string, unknown>, playerId?: string): void {
+  private emit(type: string, payload?: Record<string, unknown>): void {
     const s = this.getState();
     s.eventSeq += 1;
     s.events.push({
       seq: s.eventSeq,
       type,
-      playerId,
+      playerId: undefined,
       timestamp: new Date().toISOString(),
       payload,
     });

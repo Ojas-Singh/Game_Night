@@ -1,0 +1,14 @@
+[package]
+name = "gamelab-cli"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "gamelab"
+path = "src/main.rs"
+
+[dependencies]
+gamelab = { path = "../gamelab" }
+serde.workspace = true
+serde_json.workspace = true

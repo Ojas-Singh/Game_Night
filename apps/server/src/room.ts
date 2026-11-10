@@ -20,7 +20,7 @@ import { log } from './log.js';
 export type AnyGameEngine = CaboEngine | PairOneEngine | SeepEngine;
 export type AnyGameView = CaboPlayerView | PairOnePlayerView | SeepPlayerView;
 
-type AiTraceAgent = { label: string };
+type AiTraceAgent = { label: string; kind?: string };
 export type AiDecisionPatch = Partial<Pick<AiDecisionTrace,
   'status' | 'summary' | 'rationale' | 'proposedAction' | 'executedAction' |
   'decisionSource' | 'failure' | 'latencyMs' | 'observation' | 'candidates'
@@ -189,20 +189,27 @@ export class Room {
         joinedAt: sp.joinedAt,
       });
     }
-    // A snapshot of a game this build does not ship is restored as a lobby.
+    // A snapshot of a game this build does not ship, or of a game saved in a
+    // form it no longer reads, is restored as a lobby.
     if (snap.engineState && snap.gameId in GAME_REGISTRY) {
-      if (snap.gameId === 'pairone') {
-        const engine = new PairOneEngine();
-        engine.restoreState(snap.engineState as import('@game-night/engine-pairone').PairOneState);
-        room.engine = engine;
-      } else if (snap.gameId === 'seep') {
-        const engine = new SeepEngine();
-        engine.restoreState(snap.engineState as SeepState);
-        room.engine = engine;
-      } else {
-        const engine = new CaboEngine();
-        engine.restoreState(snap.engineState as CaboState);
-        room.engine = engine;
+      try {
+        if (snap.gameId === 'pairone') {
+          const engine = new PairOneEngine();
+          engine.restoreState(snap.engineState as import('@game-night/engine-pairone').PairOneState);
+          room.engine = engine;
+        } else if (snap.gameId === 'seep') {
+          const engine = new SeepEngine();
+          engine.restoreState(snap.engineState as SeepState);
+          room.engine = engine;
+        } else {
+          const engine = new CaboEngine();
+          engine.restoreState(snap.engineState as CaboState);
+          room.engine = engine;
+        }
+      } catch (err) {
+        room.engine = null;
+        room.roundScored = false;
+        log.warn('game_not_restored', { roomId: room.id, gameId: snap.gameId, error: String((err as Error).message ?? err) });
       }
     }
     return room;
@@ -535,7 +542,7 @@ export class Room {
       updatedAt: now,
       playerId,
       playerName: player.name,
-      source: `Heuristic · ${agent.label}`,
+      source: `${agent.kind ?? 'Heuristic'} · ${agent.label}`,
     };
     this.aiThoughts = [...this.aiThoughts, entry].slice(-80);
     return entry;

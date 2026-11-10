@@ -14,7 +14,7 @@ describe('transfer owed by an empty hand', () => {
       c('a1', S, 9), c('b1', S, 4), c('d1', D, 4),
       c('a2', H, 9), c('b2', H, 4), c('d2', D, 7),
       c('draw4', CL, 4),
-      ...Array.from({ length: 30 }, (_, i) => c(`f${i}`, i % 2 ? H : S, 2 + (i % 3))),
+      ...Array.from({ length: 15 }, (_, i) => c(`f${i}`, i % 2 ? H : S, 2 + (i % 3))),
     ];
     const e = setup(order, { rules: { startingCards: 2 } });
     for (const id of ['p1', 'p2', 'p3']) mustOk(e, { type: 'PEEK_STARTING', playerId: id, cardIndexes: [0, 1] });
@@ -39,7 +39,7 @@ describe('transfer owed, then the debtor flushes their last card', () => {
       c('a1', S, 9), c('b1', S, 4), c('d1', D, 4),
       c('a2', H, 9), c('b2', H, 4), c('d2', D, 7),
       c('draw4', CL, 4),
-      ...Array.from({ length: 30 }, (_, i) => c(`f${i}`, i % 2 ? H : S, 2 + (i % 3))),
+      ...Array.from({ length: 15 }, (_, i) => c(`f${i}`, i % 2 ? H : S, 2 + (i % 3))),
     ];
     const e = setup(order, { rules: { startingCards: 2 } });
     for (const id of ['p1', 'p2', 'p3']) mustOk(e, { type: 'PEEK_STARTING', playerId: id, cardIndexes: [0, 1] });
@@ -63,7 +63,7 @@ describe('two transfers owed, the first one empties the hand', () => {
       c('a1', S, 4), c('b1', S, 4), c('d1', D, 4),
       c('a2', H, 9), c('b2', H, 9), c('d2', D, 7),
       c('draw4', CL, 4),
-      ...Array.from({ length: 30 }, (_, i) => c(`f${i}`, i % 2 ? H : S, 2 + (i % 3))),
+      ...Array.from({ length: 15 }, (_, i) => c(`f${i}`, i % 2 ? H : S, 2 + (i % 3))),
     ];
     const e = setup(order, { rules: { startingCards: 2 } });
     for (const id of ['p1', 'p2', 'p3']) mustOk(e, { type: 'PEEK_STARTING', playerId: id, cardIndexes: [0, 1] });

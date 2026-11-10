@@ -12,7 +12,7 @@
  * arbitrary "max set size".
  */
 
-import { captureValue, maximalCaptureAlternatives, type SeepTeam } from './rules.js';
+import { captureValue, maximalCaptureAlternatives, partitionableInto, type SeepTeam } from './rules.js';
 import type { SeepAction, SeepPlayIntent } from './types.js';
 import type { SeepPlayerView } from './views.js';
 
@@ -85,9 +85,11 @@ export function enumerateSeepActions(view: SeepPlayerView, playerId: string): Se
     // ---- BUILD ------------------------------------------------------------
     for (const subset of looseSubsets(loose, 1, MAX_HOUSE * 2 - v)) {
       const sum = v + subset.sum;
+      const pile = [card, ...loose.filter((c) => subset.ids.includes(c.id))];
       for (let total = MIN_HOUSE; total <= MAX_HOUSE; total++) {
         // the pile must form complete copies of the house total
         if (sum < total || sum % total !== 0) continue;
+        if (!partitionableInto(pile, total)) continue;
         if (opening && total !== bid) continue;
         const existing = view.houses.find((h) => h.total === total);
         // establishing (or cementing an opponent house) needs a backing card;

@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react';
 import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { useRoom } from './useRoom.js';
 import { useMediaChat } from './useMediaChat.js';
@@ -5,6 +6,9 @@ import HomePage from './pages/HomePage.js';
 import GamePage from './pages/GamePage.js';
 import { PrivacyPage, TosPage } from './pages/LegalPages.js';
 import FullscreenButton from './FullscreenButton.js';
+
+// The lab is a working page few visitors open; it loads when asked for.
+const LabPage = lazy(() => import('./pages/LabPage.js'));
 
 export default function App() {
   const room = useRoom();
@@ -16,6 +20,7 @@ export default function App() {
         <Route path="/" element={<HomePage room={room} />} />
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/tos" element={<TosPage />} />
+        <Route path="/lab" element={<Suspense fallback={null}><LabPage /></Suspense>} />
         <Route
           path="/game/:roomId"
           element={

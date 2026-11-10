@@ -58,7 +58,7 @@ export interface AgentDecision {
 
 /**
  * A card-playing agent. Implementations MUST be deterministic given
- * `ctx.rng` if they want reproducible episodes; the arena seeds it.
+ * `ctx.rng` if they want reproducible episodes; the caller seeds it.
  */
 export interface GameAgent {
   readonly id: string;

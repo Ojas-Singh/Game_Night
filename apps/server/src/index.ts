@@ -20,6 +20,8 @@ import { registerSocketHandlers } from './socket.js';
 import { ShopService, RedisShopStore, MemoryShopStore } from './shop.js';
 import { initServerObservability } from './observability.js';
 import { iceServers } from './ice.js';
+import { LabRuns } from './lab/runs.js';
+import { labRouter } from './lab/router.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -64,6 +66,10 @@ if (config.redisUrl) {
 rooms.setLoadoutProvider((playerIds) => shop.loadoutsFor(playerIds));
 
 app.use(express.json());
+// The game lab: on outside production, and in production when a key is set.
+const lab = config.labKey || config.nodeEnv !== 'production' ? new LabRuns() : null;
+if (lab) app.use('/api/lab', labRouter(lab, config.labKey));
+app.use('/api', (_req, res) => res.status(404).json({ error: 'not found' }));
 if (config.debugEnabled) {
   // Dev-only debug endpoints. In production these do not exist at all.
   const { debugRouter } = await import('./debug.js');
@@ -94,7 +100,7 @@ const io = new SocketServer(httpServer, {
   cors: { origin: true, credentials: true },
 });
 
-registerSocketHandlers(io, rooms, { shop });
+registerSocketHandlers(io, rooms, { shop, onModel: (model) => lab?.setModel(model) });
 
 httpServer.listen(config.port, () => {
   log.info('server_started', { port: config.port, env: config.nodeEnv, redis: !!config.redisUrl });

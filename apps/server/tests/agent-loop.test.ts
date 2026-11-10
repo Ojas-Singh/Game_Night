@@ -9,6 +9,7 @@ import { AgentLoops } from '../src/agents/loop.js';
 import { serializeRoom } from '../src/persistence.js';
 import { enumerateLegalActions, createAgentRng } from '@game-night/agent-core';
 import { CaboEngine } from '@game-night/engine-cabo';
+import type { Card } from '@game-night/shared';
 
 // Speed up think delays for tests.
 const FAST = { minThinkMs: 2, maxThinkMs: 6 };
@@ -114,26 +115,45 @@ describe('AgentLoops', () => {
     loops.dispose(); // stop this suite's timers before next test re-creates
   }, 25_000);
 
+  /**
+   * A two-seat Cabo table (host, then the AI) dealt from a known deck: the
+   * host holds 4♠ 4♥ 4♦ 7♠, the AI 9♠ 4♣ 9♥ 2♠ and the first card drawn is
+   * the 4 of `drawn`. Both have seen their bottom row (cards 1 and 3).
+   */
+  function fixedCabo(room: Room, firstTurnSeat: number): CaboEngine {
+    const card = (id: string, suit: Card['suit'], rank: Card['rank']): Card => ({ id, suit, rank });
+    const order = [
+      card('h0', 'spades', 4), card('a0', 'spades', 9),
+      card('h1', 'hearts', 4), card('a1', 'clubs', 4),
+      card('h2', 'diamonds', 4), card('a2', 'hearts', 9),
+      card('h3', 'spades', 7), card('a3', 'spades', 2),
+      card('drawn', 'clubs', 4),
+      ...Array.from({ length: 20 }, (_, i) => card(`f${i}`, i % 2 ? 'hearts' : 'spades', (5 + (i % 2)) as Card['rank'])),
+    ];
+    const cabo = new CaboEngine();
+    const seats = [...room.players.values()].map((p, i) => ({ id: p.id, name: p.name, seat: i }));
+    cabo.createGame(seats, { forcedDeck: order.reverse(), firstTurnSeat });
+    for (const p of seats) {
+      expect(cabo.handleAction({ type: 'PEEK_STARTING', playerId: p.id, cardIndexes: [1, 3] }).ok).toBe(true);
+    }
+    room.engine = cabo;
+    return cabo;
+  }
+
   it('wakes an AI flusher to complete a pending card transfer', async () => {
     const room = new Room();
-    room.addPlayer('Watcher');
+    const host = room.addPlayer('Watcher').player;
     const ai = room.addAiPlayer(room.hostId!);
     room.startGame(room.hostId!);
-    const engine = room.engine;
-    expect(engine).toBeInstanceOf(CaboEngine);
-    const cabo = engine as CaboEngine;
-    const state = cabo.getState();
-    const target = state.players.find((p) => p.id !== ai.id)!;
-    const targetCard = state.hands[target.id]!.find((card) => !!card)!;
-    const topIndex = state.deck.findIndex((card) => card.rank === targetCard.rank);
-    const top = state.deck.splice(topIndex, 1)[0]!;
-    state.discard.push(top);
-
+    const cabo = fixedCabo(room, 0);
+    // The host throws a 4; the AI flushes one of the host's 4s onto it.
+    expect(cabo.handleAction({ type: 'DRAW', playerId: host.id }).ok).toBe(true);
+    expect(cabo.handleAction({ type: 'DISCARD_DRAWN', playerId: host.id }).ok).toBe(true);
     expect(cabo.handleAction({
       type: 'FLUSH_OTHER',
       playerId: ai.id,
-      targetPlayerId: target.id,
-      cardId: targetCard.id,
+      targetPlayerId: host.id,
+      cardId: 'h0',
     }).ok).toBe(true);
     expect(cabo.getState().phase).toBe('TRANSFER_PENDING');
 
@@ -155,18 +175,16 @@ describe('AgentLoops', () => {
     const host = room.addPlayer('Human turn').player;
     const ai = room.addAiPlayer(host.id);
     room.startGame(host.id);
-    const cabo = room.engine as CaboEngine;
-    const state = cabo.getState();
-    const hostSeat = state.players.findIndex((player) => player.id === host.id);
-    const aiHand = state.hands[ai.id]!;
-    const known = aiHand.find((card) => !!card && state.deck.some((other) => other.rank === card.rank))!;
-    const topIndex = state.deck.findIndex((card) => card.rank === known.rank);
-    expect(topIndex).toBeGreaterThanOrEqual(0);
-    state.currentTurn = hostSeat;
-    state.phase = 'TURN_DRAW';
-    state.drawnCard = null;
-    state.discard.push(state.deck.splice(topIndex, 1)[0]!);
-    state.knowledge[ai.id] = [...new Set([...(state.knowledge[ai.id] ?? []), known.id])];
+    const cabo = fixedCabo(room, 1);
+    // The AI throws the 4 it drew and passes the turn: the host is to draw,
+    // a 4 is on top, and the AI has seen the 4 in its own hand.
+    expect(cabo.handleAction({ type: 'DRAW', playerId: ai.id }).ok).toBe(true);
+    expect(cabo.handleAction({ type: 'DISCARD_DRAWN', playerId: ai.id }).ok).toBe(true);
+    expect(cabo.handleAction({ type: 'END_TURN', playerId: ai.id }).ok).toBe(true);
+    const hostSeat = cabo.getState().players.findIndex((player) => player.id === host.id);
+    expect(cabo.getState().currentTurn).toBe(hostSeat);
+    expect(cabo.getState().phase).toBe('TURN_DRAW');
+    const holdsKnown = (): boolean => cabo.getState().hands[ai.id]!.some((held) => held?.id === 'a1');
 
     room.setAiDebug(host.id, true);
     const updates: Array<{ id: string; status: string; version: number }> = [];
@@ -177,11 +195,11 @@ describe('AgentLoops', () => {
     try {
       interruptLoops.notify(room);
       const deadline = Date.now() + 1_000;
-      while (state.hands[ai.id]!.some((card) => card?.id === known.id) && Date.now() < deadline) {
+      while (holdsKnown() && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
-      expect(state.hands[ai.id]!.some((card) => card?.id === known.id)).toBe(false);
-      expect(state.currentTurn).toBe(hostSeat);
+      expect(holdsKnown()).toBe(false);
+      expect(cabo.getState().currentTurn).toBe(hostSeat);
       expect(new Set(updates.map((update) => update.id)).size).toBe(1);
       expect(updates.at(-1)?.status).toBe('executed');
       expect(updates.at(-1)?.version).toBeGreaterThan(1);

@@ -9,7 +9,10 @@
  *
  * Guarantees:
  *  - one pending timer per room (re-entrant notifications collapse);
- *  - every seat is driven by the built-in heuristic bot for its game;
+ *  - a seat is played by the trained model when one is loaded and knows the
+ *    game, otherwise by the built-in heuristic bot for its game;
+ *  - the model plays the round in the form it was trained on (the rules
+ *    core converts both ways); if it fails, the heuristic bot takes the turn;
  *  - a bot that throws, or proposes an illegal move, falls back to any
  *    engine-validated candidate.
  */
@@ -22,7 +25,10 @@ import {
   type GameAgent,
 } from '@game-night/agent-core';
 import { CaboHeuristicBot, PairOneHeuristicBot, SeepHeuristicBot } from '@game-night/agent-bots';
+import type { Round } from '@game-night/core';
+import type { GameAction } from '@game-night/shared';
 import type { AiDecisionPatch, Room } from '../room.js';
+import type { ModelPlayer } from './model.js';
 import { RoomError } from '../room.js';
 import { log } from '../log.js';
 import type { AiDecisionTrace } from '../protocol.js';
@@ -40,7 +46,18 @@ export interface AgentBroadcaster {
 export interface AgentLoopOptions {
   minThinkMs?: number;
   maxThinkMs?: number;
+  /** The trained player; without it every seat is a heuristic bot. */
+  model?: ModelPlayer | null;
 }
+
+/** What the model needs from an engine: its round in the rules core, and the way back to table actions. */
+interface CoreTable {
+  readonly table: Round;
+  fromCore(seat: number, move: unknown): GameAction;
+}
+
+/** Table actions made of several model moves stop here (a starting peek is one move per card). */
+const MAX_MODEL_MOVES = 16;
 
 export class AgentLoops {
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -51,6 +68,9 @@ export class AgentLoops {
   private flushBusy = new Set<string>();
   private readonly minThinkMs: number;
   private readonly maxThinkMs: number;
+  private model: ModelPlayer | null;
+  /** roomId:playerId → the situation the model was last asked about flushing in. */
+  private flushAsked = new Map<string, string>();
 
   constructor(
     private io: SocketServer,
@@ -59,6 +79,52 @@ export class AgentLoops {
   ) {
     this.minThinkMs = opts.minThinkMs ?? DEFAULT_MIN_THINK_MS;
     this.maxThinkMs = opts.maxThinkMs ?? DEFAULT_MAX_THINK_MS;
+    this.model = opts.model ?? null;
+  }
+
+  /** Seat AI players with this model from now on (null: heuristic bots). */
+  setModel(model: ModelPlayer | null): void {
+    this.model = model;
+  }
+
+  /** The room's game as the model plays it, when a model is loaded and knows the game. */
+  private coreTable(room: Room): CoreTable | null {
+    const engine = room.engine as Partial<CoreTable> | null;
+    if (!this.model || !engine || typeof engine.fromCore !== 'function' || !this.model.plays(room.gameId)) return null;
+    return engine as CoreTable;
+  }
+
+  private seatOf(room: Room, playerId: string): number {
+    const state = room.engine!.getState() as { players: Array<{ id: string }> };
+    return state.players.findIndex((player) => player.id === playerId);
+  }
+
+  /**
+   * What a flush decision depends on: the card on the discard pile and how
+   * many cards the seat knows. The model is asked once each time it changes.
+   */
+  private flushSituation(room: Room, playerId: string): string | null {
+    const view = room.gameView(playerId, { forAi: true }) as
+      | { gameId: string; knownCards?: Record<string, unknown> }
+      | null;
+    if (!view || view.gameId !== 'cabo') return null;
+    const discard = (room.engine!.getState() as { discard: Array<{ id: string }> }).discard;
+    return `${discard.length}:${discard.at(-1)?.id ?? ''}:${Object.keys(view.knownCards ?? {}).length}`;
+  }
+
+  /** An AI seat the model has not yet been asked about flushing in the present situation. */
+  private modelFlushToAsk(room: Room, core: CoreTable): string | null {
+    if (room.gameId !== 'cabo') return null;
+    for (const player of room.players.values()) {
+      if (player.kind !== 'ai') continue;
+      const situation = this.flushSituation(room, player.id);
+      if (situation === null || this.flushAsked.get(`${room.id}:${player.id}`) === situation) continue;
+      const asked = core.table.forSeat(this.seatOf(room, player.id), true, 0);
+      if (!asked) continue;
+      asked.free();
+      return player.id;
+    }
+    return null;
   }
 
   private async publishTrace(room: Room, trace: AiDecisionTrace | null): Promise<void> {
@@ -96,7 +162,12 @@ export class AgentLoops {
     if (!flushAiId && this.busy.has(room.id)) return;
     const aiId = flushAiId ?? this.aiToAct(room);
     if (!aiId) return;
-    const delay = this.minThinkMs + Math.floor(Math.random() * (this.maxThinkMs - this.minThinkMs));
+    // The model is asked about a flush at once and waits before acting only
+    // if it takes one: most asks end in "no", and should not hold the table up.
+    const delay =
+      flushAiId && this.coreTable(room)
+        ? Math.min(50, this.minThinkMs)
+        : this.minThinkMs + Math.floor(Math.random() * (this.maxThinkMs - this.minThinkMs));
     const timer = setTimeout(() => {
       this.timers.delete(room.id);
       void this.act(room, aiId, Boolean(flushAiId));
@@ -114,6 +185,8 @@ export class AgentLoops {
   private aiFlushToAct(room: Room): string | null {
     const engine = room.engine;
     if (!engine) return null;
+    const core = this.coreTable(room);
+    if (core) return this.modelFlushToAsk(room, core);
     const state = engine.getState() as { phase: string };
     if (state.phase === 'INITIAL_PEEK' || state.phase === 'ROUND_REVEAL' || state.phase === 'ROUND_COMPLETE') return null;
     for (const player of room.players.values()) {
@@ -167,6 +240,128 @@ export class AgentLoops {
     return agent;
   }
 
+  /**
+   * Let the model play this decision. Returns false when it could not, and
+   * the heuristic bot should take the turn instead. A flush ask always
+   * counts as handled: "no flush" is an answer.
+   */
+  private async actWithModel(room: Room, core: CoreTable, aiId: string, interruptOnly: boolean): Promise<boolean> {
+    const model = this.model!;
+    const view = room.gameView(aiId, { forAi: true });
+    const seat = this.seatOf(room, aiId);
+    if (!view || seat < 0) return false;
+    if (interruptOnly) {
+      if (this.flushAsked.size > 4096) this.flushAsked.clear();
+      this.flushAsked.set(`${room.id}:${aiId}`, this.flushSituation(room, aiId) ?? '');
+    }
+    const decisionRevision = view.revision;
+    const decisionEngine = room.engine;
+    const seed = randomBytes(4).readUInt32BE(0);
+    const agent = { kind: 'Model', label: 'trained player' };
+    // A turn shows as "thinking" while the model works; a flush ask shows only if it flushes.
+    let trace = interruptOnly ? null : room.beginAiDecision(aiId, agent);
+    await this.publishTrace(room, trace);
+    const fail = async (failure: string, summary: string): Promise<void> => {
+      const failed = trace ? room.updateAiDecision(trace.id, { status: 'failed', summary, failure, decisionSource: 'model' }) : null;
+      await this.publishTrace(room, failed);
+    };
+    const started = Date.now();
+    let move: unknown = null;
+    let rationale: string[] = [];
+    try {
+      const round = core.table.forSeat(seat, interruptOnly, seed);
+      if (!round) {
+        await fail('no_decision', 'The model had no decision to make here.');
+        return interruptOnly;
+      }
+      try {
+        for (let moves = 0; ; moves += 1) {
+          if (moves >= MAX_MODEL_MOVES) throw new Error('the model did not finish its action');
+          const choice = await model.choose(round, (seed + moves) >>> 0);
+          const legal = JSON.parse(round.legal()) as Array<{ type?: string } | string>;
+          const name = (i: number): string => {
+            const one = legal[i];
+            return typeof one === 'string' ? one : JSON.stringify(one);
+          };
+          rationale = choice.policy
+            .map((p, i) => ({ p, i }))
+            .sort((a, b) => b.p - a.p)
+            .slice(0, 4)
+            .map(({ p, i }) => {
+              const value = choice.values.length ? `, value ${choice.values[i]!.toFixed(2)}` : '';
+              return `${i === choice.index ? '→ ' : ''}${name(i)}: ${(100 * p).toFixed(0)}%${value}`;
+            });
+          const step = JSON.parse(round.atTable(choice.index)) as { action: unknown; more: boolean };
+          if (!step.more) {
+            move = step.action;
+            break;
+          }
+          round.step(choice.index);
+        }
+      } finally {
+        round.free();
+      }
+    } catch (err) {
+      log.warn('ai_model_error', { roomId: room.id, aiId, error: String(err).slice(0, 160) });
+      await fail('agent_error', 'The model failed; the heuristic bot takes this decision.');
+      return interruptOnly;
+    }
+    if (move === null) {
+      // Out of turn the model may decline to act; in turn there is always a move.
+      if (!interruptOnly) await fail('no_decision', 'The model chose no action.');
+      return interruptOnly;
+    }
+    let action: GameAction;
+    try {
+      action = core.fromCore(seat, move);
+    } catch (err) {
+      log.warn('ai_model_error', { roomId: room.id, aiId, error: String(err).slice(0, 160) });
+      await fail('illegal_action', 'The model\'s move could not be played at this table.');
+      return interruptOnly;
+    }
+    if (interruptOnly) {
+      trace = room.beginAiDecision(aiId, agent);
+      await this.publishTrace(room, trace);
+      // A person needs a moment to see the card and reach for theirs.
+      const reaction = (this.minThinkMs + Math.random() * (this.maxThinkMs - this.minThinkMs)) / 2;
+      await new Promise((resolve) => setTimeout(resolve, reaction));
+    }
+    const latencyMs = Date.now() - started;
+    const decided = trace
+      ? room.updateAiDecision(trace.id, {
+          status: 'decision',
+          summary: 'Chosen by the trained player after looking ahead.',
+          rationale,
+          proposedAction: action.type,
+          decisionSource: 'model',
+          latencyMs,
+        })
+      : null;
+    await this.publishTrace(room, decided);
+    const latestView = room.gameView(aiId, { forAi: true });
+    if (room.engine !== decisionEngine || !latestView || latestView.revision !== decisionRevision) {
+      await fail('stale_decision', 'The table changed while this decision was being prepared; the proposed move was discarded.');
+      // Asked again from the new position by the next notification.
+      if (interruptOnly) this.flushAsked.delete(`${room.id}:${aiId}`);
+      return true;
+    }
+    try {
+      room.handleGameAction(aiId, action);
+    } catch (err) {
+      if (!(err instanceof RoomError)) throw err;
+      log.warn('ai_model_refused', { roomId: room.id, aiId, type: action.type, error: err.message.slice(0, 160) });
+      await fail('illegal_action', 'The table refused the model\'s move.');
+      return interruptOnly;
+    }
+    const executed = trace
+      ? room.updateAiDecision(trace.id, { status: 'executed', executedAction: action.type, decisionSource: 'model', latencyMs })
+      : null;
+    await this.publishTrace(room, executed);
+    await this.broadcaster.afterChange(room);
+    log.debug('ai_action', { roomId: room.id, aiId, type: action.type, source: 'model' });
+    return true;
+  }
+
   private async act(room: Room, aiId: string, interruptOnly = false): Promise<void> {
     const guard = `${room.id}`;
     let activeTrace: AiDecisionTrace | null = null;
@@ -188,6 +383,8 @@ export class AgentLoops {
     }
     try {
       if (!room.engine || room.engine.isGameFinished()) return;
+      const core = this.coreTable(room);
+      if (core && (await this.actWithModel(room, core, aiId, interruptOnly))) return;
       // Test Mode is a human debugging aid. AI seats always receive their
       // normal filtered view, otherwise the host's reveal switch becomes a
       // hidden-information leak.

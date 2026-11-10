@@ -1,0 +1,15 @@
+[package]
+name = "gamelab-wasm"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "WebAssembly bindings of the Game Night rules core, for the site"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+gamelab = { path = "../gamelab" }
+serde_json.workspace = true
+# Must match the wasm-bindgen command that writes the JavaScript glue.
+wasm-bindgen = "=0.2.127"

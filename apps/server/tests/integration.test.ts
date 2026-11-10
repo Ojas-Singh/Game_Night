@@ -294,13 +294,15 @@ describe('socket integration', () => {
     host.on('room:ai_thought', (trace) => hostTraces.push(trace));
     guest.on('room:ai_thought', (trace) => guestTraces.push(trace));
     host.emit('room:set_ai_debug', { enabled: true });
+    // Listen before the game starts: the first view is the only one sent
+    // until somebody acts, and a person may be the one to open.
+    const hostTrack = new ViewTracker(host);
+    const guestTrack = new ViewTracker(guest);
     expect((await startGame(host)).ok).toBe(true);
 
     // The opening player is random. While a human owns the turn, drive a safe
     // turn from that human's own view until the AI seat takes its first
     // decision — otherwise the AI (correctly) waits forever for the humans.
-    const hostTrack = new ViewTracker(host);
-    const guestTrack = new ViewTracker(guest);
     const acting = async (
       track: ViewTracker,
       sock: TestSocket,

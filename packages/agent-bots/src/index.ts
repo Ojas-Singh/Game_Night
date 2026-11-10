@@ -4,8 +4,6 @@ export type { CaboHeuristicOptions } from './cabo-heuristic-bot.js';
 export { PairOneHeuristicBot } from './pairone-heuristic-bot.js';
 export { SeepHeuristicBot } from './seep-heuristic-bot.js';
 export type { SeepHeuristicOptions } from './seep-heuristic-bot.js';
-export { MonteCarloBot } from './montecarlo-bot.js';
-export type { SearchWorld, MonteCarloBotOptions } from './montecarlo-bot.js';
 
 import type { GameId } from '@game-night/agent-core';
 import type { GameAgent } from '@game-night/agent-core';

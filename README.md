@@ -22,7 +22,7 @@ docker compose up -d
 
 - Single `app` container serves the built web client and the Socket.IO server (WebSockets work through the Coolify proxy).
 - `redis` for future horizontal scaling; playing needs no database.
-- Env vars: `NODE_ENV`, `PORT`, `PUBLIC_URL`, `REDIS_URL`, `ROOM_TTL_MINUTES`, `SESSION_SECRET`, `RECONNECT_GRACE_MINUTES`, `LOG_LEVEL`.
+- Env vars: `NODE_ENV`, `PORT`, `PUBLIC_URL`, `REDIS_URL`, `ROOM_TTL_MINUTES`, `SESSION_SECRET`, `RECONNECT_GRACE_MINUTES`, `LOG_LEVEL`, and for the trained player and the lab `GAME_MODEL_DIR`, `GAME_MODEL_SAMPLES`, `GAME_LAB_KEY` (see "AI players, self-play and the game lab").
 
 Coolify: point a new Docker Compose resource at this repo; set `SESSION_SECRET`; expose port 3000.
 
@@ -97,29 +97,37 @@ apps/web                # React client (round-table Cabo, memory-grid Pair One, 
   common on corporate networks) need it for direct links.
 - HTTPS is required for microphone/camera access — see the Caddy profile above.
 
-## AI players & self-play
+## AI players, self-play and the game lab
 
-- **AI seats in live games**: the host clicks "AI seat" in the lobby. The seat
-  is played by the built-in heuristic bot for the chosen game (Cabo, Pair One
-  or Seep). AI turns run through the server's agent loop with human-like think
-  delays and go through the same action path as human moves. The host can
-  open the AI inspector at the table to see each decision.
-- **Self-play arena** (`apps/arena`): headless engine-level episodes with an
-  ELO ladder and JSONL trajectory recording:
-
-  ```
-  pnpm --filter @game-night/arena arena --game pairone --episodes 200 \
-      --seats heuristic,heuristic,random --record
-  ```
-
+- **AI seats in live games**: the host clicks "AI seat" in the lobby. When
+  `GAME_MODEL_DIR` points at an exported model (`player.onnx`, `judge.onnx`,
+  `model.json`, written by `python -m gamelab_train.export`), the seat is
+  played by the trained player with look-ahead search; `GAME_MODEL_SAMPLES`
+  sets how many deals the search samples per move (0 turns the search off).
+  Without a model, or for a game the model was not trained on, the seat is
+  played by the built-in heuristic bot. AI turns go through the same action
+  path as human moves, and the host can open the AI inspector at the table.
+- **Rules core** (`core/`, Rust): one implementation of every game, built
+  natively for self-play and search and as WASM for the server
+  (`packages/core`). Every rule is a setting; `gameInfo()` lists them.
+- **Self-play and training** are in `train/` (`gamelab_train`), and run on the
+  cluster (`train/iridis/`), not on the web server.
+- **Game lab** (`/lab`): choose a game, edit any rule, add rule sets, and
+  measure them over the same deals. The table marks numbers that moved by at
+  least 3 standard errors. Rounds can be played by random moves (mechanics
+  only), by the trained player, or by the trained player with search. The lab
+  is open in development; in production it is off unless `GAME_LAB_KEY` is
+  set, and the page then asks for that key. Runs use the web server's CPU, one
+  at a time, so long runs belong on the cluster:
+  `python -m gamelab_train.lab cabo --sweep startingCards=4,6 --json out.json`
+  writes a report that "Open a report file" on the lab page shows.
 - **Packages**: `agent-core` (agent contract, legal-action enumeration,
-  view serializers, trajectory recorder), `agent-bots` (random, heuristics,
-  flat Monte-Carlo search over a `SearchWorld` port).
+  view serializers), `agent-bots` (random and heuristic bots).
 
 ## Tests
 
 ```bash
-pnpm test   # 270 tests — 106 engine (Cabo + Pair One + Seep, incl. exhaustive Seep legal-action parity fuzz) + 68 server/transport (incl. full-game socket integration & persistence) + 75 web + 9 agent + 12 arena
+pnpm test
 ```
 
 House rules are data: Seep's scoring table, sweep bonus and deal shape live in

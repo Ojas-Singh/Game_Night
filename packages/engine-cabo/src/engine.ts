@@ -1,29 +1,17 @@
 /**
- * Server-authoritative Cabo engine.
+ * Server-authoritative Cabo, played by the rules core.
  *
- * Pure state-machine over JSON state: no networking, no timers, no DOM.
- * All validation happens here — clients only ever send intentions.
+ * The core (`core/gamelab`, loaded through `@game-night/core`) holds the
+ * round and decides every action. This class is the table's side of it: it
+ * names players and cards (the core knows seats and card numbers), keeps the
+ * state in the shape the views read, and writes the event log the clients
+ * animate from.
  */
 
-import {
-  standardDeck,
-  shuffle,
-  shuffleDeck,
-  createRng,
-  type Card,
-  type GameAction,
-  type GameEvent,
-  type GamePlayer,
-  type Rng,
-} from '@game-night/shared';
-import { DEFAULT_CABO_RULES, cardValue, powerForRank, type CaboPower, type CaboRules } from './rules.js';
-import type {
-  CaboAction,
-  CaboGameOptions,
-  CaboState,
-  PendingPower,
-  PendingTransfer,
-} from './types.js';
+import { apply, check, deal, gameInfo, load, type Round } from '@game-night/core';
+import { SUITS, type Card, type GameAction, type GameEvent, type GamePlayer, type Rank } from '@game-night/shared';
+import { DEFAULT_CABO_RULES, cardValue, type CaboPower, type CaboRules } from './rules.js';
+import type { CaboAction, CaboGameOptions, CaboPhase, CaboState } from './types.js';
 import { buildPlayerView } from './views.js';
 
 export type { CaboState } from './types.js';
@@ -45,31 +33,84 @@ function logWarn(msg: string, fields?: Record<string, unknown>): void {
   console.warn(JSON.stringify({ ts: new Date().toISOString(), level: 'warn', msg, ...fields }));
 }
 
-function findCard(hand: (Card | null)[], cardId: string): number {
-  return hand.findIndex((c) => c?.id === cardId);
+// ---------------------------------------------------------------------------
+// The core's side: seats, card numbers, its own names for phases and events
+// ---------------------------------------------------------------------------
+
+type CorePhase = 'InitialPeek' | 'TurnDraw' | 'DrawDecision' | 'PowerPending' | 'TurnEnd' | 'Complete';
+
+const PHASES: Record<CorePhase, CaboPhase> = {
+  InitialPeek: 'INITIAL_PEEK',
+  TurnDraw: 'TURN_DRAW',
+  DrawDecision: 'DRAW_DECISION',
+  PowerPending: 'POWER_PENDING',
+  TurnEnd: 'TURN_END',
+  Complete: 'ROUND_COMPLETE',
+};
+
+/** What the core tells the whole table happened (`CaboEvent`). */
+type CoreEvent =
+  | 'Reshuffled'
+  | { TurnStarted: { seat: number } }
+  | { Peeked: { seat: number; owner: number; slot: number } }
+  | { Drew: { seat: number } }
+  | { Kept: { seat: number; slot: number; discarded: number } }
+  | { Discarded: { seat: number; card: number } }
+  | { Swapped: { seat: number; own: number; target: number; slot: number } }
+  | { Flushed: { seat: number; owner: number; slot: number; card: number } }
+  | { FailedFlushOwn: { seat: number; slot: number; card: number } }
+  | { FailedFlushOther: { seat: number; target: number; slot: number } }
+  | { Penalty: { seat: number; slot: number } }
+  | { Transferred: { from: number; from_slot: number; to: number; to_slot: number } }
+  | { CaboCalled: { seat: number; auto: boolean } };
+
+/** The round as `Round.save` writes it (the fields used here). */
+interface CoreGame {
+  phase: CorePhase;
+  hands: (number | null)[][];
+  known: number[][];
+  deck: number[];
+  discard: number[];
+  turn: number;
+  drawn: number | null;
+  pending_power: [CaboPower, number] | null;
+  transfers: { from: number; to: number }[];
+  cabo: { caller: number; taken: number[] } | null;
+  peeks_remaining: number;
+  turns_started: number;
+  result: { scores: number[]; winners: number[] } | null;
+  log: CoreEvent[];
 }
 
-/** Number of actual cards in a (possibly gap-riddled) hand. */
-function liveCount(hand: (Card | null)[]): number {
-  let n = 0;
-  for (const c of hand) if (c) n += 1;
-  return n;
+interface CoreSave {
+  rules: CaboRules;
+  game: CoreGame;
 }
 
-/** Place a card into the first empty slot, or append when there is none. */
-function placeCard(hand: (Card | null)[], card: Card): void {
-  const gap = hand.findIndex((c) => c === null);
-  if (gap >= 0) hand[gap] = card;
-  else hand.push(card);
+type CoreAction =
+  | { type: 'PEEK_STARTING'; slots: number }
+  | { type: 'DRAW' | 'DISCARD_DRAWN' | 'CALL_CABO' | 'END_TURN' }
+  | { type: 'KEEP' | 'PEEK_OWN' | 'TRANSFER'; slot: number }
+  | { type: 'PEEK_OTHER' | 'FLUSH_OTHER'; target: number; slot: number }
+  | { type: 'BLIND_SWAP'; own: number; target: number; slot: number }
+  | { type: 'FLUSH_OWN'; slots: number };
+
+/** The face a card number stands for in the core. */
+function faceOf(n: number): { suit: Card['suit']; rank: Rank } {
+  return { suit: SUITS[Math.floor((n % 52) / 13)]!, rank: ((n % 13) + 1) as Rank };
+}
+
+function liveCount(hand: (unknown | null)[]): number {
+  return hand.filter((c) => c !== null).length;
 }
 
 export class CaboEngine {
   readonly gameId = 'cabo';
-  readonly stateVersion = 1 as const;
+  readonly stateVersion = 2 as const;
 
   private state: CaboState | null = null;
+  private round: Round | null = null;
   private rules: CaboRules = { ...DEFAULT_CABO_RULES };
-  private rng: Rng = createRng();
 
   getRules(): CaboRules {
     return this.rules;
@@ -80,19 +121,18 @@ export class CaboEngine {
     return this.state;
   }
 
-  /** Restore a previously serialized state (reconnect / redis restore). */
-  restoreState(state: CaboState, rules?: Partial<CaboRules>): void {
-    if (state.stateVersion !== 1) INVALID('unsupported state version');
-    // Keep snapshots written before starting-peek metadata was introduced
-    // loadable; this field only drives the client reveal.
-    state.initialPeekCardIds ??= {};
-    // Transfer queues were added without changing the snapshot version. Old
-    // snapshots have at most the single legacy pendingTransfer entry.
-    state.pendingTransfers ??= state.pendingTransfer ? [state.pendingTransfer] : [];
-    state.pendingTransfer = state.pendingTransfers[0] ?? null;
+  /** Restore a previously serialized state (reconnect / redis restore). The
+   *  round continues from `state.core`; the rules are the ones it was dealt with. */
+  restoreState(state: CaboState, _rules?: Partial<CaboRules>): void {
+    if (state.stateVersion !== 2) INVALID('unsupported state version');
+    try {
+      this.round = load('cabo', state.core);
+    } catch (err) {
+      INVALID(String((err as Error).message ?? err));
+    }
+    this.rules = (state.core as CoreSave).rules;
     this.state = state;
-    this.rules = { ...DEFAULT_CABO_RULES, ...rules };
-    this.rng = createRng();
+    this.refresh();
   }
 
   // -------------------------------------------------------------------
@@ -100,63 +140,115 @@ export class CaboEngine {
   // -------------------------------------------------------------------
 
   createGame(players: GamePlayer[], options: CaboGameOptions = {}): void {
-    this.rules = { ...DEFAULT_CABO_RULES, ...options.rules };
-    const rules = this.rules;
-    if (players.length < rules.minPlayers || players.length > rules.maxPlayers) {
-      INVALID(`cabo requires ${rules.minPlayers}-${rules.maxPlayers} players`);
+    const rules: CaboRules = { ...DEFAULT_CABO_RULES, ...options.rules };
+    const info = gameInfo('cabo');
+    if (players.length < info.minPlayers || players.length > info.maxPlayers) {
+      INVALID(`cabo requires ${info.minPlayers}-${info.maxPlayers} players`);
     }
     const seats = [...players].sort((a, b) => a.seat - b.seat);
-    this.rng = createRng(options.seed);
+    let round: Round;
+    try {
+      round = deal('cabo', rules, seats.length, options.seed);
+    } catch (err) {
+      INVALID(String((err as Error).message ?? err));
+    }
+    let saved = JSON.parse(round.save()) as CoreSave;
+    const cards: Record<string, Card> = {};
 
-    const deck = options.forcedDeck ? options.forcedDeck.slice() : shuffleDeck(standardDeck(), this.rng);
-    // The host starts the room, but does not automatically get the first
-    // turn. Use the authoritative RNG so production games are random while
-    // seeded/debug games remain reproducible.
-    const firstTurnSeat = options.firstTurnSeat ?? this.rng.int(seats.length);
+    if (options.forcedDeck) {
+      // A deck given card by card (debug mode, tests): the cards keep the ids
+      // they came with and stand in the core as numbers of the same face.
+      const numbers = this.numberForced(options.forcedDeck, rules, cards);
+      const hands: number[][] = seats.map(() => []);
+      for (let r = 0; r < rules.startingCards; r++) {
+        for (const hand of hands) {
+          const n = numbers.pop();
+          if (n === undefined) INVALID('deck exhausted while dealing');
+          hand.push(n);
+        }
+      }
+      saved.game.deck = numbers;
+      saved.game.hands = hands;
+    } else {
+      // Ids follow the order of the shuffled deck before the deal, so they
+      // say nothing about the face.
+      const g = saved.game;
+      const dealt: number[] = [];
+      for (let r = 0; r < rules.startingCards; r++) for (const hand of g.hands) dealt.push(hand[r]!);
+      [...g.deck, ...dealt.reverse()].forEach((n, i) => {
+        cards[n] = { id: `c-${i}`, ...faceOf(n) };
+      });
+    }
+    if (options.firstTurnSeat !== undefined) saved.game.turn = options.firstTurnSeat;
+    if (options.forcedDeck || options.firstTurnSeat !== undefined) {
+      try {
+        round = load('cabo', saved);
+      } catch (err) {
+        INVALID(String((err as Error).message ?? err));
+      }
+      saved = JSON.parse(round.save()) as CoreSave;
+    }
 
-    const state: CaboState = {
-      stateVersion: 1,
+    this.round = round;
+    this.rules = rules;
+    this.state = {
+      stateVersion: 2,
       gameId: 'cabo',
       phase: 'INITIAL_PEEK',
       players: seats,
       hands: {},
       knowledge: {},
-      deck,
+      deck: [],
       discard: [],
-      currentTurn: firstTurnSeat,
+      currentTurn: 0,
       drawnCard: null,
       pendingPower: null,
       pendingTransfer: null,
       pendingTransfers: [],
       cabo: null,
-      initialPeeksRemaining: seats.map((p) => p.id),
-      initialPeekCardIds: {},
+      initialPeeksRemaining: [],
+      initialPeekCardIds: Object.fromEntries(seats.map((p) => [p.id, []])),
       scores: null,
       roundWinnerId: null,
       tiedWinnerIds: [],
       events: [],
       revision: 1,
       eventSeq: 0,
+      core: saved,
+      cards,
     };
-    for (const p of seats) {
-      state.hands[p.id] = [];
-      state.knowledge[p.id] = [];
-      state.initialPeekCardIds[p.id] = [];
-    }
-
-    // Deal starting cards round-robin so positions feel physical.
-    for (let round = 0; round < rules.startingCards; round++) {
-      for (const p of seats) {
-        const card = state.deck.pop();
-        if (!card) INVALID('deck exhausted while dealing');
-        state.hands[p.id]!.push(card);
-      }
-    }
-
-    this.state = state;
+    this.refresh();
     this.emit('ROUND_STARTED', { playerIds: seats.map((p) => p.id) });
     this.emit('CARDS_DEALT', {
-      perPlayer: seats.map((p) => ({ playerId: p.id, cardCount: state.hands[p.id]!.length })),
+      perPlayer: seats.map((p) => ({ playerId: p.id, cardCount: this.state!.hands[p.id]!.length })),
+    });
+  }
+
+  /**
+   * Core numbers for a forced deck. Only a card's rank, and for a king its
+   * colour, matter to the rules, so a face given more often than the core
+   * has copies of it borrows the number of another suit; the card the table
+   * sees stays the one that was given.
+   */
+  private numberForced(deck: Card[], rules: CaboRules, cards: Record<string, Card>): number[] {
+    const kingsDiffer = rules.redKingValue !== rules.blackKingValue;
+    const red = (suit: number) => suit === 1 || suit === 2;
+    return deck.map((card) => {
+      const own = SUITS.indexOf(card.suit);
+      const suits = [own, ...[0, 1, 2, 3].filter((s) => s !== own)].filter(
+        (s) => !(card.rank === 13 && kingsDiffer) || red(s) === red(own),
+      );
+      // The core holds card numbers below 128: two full decks and part of a third.
+      for (let copy = 0; copy < 3; copy++) {
+        for (const suit of suits) {
+          const n = copy * 52 + suit * 13 + card.rank - 1;
+          if (n < 128 && !(n in cards)) {
+            cards[n] = card;
+            return n;
+          }
+        }
+      }
+      INVALID('too many copies of one card in the forced deck');
     });
   }
 
@@ -171,11 +263,9 @@ export class CaboEngine {
 
   calculateScore(): Record<string, number> {
     const s = this.getState();
-    const out: Record<string, number> = {};
-    for (const p of s.players) {
-      out[p.id] = s.hands[p.id]!.reduce((sum, c) => sum + (c ? cardValue(c, this.rules) : 0), 0);
-    }
-    return out;
+    return Object.fromEntries(
+      s.players.map((p) => [p.id, s.hands[p.id]!.reduce((sum, c) => sum + (c ? cardValue(c, this.rules) : 0), 0)]),
+    );
   }
 
   getPublicState(): unknown {
@@ -205,8 +295,8 @@ export class CaboEngine {
 
   validateAction(action: GameAction): boolean {
     try {
-      this.checkAction(action as CaboAction);
-      return true;
+      const { seat, move } = this.translate(action as CaboAction);
+      return check(this.round!, seat, move) === null;
     } catch {
       return false;
     }
@@ -229,657 +319,382 @@ export class CaboEngine {
     return { ok: true, events: s.events.filter((e) => e.seq > before) };
   }
 
-  private currentPlayerId(): string {
-    const s = this.getState();
-    return s.players[s.currentTurn]?.id ?? INVALID('no current player');
+  /** The round in the rules core, as it stands (for the model seat; do not change it). */
+  get table(): Round {
+    return this.round ?? INVALID('game not started');
   }
 
-  private checkAction(a: CaboAction): void {
+  /** An action of the rules core, by `seat`, as the action the table takes. */
+  fromCore(seat: number, move: unknown): CaboAction {
     const s = this.getState();
-    const ids = s.players.map((p) => p.id);
-    if (!ids.includes(a.playerId)) INVALID('player not in this game');
+    const m = move as CoreAction;
+    const playerId = s.players[seat]?.id ?? INVALID('player not in this game');
+    const idAt = (owner: number, slot: number): string =>
+      s.hands[s.players[owner]?.id ?? '']?.[slot]?.id ?? INVALID('no card in that position');
+    const slotsOf = (mask: number): number[] => [...Array(32).keys()].filter((i) => (mask >>> i) & 1);
+    switch (m.type) {
+      case 'PEEK_STARTING':
+        return { type: 'PEEK_STARTING', playerId, cardIndexes: slotsOf(m.slots) };
+      case 'DRAW':
+      case 'DISCARD_DRAWN':
+      case 'CALL_CABO':
+      case 'END_TURN':
+        return { type: m.type, playerId };
+      case 'KEEP':
+        return { type: 'KEEP_DRAWN', playerId, handIndex: m.slot };
+      case 'PEEK_OWN':
+        return { type: 'POWER_APPLY', playerId, payload: { power: 'PEEK_OWN', cardId: idAt(seat, m.slot) } };
+      case 'PEEK_OTHER':
+        return {
+          type: 'POWER_APPLY',
+          playerId,
+          payload: { power: 'PEEK_OTHER', targetPlayerId: s.players[m.target]!.id, cardId: idAt(m.target, m.slot) },
+        };
+      case 'BLIND_SWAP':
+        return {
+          type: 'POWER_APPLY',
+          playerId,
+          payload: {
+            power: 'BLIND_SWAP',
+            ownCardId: idAt(seat, m.own),
+            targetPlayerId: s.players[m.target]!.id,
+            targetCardId: idAt(m.target, m.slot),
+          },
+        };
+      case 'FLUSH_OWN':
+        return { type: 'FLUSH_OWN', playerId, cardIds: slotsOf(m.slots).map((i) => idAt(seat, i)) };
+      case 'FLUSH_OTHER':
+        return { type: 'FLUSH_OTHER', playerId, targetPlayerId: s.players[m.target]!.id, cardId: idAt(m.target, m.slot) };
+      case 'TRANSFER':
+        return { type: 'TRANSFER_CARD', playerId, cardId: idAt(seat, m.slot) };
+      default:
+        return INVALID(`unknown action type: ${(m as { type: string }).type}`);
+    }
+  }
+
+  /** The action as the core takes it: a seat, and hand positions for card ids. */
+  private translate(a: CaboAction): { seat: number; move: CoreAction } {
+    const s = this.getState();
+    const seatOf = (id: string) => s.players.findIndex((p) => p.id === id);
+    const seat = seatOf(a.playerId);
+    if (seat < 0) INVALID('player not in this game');
+    const slotOf = (playerId: string, cardId: string, missing: string): number => {
+      const slot = s.hands[playerId]!.findIndex((c) => c?.id === cardId);
+      return slot >= 0 ? slot : INVALID(missing);
+    };
+    const target = (id: string, missing: string): number => {
+      const t = seatOf(id);
+      return t >= 0 ? t : INVALID(missing);
+    };
+    const mask = (slots: number[], duplicate: string): number => {
+      if (new Set(slots).size !== slots.length) INVALID(duplicate);
+      return slots.reduce((m, i) => m | (1 << i), 0) >>> 0;
+    };
     switch (a.type) {
       case 'PEEK_STARTING': {
-        if (s.phase !== 'INITIAL_PEEK') INVALID('not in initial peek phase');
-        if (!s.initialPeeksRemaining.includes(a.playerId)) INVALID('already peeked');
         const hand = s.hands[a.playerId]!;
-        const uniq = new Set(a.cardIndexes);
-        if (uniq.size !== a.cardIndexes.length) INVALID('duplicate peek indexes');
-        if (a.cardIndexes.length !== this.rules.initialPeekCards) {
+        for (const i of a.cardIndexes) {
+          if (!Number.isInteger(i) || i < 0 || i >= hand.length) INVALID('peek index out of range');
+        }
+        if (a.cardIndexes.length !== this.rules.initialPeekCards && s.phase === 'INITIAL_PEEK') {
           INVALID(`must peek exactly ${this.rules.initialPeekCards} cards`);
         }
-        for (const i of a.cardIndexes) {
-          if (i < 0 || i >= hand.length) INVALID('peek index out of range');
-          if (!hand[i]) INVALID('peek index points at an empty slot');
-        }
-        return;
+        return { seat, move: { type: 'PEEK_STARTING', slots: mask(a.cardIndexes, 'duplicate peek indexes') } };
       }
-      case 'DRAW': {
-        if (s.phase !== 'TURN_DRAW') INVALID('not a draw moment');
-        if (a.playerId !== this.currentPlayerId()) INVALID('not your turn');
-        return;
-      }
+      case 'DRAW':
+      case 'DISCARD_DRAWN':
+      case 'CALL_CABO':
+      case 'END_TURN':
+        return { seat, move: { type: a.type } };
       case 'KEEP_DRAWN': {
-        if (s.phase !== 'DRAW_DECISION') INVALID('no drawn card to resolve');
-        if (a.playerId !== this.currentPlayerId()) INVALID('not your turn');
-        if (a.handIndex < 0 || a.handIndex >= s.hands[a.playerId]!.length) {
-          INVALID('hand index out of range');
+        if (!Number.isInteger(a.handIndex) || a.handIndex < 0 || a.handIndex >= s.hands[a.playerId]!.length) {
+          INVALID(s.phase === 'DRAW_DECISION' ? 'hand index out of range' : 'no drawn card to resolve');
         }
-        if (!s.hands[a.playerId]![a.handIndex]) INVALID('hand index points at an empty slot');
-        return;
-      }
-      case 'DISCARD_DRAWN': {
-        if (s.phase !== 'DRAW_DECISION') INVALID('no drawn card to resolve');
-        if (a.playerId !== this.currentPlayerId()) INVALID('not your turn');
-        return;
+        return { seat, move: { type: 'KEEP', slot: a.handIndex } };
       }
       case 'POWER_APPLY': {
-        this.checkPowerApply(a);
-        return;
+        const p = a.payload;
+        // Without a power to use there is no card to look for.
+        if (!s.pendingPower || s.phase !== 'POWER_PENDING') INVALID('no power pending');
+        switch (p.power) {
+          case 'PEEK_OWN':
+            return { seat, move: { type: 'PEEK_OWN', slot: slotOf(a.playerId, p.cardId, 'card not in your hand') } };
+          case 'PEEK_OTHER': {
+            const t = target(p.targetPlayerId, 'target not in game');
+            return { seat, move: { type: 'PEEK_OTHER', target: t, slot: slotOf(p.targetPlayerId, p.cardId, 'card not in target hand') } };
+          }
+          case 'BLIND_SWAP': {
+            const own = slotOf(a.playerId, p.ownCardId, 'own card not in hand');
+            const t = target(p.targetPlayerId, 'must target another player');
+            const slot = slotOf(p.targetPlayerId, p.targetCardId, 'target card not in target hand');
+            return { seat, move: { type: 'BLIND_SWAP', own, target: t, slot } };
+          }
+          default:
+            INVALID('wrong power action');
+        }
       }
+      // eslint-disable-next-line no-fallthrough
       case 'FLUSH_OWN': {
-        if (s.phase === 'INITIAL_PEEK' || s.phase === 'ROUND_REVEAL' || s.phase === 'ROUND_COMPLETE') {
-          INVALID('flushing not allowed now');
-        }
         if (a.cardIds.length === 0) INVALID('no cards selected');
-        const hand = s.hands[a.playerId]!;
-        const seen = new Set<string>();
-        for (const id of a.cardIds) {
-          if (seen.has(id)) INVALID('duplicate card in flush');
-          seen.add(id);
-          if (findCard(hand, id) < 0) INVALID('card not in your hand');
-        }
-        return;
+        if (new Set(a.cardIds).size !== a.cardIds.length) INVALID('duplicate card in flush');
+        const slots = a.cardIds.map((id) => slotOf(a.playerId, id, 'card not in your hand'));
+        return { seat, move: { type: 'FLUSH_OWN', slots: mask(slots, 'duplicate card in flush') } };
       }
       case 'FLUSH_OTHER': {
-        if (s.phase === 'INITIAL_PEEK' || s.phase === 'ROUND_REVEAL' || s.phase === 'ROUND_COMPLETE') {
-          INVALID('flushing not allowed now');
-        }
         if (a.playerId === a.targetPlayerId) INVALID('target must be another player');
-        if (!ids.includes(a.targetPlayerId)) INVALID('target not in game');
-        const targetHand = s.hands[a.targetPlayerId]!;
-        if (findCard(targetHand, a.cardId) < 0) INVALID('card not in target hand');
-        return;
+        const t = target(a.targetPlayerId, 'target not in game');
+        return { seat, move: { type: 'FLUSH_OTHER', target: t, slot: slotOf(a.targetPlayerId, a.cardId, 'card not in target hand') } };
       }
       case 'TRANSFER_CARD': {
-        if (s.phase !== 'TRANSFER_PENDING') INVALID('no pending transfer');
-        const t = this.pendingTransferQueue().find((pending) => pending.fromPlayerId === a.playerId);
-        if (!t) INVALID('you have no pending transfer');
-        if (findCard(s.hands[a.playerId]!, a.cardId) < 0) INVALID('card not in your hand');
-        return;
-      }
-      case 'CALL_CABO': {
-        if (!this.rules.cabo.enabled) INVALID('cabo calling disabled');
-        if (s.phase !== 'TURN_END') INVALID('play your turn first — cabo is called at the end of your action');
-        if (a.playerId !== this.currentPlayerId()) INVALID('not your turn');
-        if (s.cabo) INVALID('cabo already called');
-        return;
-      }
-      case 'END_TURN': {
-        if (s.phase !== 'TURN_END') INVALID('nothing to end');
-        if (a.playerId !== this.currentPlayerId()) INVALID('not your turn');
-        return;
+        if (s.pendingTransfers.length === 0) INVALID('no pending transfer');
+        if (!s.pendingTransfers.some((t) => t.fromPlayerId === a.playerId)) INVALID('you have no pending transfer');
+        return { seat, move: { type: 'TRANSFER', slot: slotOf(a.playerId, a.cardId, 'card not in your hand') } };
       }
       default:
         INVALID(`unknown action type: ${(a as { type: string }).type}`);
     }
   }
 
-  private checkPowerApply(a: Extract<CaboAction, { type: 'POWER_APPLY' }>): void {
-    const s = this.getState();
-    const pending = s.pendingPower;
-    if (!pending) INVALID('no power pending');
-    if (a.playerId !== pending.playerId) INVALID('you do not owe a power action');
-    const payload = a.payload;
-    if (payload.power !== pending.power) INVALID('wrong power action');
-    const others = s.players.filter((p) => p.id !== a.playerId);
-    void others;
-    switch (payload.power) {
-      case 'PEEK_OWN': {
-        if (findCard(s.hands[a.playerId]!, payload.cardId) < 0) INVALID('card not in your hand');
-        return;
-      }
-      case 'PEEK_OTHER': {
-        if (payload.targetPlayerId === a.playerId) INVALID('must target another player');
-        const target = s.players.find((p) => p.id === payload.targetPlayerId);
-        if (!target) INVALID('target not in game');
-        if (findCard(s.hands[payload.targetPlayerId]!, payload.cardId) < 0) {
-          INVALID('card not in target hand');
-        }
-        return;
-      }
-      case 'BLIND_SWAP': {
-        if (findCard(s.hands[a.playerId]!, payload.ownCardId) < 0) INVALID('own card not in hand');
-        const target = s.players.find((p) => p.id === payload.targetPlayerId);
-        if (!target || target.id === a.playerId) INVALID('must target another player');
-        if (findCard(s.hands[payload.targetPlayerId]!, payload.targetCardId) < 0) {
-          INVALID('target card not in target hand');
-        }
-        return;
-      }
-    }
-  }
-
-  // -------------------------------------------------------------------
-  // Mutations
-  // -------------------------------------------------------------------
-
   private applyAction(a: CaboAction): void {
-    this.checkAction(a);
-    const s = this.getState();
-    switch (a.type) {
-      case 'PEEK_STARTING': {
-        const peekedIds: string[] = [];
-        for (const i of a.cardIndexes) {
-          const card = s.hands[a.playerId]![i]!;
-          this.learn(a.playerId, card.id);
-          peekedIds.push(card.id);
-        }
-        s.initialPeekCardIds[a.playerId] = peekedIds;
-        s.initialPeeksRemaining = s.initialPeeksRemaining.filter((id) => id !== a.playerId);
-        this.emit('INITIAL_PEEKED', { playerId: a.playerId, count: a.cardIndexes.length });
-        if (s.initialPeeksRemaining.length === 0) {
-          s.phase = 'TURN_DRAW';
-          this.emit('TURN_STARTED', { playerId: this.currentPlayerId() });
-        }
-        return;
-      }
-      case 'DRAW': {
-        this.drawCard(a.playerId);
-        return;
-      }
-      case 'KEEP_DRAWN': {
-        this.keepDrawn(a.playerId, a.handIndex);
-        return;
-      }
-      case 'DISCARD_DRAWN': {
-        const card = s.drawnCard;
-        if (!card) INVALID('no drawn card');
-        s.drawnCard = null;
-        this.forgetAll(card.id);
-        s.discard.push(card);
-        this.emit('CARD_DISCARDED', { playerId: a.playerId, cardId: card.id, rank: card.rank });
-        this.afterDiscard(a.playerId, card);
-        return;
-      }
-      case 'POWER_APPLY': {
-        this.applyPower(a.playerId, a.payload);
-        return;
-      }
-      case 'FLUSH_OWN': {
-        const sNow = s;
-        const hand = sNow.hands[a.playerId]!;
-        const cards = a.cardIds
-          .map((id) => hand.find((c) => c?.id === id)!)
-          .sort((x, y) => findCard(hand, x.id) - findCard(hand, y.id));
-        const top = sNow.discard[sNow.discard.length - 1];
-        const mismatches = top ? cards.filter((c) => c.rank !== top.rank) : [];
-        if (mismatches.length > 0) {
-          // Misflush: a visible mistake. Everyone sees the wrong card(s), the
-          // cards stay in hand, and the player draws a penalty card.
-          for (const card of mismatches) this.revealToAll(card);
-          this.emit('FAILED_FLUSH_OWN', {
-            playerId: a.playerId,
-            cardIds: mismatches.map((c) => c.id),
-            ranks: mismatches.map((c) => c.rank),
-          });
-          this.applyWrongFlushPenalty(a.playerId);
-          return;
-        }
-        for (const card of cards) {
-          // Leave a gap: every other card keeps its exact position.
-          hand[findCard(hand, card.id)] = null;
-          this.forgetAll(card.id);
-          sNow.discard.push(card);
-          this.emit('CARD_FLUSHED', { playerId: a.playerId, sourcePlayerId: a.playerId, cardId: card.id, rank: card.rank });
-        }
-        this.dropTransfersFromEmptyHands();
-        this.checkPlayerOutOrAdvance(a.playerId);
-        return;
-      }
-      case 'FLUSH_OTHER': {
-        const targetHand = s.hands[a.targetPlayerId]!;
-        const idx = findCard(targetHand, a.cardId);
-        const card = targetHand[idx]!;
-        const top = s.discard[s.discard.length - 1];
-        if (top && card.rank === top.rank) {
-          // Leave a gap at the flushed position — the target's remaining cards
-          // do NOT slide around (positions are memory information).
-          targetHand[idx] = null;
-          this.forgetAll(card.id);
-          s.discard.push(card);
-          this.emit('CARD_FLUSHED', {
-            playerId: a.playerId,
-            sourcePlayerId: a.targetPlayerId,
-            cardId: card.id,
-            rank: card.rank,
-          });
-          if (liveCount(s.hands[a.playerId]!) === 0) {
-            // The flusher has no card left to hand over: nothing to transfer.
-            this.emit('TRANSFER_SKIPPED', { fromPlayerId: a.playerId, toPlayerId: a.targetPlayerId });
-            this.checkPlayerOutOrAdvance(a.targetPlayerId);
-            return;
-          }
-          const transferQueue = this.pendingTransferQueue();
-          const phaseBefore = transferQueue[0]?.phaseBefore ?? s.phase;
-          transferQueue.push({
-            fromPlayerId: a.playerId,
-            toPlayerId: a.targetPlayerId,
-            phaseBefore,
-          });
-          s.pendingTransfer = transferQueue[0] ?? null;
-          s.phase = 'TRANSFER_PENDING';
-          this.emit('TRANSFER_REQUIRED', { fromPlayerId: a.playerId, toPlayerId: a.targetPlayerId });
-          this.checkPlayerOut(a.targetPlayerId);
-        } else {
-          // Wrong guess at another player's card: completely PRIVATE. The
-          // card stays with its owner, its identity is shown to NO ONE (not
-          // even the guesser), and the guesser silently draws a penalty card.
-          this.emit('FAILED_FLUSH_OTHER', {
-            playerId: a.playerId,
-            targetPlayerId: a.targetPlayerId,
-            cardId: card.id,
-          });
-          this.applyWrongFlushPenalty(a.playerId);
-        }
-        return;
-      }
-      case 'TRANSFER_CARD': {
-        const transferQueue = this.pendingTransferQueue();
-        const transferIndex = transferQueue.findIndex((pending) => pending.fromPlayerId === a.playerId);
-        const t = transferQueue[transferIndex];
-        if (!t) INVALID('you have no pending transfer');
-        const hand = s.hands[t.fromPlayerId]!;
-        const idx = findCard(hand, a.cardId);
-        const card = hand[idx]!;
-        hand[idx] = null;
-        placeCard(s.hands[t.toPlayerId]!, card);
-        transferQueue.splice(transferIndex, 1);
-        s.pendingTransfer = transferQueue[0] ?? null;
-        if (transferQueue.length === 0) s.phase = t.phaseBefore;
-        this.emit('CARD_TRANSFERRED', {
-          fromPlayerId: t.fromPlayerId,
-          toPlayerId: t.toPlayerId,
-          cardId: card.id,
-        });
-        // Paying one transfer can empty the hand while another is still owed.
-        this.dropTransfersFromEmptyHands();
-        this.checkPlayerOutOrAdvance(t.fromPlayerId);
-        return;
-      }
-      case 'CALL_CABO': {
-        s.cabo = { callerId: a.playerId, takenFinalTurn: [] };
-        this.emit('CABO_CALLED', { playerId: a.playerId });
-        this.advanceTurn();
-        return;
-      }
-      case 'END_TURN': {
-        // Finishing your action with zero cards auto-calls Cabo (score 0):
-        // the player cannot draw, so their turn would be empty anyway.
-        if (liveCount(s.hands[a.playerId]!) === 0 && this.rules.cabo.enabled && !s.cabo) {
-          s.cabo = { callerId: a.playerId, takenFinalTurn: [] };
-          this.emit('CABO_CALLED', { playerId: a.playerId, auto: true });
-        }
-        this.advanceTurn();
-        return;
-      }
+    const { move, seat } = this.translate(a);
+    const before = this.getState();
+    const was = (before.core as CoreSave).game;
+    const refused = apply(this.round!, seat, move);
+    if (refused !== null) INVALID(refused);
+
+    // The state is rebuilt, not edited, so `before` still shows the table as
+    // it was: the events below name cards by where they lay.
+    const prior = { ...before, hands: { ...before.hands } };
+    if (a.type === 'PEEK_STARTING') {
+      before.initialPeekCardIds[a.playerId] = a.cardIndexes.map((i) => prior.hands[a.playerId]![i]!.id);
     }
+    this.refresh();
+    this.report(a, prior, was);
   }
 
-  /** Draw a card into the active player's hand-slot (held, not yet kept). */
-  private drawCard(playerId: string): void {
-    const s = this.getState();
-    if (s.deck.length === 0) {
-      if (this.rules.emptyDeckBehavior === 'end_round') {
-        this.endRound('DECK_EXHAUSTED');
-        return;
-      }
-      // Reshuffle the discard pile (keeping its top) into a fresh deck.
-      const top = s.discard.pop();
-      s.deck = shuffle(s.discard, this.rng);
-      s.discard = top ? [top] : [];
-      this.emit('DECK_RESHUFFLED', { newDeckCount: s.deck.length });
-    }
-    const card = s.deck.pop()!;
-    s.drawnCard = card;
-    this.learn(playerId, card.id);
-    s.phase = 'DRAW_DECISION';
-    this.emit('CARD_DRAWN', { playerId, deckCount: s.deck.length });
-  }
+  // -------------------------------------------------------------------
+  // State, as the views read it
+  // -------------------------------------------------------------------
 
-  /** Keep the drawn card, replacing hand[handIndex]; the replaced card is
-   *  discarded and ITS power (if any) is what triggers. */
-  private keepDrawn(playerId: string, handIndex: number): void {
-    const s = this.getState();
-    const drawn = s.drawnCard!;
-    const hand = s.hands[playerId]!;
-    const replaced = hand[handIndex]!;
-    hand[handIndex] = drawn;
-    s.drawnCard = null;
-    this.forgetAll(replaced.id);
-    s.discard.push(replaced);
-    this.emit('CARD_REPLACED', {
-      playerId,
-      keptCardId: drawn.id,
-      replacedCardId: replaced.id,
-      rank: replaced.rank,
+  /** Rewrite the state from the round as the core now has it. */
+  private refresh(): void {
+    const s = this.state!;
+    const saved = JSON.parse(this.round!.save()) as CoreSave;
+    const g = saved.game;
+    const card = (n: number): Card => s.cards[n] ?? INVALID('unknown card in the round');
+    const id = (seat: number): string => s.players[seat]!.id;
+    const phase = PHASES[g.phase];
+
+    s.core = saved;
+    s.phase = g.transfers.length > 0 ? 'TRANSFER_PENDING' : phase;
+    s.deck = g.deck.map(card);
+    s.discard = g.discard.map(card);
+    s.currentTurn = g.turn;
+    s.drawnCard = g.drawn === null ? null : card(g.drawn);
+    s.hands = {};
+    s.knowledge = {};
+    s.players.forEach((p, seat) => {
+      s.hands[p.id] = g.hands[seat]!.map((n) => (n === null ? null : card(n)));
+      s.knowledge[p.id] = g.known[seat]!.map((n) => card(n).id);
     });
-    this.afterDiscard(playerId, replaced);
-  }
-
-  /** After any discard: trigger the discarded card's power if it has one,
-   *  otherwise end the turn. Mandatory — the turn cannot advance past a
-   *  pending power. */
-  private afterDiscard(playerId: string, card: Card): void {
-    let power = powerForRank(card.rank, this.rules);
-    // A power is SKIPPED when it has nothing to act on: e.g. after a cabo call
-    // the caller may have no cards left on the table, so there is nothing to
-    // peek at or swap with, and the turn simply ends instead of dead-locking.
-    if (power && !this.powerCanApply(playerId, power)) power = null;
-    if (power) {
-      this.getState().pendingPower = { playerId, power, sourceCardId: card.id };
-      this.getState().phase = 'POWER_PENDING';
-      this.emit('POWER_TRIGGERED', { playerId, power, sourceCardId: card.id, rank: card.rank });
-    } else {
-      this.endTurnIfActive(playerId);
-    }
-  }
-
-  private applyPower(
-    playerId: string,
-    payload: Extract<CaboAction, { type: 'POWER_APPLY' }>['payload'],
-  ): void {
-    const s = this.getState();
-    const pending = s.pendingPower!;
-    switch (payload.power) {
-      case 'PEEK_OWN': {
-        this.learn(playerId, payload.cardId);
-        this.emit('POWER_RESOLVED', { playerId, power: 'PEEK_OWN', cardId: payload.cardId, viewerId: playerId });
-        break;
-      }
-      case 'PEEK_OTHER': {
-        this.learn(playerId, payload.cardId);
-        this.emit('POWER_RESOLVED', {
-          playerId,
-          power: 'PEEK_OTHER',
-          targetPlayerId: payload.targetPlayerId,
-          cardId: payload.cardId,
-          viewerId: playerId,
-        });
-        break;
-      }
-      case 'BLIND_SWAP': {
-        const own = s.hands[playerId]!;
-        const target = s.hands[payload.targetPlayerId]!;
-        const i = findCard(own, payload.ownCardId);
-        const j = findCard(target, payload.targetCardId);
-        const tmp = own[i]!;
-        own[i] = target[j]!;
-        target[j] = tmp;
-        this.emit('POWER_RESOLVED', {
-          playerId,
-          power: 'BLIND_SWAP',
-          ownCardId: payload.ownCardId,
-          targetPlayerId: payload.targetPlayerId,
-          targetCardId: payload.targetCardId,
-        });
-        break;
-      }
-    }
-    if (payload.power !== 'PEEK_OWN' && payload.power !== 'PEEK_OTHER') {
-      this.emit('POWER_RESOLVED', { playerId, power: payload.power });
-    }
-    s.pendingPower = null;
-    s.phase = 'TURN_DRAW';
-    this.endTurnIfActive(playerId);
-  }
-
-  private applyWrongFlushPenalty(playerId: string): void {
-    const s = this.getState();
-    const penalty = this.rules.wrongFlushPenalty;
-    const drawCount = penalty === 'draw_one' ? 1 : penalty === 'draw_two' ? 2 : 0;
-    for (let n = 0; n < drawCount; n++) {
-      if (s.deck.length === 0) break;
-      const card = s.deck.pop()!;
-      placeCard(s.hands[playerId]!, card);
-      // Deliberately NOT learned: the extra penalty card is placed face-down
-      // and is a secret to everyone, including the player who drew it.
-    }
-    if (drawCount > 0) {
-      this.emit('PENALTY_DRAWN', { playerId, count: drawCount });
-    }
-  }
-
-  // -------------------------------------------------------------------
-  // Turn / round progression
-  // -------------------------------------------------------------------
-
-  /** If the acting player is the current player, their action is complete:
-   *  they land in TURN_END where they may call Cabo or pass. A player whose
-   *  cards are all gone simply ends their turn — they cannot draw, so they
-   *  sit out future turns (advanceTurn skips them) without calling anything. */
-  private endTurnIfActive(playerId: string): void {
-    const s = this.getState();
-    if (s.players[s.currentTurn]?.id !== playerId) return;
-    if (liveCount(s.hands[playerId]!) === 0 && this.rules.cabo.enabled && !s.cabo) {
-      s.cabo = { callerId: playerId, takenFinalTurn: [] };
-      this.emit('CABO_CALLED', { playerId, auto: true });
-      this.advanceTurn();
-      return;
-    }
-    s.phase = 'TURN_END';
-    s.drawnCard = null;
-    this.emit('TURN_ENDED', { playerId });
-  }
-
-  /** After a flush: nothing to do by default. Reaching zero cards does NOT
-   *  end the round and does NOT call Cabo — the player just sits out from
-   *  now on (advanceTurn skips empty hands). Flushing never changes whose
-   *  turn it is. */
-  private checkPlayerOutOrAdvance(playerId: string): void {
-    if (this.rules.endRoundWhenPlayerHasNoCards) {
-      const s = this.getState();
-      for (const p of s.players) {
-        if (liveCount(s.hands[p.id]!) === 0) {
-          this.endRound('PLAYER_OUT');
-          return;
-        }
-      }
-    }
-    void playerId;
-    this.settleCurrentTurn();
-  }
-
-  /**
-   * A flush or transfer can empty the hand of the player whose turn it is
-   * (e.g. they flush their last card just as their turn starts), or remove
-   * every card a pending power could act on. Without this the turn would ask
-   * an empty-handed player to draw and they could never call Cabo. Resolve it
-   * the same way as reaching zero at the end of an action: auto-call Cabo
-   * (score 0) and move on; a power with nothing to act on is skipped.
-   */
-  private settleCurrentTurn(): void {
-    const s = this.getState();
-    const playerId = s.players[s.currentTurn]?.id;
-    if (!playerId) return;
-    if (s.phase === 'POWER_PENDING' && s.pendingPower?.playerId === playerId) {
-      if (!this.powerCanApply(playerId, s.pendingPower.power)) {
-        const power = s.pendingPower.power;
-        s.pendingPower = null;
-        this.emit('POWER_SKIPPED', { playerId, power });
-        this.endTurnIfActive(playerId);
-      }
-      return;
-    }
-    if (s.phase !== 'TURN_DRAW' || liveCount(s.hands[playerId]!) > 0) return;
-    if (this.rules.cabo.enabled && !s.cabo) {
-      s.cabo = { callerId: playerId, takenFinalTurn: [] };
-      this.emit('CABO_CALLED', { playerId, auto: true });
-    }
-    this.advanceTurn();
-  }
-
-  /** A transfer owed by a player who has no cards left can never be paid;
-   *  drop it (and leave TRANSFER_PENDING when nothing else is owed). */
-  private dropTransfersFromEmptyHands(): void {
-    const s = this.getState();
-    const queue = this.pendingTransferQueue();
-    if (queue.length === 0) return;
-    const restore = queue[0]!.phaseBefore;
-    const kept = queue.filter((t) => liveCount(s.hands[t.fromPlayerId]!) > 0);
-    if (kept.length === queue.length) return;
-    for (const t of queue) {
-      if (!kept.includes(t)) this.emit('TRANSFER_SKIPPED', { fromPlayerId: t.fromPlayerId, toPlayerId: t.toPlayerId });
-    }
-    s.pendingTransfers = kept;
-    s.pendingTransfer = kept[0] ?? null;
-    if (kept.length === 0 && s.phase === 'TRANSFER_PENDING') s.phase = restore;
-  }
-
-  /** Whether the power has at least one legal target right now. */
-  private powerCanApply(playerId: string, power: CaboPower): boolean {
-    const s = this.getState();
-    const own = liveCount(s.hands[playerId]!) > 0;
-    const other = s.players.some((p) => p.id !== playerId && liveCount(s.hands[p.id]!) > 0);
-    if (power === 'PEEK_OWN') return own;
-    if (power === 'PEEK_OTHER') return other;
-    return own && other;
-  }
-
-  private checkPlayerOut(playerId: string): void {
-    if (!this.rules.endRoundWhenPlayerHasNoCards) return;
-    const s = this.getState();
-    if (liveCount(s.hands[playerId]!) === 0) {
-      this.endRound('PLAYER_OUT');
-    }
-  }
-
-  private advanceTurn(): void {
-    const s = this.getState();
-    const n = s.players.length;
-    let cabo = s.cabo;
-
-    const isEligible = (idx: number): boolean => {
-      const p = s.players[idx]!;
-      if (liveCount(s.hands[p.id]!) === 0) return false; // out of cards — no turn
-      if (!cabo) return true;
-      if (p.id === cabo.callerId && !this.rules.cabo.callerGetsFinalTurn) return false;
-      const taken = cabo.takenFinalTurn.filter((id) => id === p.id).length;
-      return taken < this.rules.cabo.othersFinalTurns;
-    };
-
-    for (let step = 1; step <= n; step++) {
-      const candidate = (s.currentTurn + step) % n;
-      const p = s.players[candidate]!;
-      // A player with zero cards cannot draw, so their "turn" is an
-      // automatic Cabo call (score 0); the round then wraps up with the
-      // others' final turns. They never play a normal turn.
-      if (!cabo && liveCount(s.hands[p.id]!) === 0 && this.rules.cabo.enabled) {
-        cabo = { callerId: p.id, takenFinalTurn: [] };
-        s.cabo = cabo;
-        this.emit('CABO_CALLED', { playerId: p.id, auto: true });
-        continue; // they take no turn themselves; keep scanning
-      }
-      if (isEligible(candidate)) {
-        s.currentTurn = candidate;
-        s.phase = 'TURN_DRAW';
-        s.drawnCard = null;
-        if (cabo) cabo.takenFinalTurn.push(p.id);
-        this.emit('TURN_STARTED', { playerId: p.id, isFinalTurn: !!cabo });
-        return;
-      }
-    }
-
-    // Nobody eligible — round over (all final turns taken, or nobody has cards).
-    if (cabo) {
-      this.endRound('CABO_COMPLETE');
-    } else {
-      this.endRound('NO_ELIGIBLE_PLAYER');
-    }
-  }
-
-  private endRound(reason: string): void {
-    const s = this.getState();
-    s.phase = 'ROUND_REVEAL';
-    s.drawnCard = null;
-    s.pendingPower = null;
-    s.pendingTransfers = [];
-    s.pendingTransfer = null;
-    // Full reveal: everyone learns every remaining card on the table.
-    for (const p of s.players) {
-      for (const other of s.players) {
-        for (const card of s.hands[other.id]!) if (card) this.learn(p.id, card.id);
-      }
-    }
-    const scores = this.calculateScore();
-    s.scores = scores;
-    const best = Math.min(...Object.values(scores));
-    let winners = s.players.filter((p) => scores[p.id] === best).map((p) => p.id);
-    // House rule: on a tie the CALLER wins — they had the nerve to call first.
-    if (winners.length > 1 && s.cabo && winners.includes(s.cabo.callerId)) {
-      winners = [s.cabo.callerId];
-    }
-    s.roundWinnerId = winners.length === 1 ? winners[0]! : null;
-    s.tiedWinnerIds = winners;
-    this.emit('ROUND_REVEALED', {
-      reason,
-      hands: s.players.map((p) => ({
-        playerId: p.id,
-        cards: s.hands[p.id]!.filter((c): c is Card => !!c),
-      })),
-    });
-    this.emit('ROUND_SCORED', { scores, winners });
-    s.phase = 'ROUND_COMPLETE';
-  }
-
-  // -------------------------------------------------------------------
-  // Knowledge & events
-  // -------------------------------------------------------------------
-
-  private learn(playerId: string, cardId: string): void {
-    const s = this.getState();
-    const k = s.knowledge[playerId]!;
-    if (!k.includes(cardId)) k.push(cardId);
-  }
-
-  private forgetAll(cardId: string): void {
-    const s = this.getState();
-    for (const pid of Object.keys(s.knowledge)) {
-      s.knowledge[pid] = s.knowledge[pid]!.filter((id) => id !== cardId);
-    }
-  }
-
-  /**
-   * Return the authoritative transfer queue while keeping old snapshots and
-   * the legacy single-entry alias readable. This normalization is deliberately
-   * synchronous so action validation never races a state mutation.
-   */
-  private pendingTransferQueue(): PendingTransfer[] {
-    const s = this.getState();
-    s.pendingTransfers ??= s.pendingTransfer ? [s.pendingTransfer] : [];
+    s.pendingPower = g.pending_power
+      ? { playerId: id(g.turn), power: g.pending_power[0], sourceCardId: card(g.pending_power[1]).id }
+      : null;
+    s.pendingTransfers = g.transfers.map((t) => ({ fromPlayerId: id(t.from), toPlayerId: id(t.to), phaseBefore: phase }));
     s.pendingTransfer = s.pendingTransfers[0] ?? null;
-    return s.pendingTransfers;
+    s.cabo = g.cabo
+      ? { callerId: id(g.cabo.caller), takenFinalTurn: g.cabo.taken.flatMap((n, seat) => Array<string>(n).fill(id(seat))) }
+      : null;
+    s.initialPeeksRemaining = s.players.filter((_, seat) => (g.peeks_remaining >> seat) & 1).map((p) => p.id);
+    s.scores = g.result ? Object.fromEntries(g.result.scores.map((v, seat) => [id(seat), v])) : null;
+    s.tiedWinnerIds = g.result ? g.result.winners.map(id) : [];
+    s.roundWinnerId = s.tiedWinnerIds.length === 1 ? s.tiedWinnerIds[0]! : null;
   }
 
-  /** Reveal a card's identity to every player (used for visible misflushes). */
-  private revealToAll(card: Card): void {
+  // -------------------------------------------------------------------
+  // Events
+  // -------------------------------------------------------------------
+
+  /**
+   * Write the events of one action: what the core logged since `was`, with
+   * the cards named as the table knows them, plus the consequences the core
+   * leaves to be read off the state (a card now owed, a power that lapsed,
+   * the end of the round).
+   */
+  private report(a: CaboAction, prior: CaboState, was: CoreGame): void {
     const s = this.getState();
-    for (const p of s.players) this.learn(p.id, card.id);
+    const now = (s.core as CoreSave).game;
+    const id = (seat: number): string => s.players[seat]!.id;
+    const card = (n: number): Card => s.cards[n]!;
+    const actor = a.playerId;
+    const ended = now.phase === 'Complete' && was.phase !== 'Complete';
+    const flushOrTransfer = a.type === 'FLUSH_OWN' || a.type === 'FLUSH_OTHER' || a.type === 'TRANSFER_CARD';
+    const playerOut = ended && flushOrTransfer && this.rules.endRoundWhenPlayerOut;
+    const empty = (playerId: string) => liveCount(s.hands[playerId]!) === 0;
+
+    const delta = now.log.slice(was.log.length);
+    const isTail = (e: CoreEvent) => typeof e !== 'string' && ('CaboCalled' in e || 'TurnStarted' in e);
+    const failedOwn: Card[] = [];
+    let flushed = false;
+    let failed = false;
+
+    if (a.type === 'PEEK_STARTING') this.emit('INITIAL_PEEKED', { playerId: actor, count: a.cardIndexes.length });
+    if (a.type === 'POWER_APPLY') {
+      const p = a.payload;
+      if (p.power === 'PEEK_OWN') {
+        this.emit('POWER_RESOLVED', { playerId: actor, power: 'PEEK_OWN', cardId: p.cardId, viewerId: actor });
+      } else if (p.power === 'PEEK_OTHER') {
+        this.emit('POWER_RESOLVED', {
+          playerId: actor,
+          power: 'PEEK_OTHER',
+          targetPlayerId: p.targetPlayerId,
+          cardId: p.cardId,
+          viewerId: actor,
+        });
+      } else {
+        this.emit('POWER_RESOLVED', {
+          playerId: actor,
+          power: 'BLIND_SWAP',
+          ownCardId: p.ownCardId,
+          targetPlayerId: p.targetPlayerId,
+          targetCardId: p.targetCardId,
+        });
+        this.emit('POWER_RESOLVED', { playerId: actor, power: p.power });
+      }
+    }
+
+    for (const e of delta) {
+      if (isTail(e)) continue;
+      if (e === 'Reshuffled') {
+        const drew = delta.some((x) => typeof x !== 'string' && 'Drew' in x);
+        this.emit('DECK_RESHUFFLED', { newDeckCount: now.deck.length + (drew ? 1 : 0) });
+      } else if (typeof e === 'string') {
+        continue;
+      } else if ('Drew' in e) {
+        this.emit('CARD_DRAWN', { playerId: actor, deckCount: now.deck.length });
+      } else if ('Kept' in e) {
+        const replaced = card(e.Kept.discarded);
+        this.emit('CARD_REPLACED', {
+          playerId: actor,
+          keptCardId: prior.drawnCard!.id,
+          replacedCardId: replaced.id,
+          rank: replaced.rank,
+        });
+      } else if ('Discarded' in e) {
+        const c = card(e.Discarded.card);
+        this.emit('CARD_DISCARDED', { playerId: actor, cardId: c.id, rank: c.rank });
+      } else if ('Flushed' in e) {
+        const c = card(e.Flushed.card);
+        flushed = true;
+        this.emit('CARD_FLUSHED', { playerId: actor, sourcePlayerId: id(e.Flushed.owner), cardId: c.id, rank: c.rank });
+      } else if ('FailedFlushOwn' in e) {
+        failed = true;
+        failedOwn.push(card(e.FailedFlushOwn.card));
+      } else if ('FailedFlushOther' in e) {
+        failed = true;
+        const target = id(e.FailedFlushOther.target);
+        this.emit('FAILED_FLUSH_OTHER', {
+          playerId: actor,
+          targetPlayerId: target,
+          cardId: prior.hands[target]![e.FailedFlushOther.slot]!.id,
+        });
+      } else if ('Transferred' in e) {
+        const from = id(e.Transferred.from);
+        this.emit('CARD_TRANSFERRED', {
+          fromPlayerId: from,
+          toPlayerId: id(e.Transferred.to),
+          cardId: prior.hands[from]![e.Transferred.from_slot]!.id,
+        });
+      }
+    }
+
+    if (failedOwn.length > 0) {
+      this.emit('FAILED_FLUSH_OWN', {
+        playerId: actor,
+        cardIds: failedOwn.map((c) => c.id),
+        ranks: failedOwn.map((c) => c.rank),
+      });
+    }
+    if (failed && this.rules.wrongFlushPenalty > 0) {
+      this.emit('PENALTY_DRAWN', { playerId: actor, count: this.rules.wrongFlushPenalty });
+    }
+    if ((a.type === 'KEEP_DRAWN' || a.type === 'DISCARD_DRAWN') && s.pendingPower) {
+      const source = card(now.pending_power![1]);
+      this.emit('POWER_TRIGGERED', {
+        playerId: actor,
+        power: s.pendingPower.power,
+        sourceCardId: source.id,
+        rank: source.rank,
+      });
+    }
+
+    // A card flushed from another hand is paid for with one of the flusher's
+    // own, unless they have none. Cards owed by a hand that has since emptied
+    // are let go.
+    let owed = prior.pendingTransfers;
+    if (a.type === 'TRANSFER_CARD') {
+      const paid = owed.findIndex((t) => t.fromPlayerId === actor);
+      owed = owed.filter((_, i) => i !== paid);
+    }
+    let letGo = a.type === 'TRANSFER_CARD' || (a.type === 'FLUSH_OWN' && flushed);
+    if (a.type === 'FLUSH_OTHER' && flushed) {
+      if (empty(actor)) {
+        this.emit('TRANSFER_SKIPPED', { fromPlayerId: actor, toPlayerId: a.targetPlayerId });
+        letGo = true;
+      } else {
+        this.emit('TRANSFER_REQUIRED', { fromPlayerId: actor, toPlayerId: a.targetPlayerId });
+      }
+    }
+    if (letGo) {
+      for (const t of owed) {
+        if (empty(t.fromPlayerId)) this.emit('TRANSFER_SKIPPED', { fromPlayerId: t.fromPlayerId, toPlayerId: t.toPlayerId });
+      }
+    }
+
+    if (prior.pendingPower && !now.pending_power && a.type !== 'POWER_APPLY' && !playerOut) {
+      this.emit('POWER_SKIPPED', { playerId: prior.pendingPower.playerId, power: prior.pendingPower.power });
+    }
+    if (now.phase === 'TurnEnd' && was.phase !== 'TurnEnd') this.emit('TURN_ENDED', { playerId: id(now.turn) });
+
+    for (const e of delta) {
+      if (typeof e === 'string') continue;
+      if ('CaboCalled' in e) {
+        const playerId = id(e.CaboCalled.seat);
+        this.emit('CABO_CALLED', e.CaboCalled.auto ? { playerId, auto: true } : { playerId });
+      } else if ('TurnStarted' in e) {
+        const playerId = id(e.TurnStarted.seat);
+        this.emit('TURN_STARTED', a.type === 'PEEK_STARTING' ? { playerId } : { playerId, isFinalTurn: !!now.cabo });
+      }
+    }
+
+    if (ended) {
+      const limit = this.rules.turnLimit;
+      const reason =
+        a.type === 'DRAW'
+          ? 'DECK_EXHAUSTED'
+          : playerOut
+            ? 'PLAYER_OUT'
+            : limit > 0 && now.turns_started >= limit
+              ? 'TURN_LIMIT'
+              : now.cabo
+                ? 'CABO_COMPLETE'
+                : 'NO_ELIGIBLE_PLAYER';
+      this.emit('ROUND_REVEALED', {
+        reason,
+        hands: s.players.map((p) => ({ playerId: p.id, cards: s.hands[p.id]!.filter((c): c is Card => !!c) })),
+      });
+      this.emit('ROUND_SCORED', { scores: s.scores, winners: s.tiedWinnerIds });
+    }
   }
 
-  private emit(type: string, payload?: Record<string, unknown>, playerId?: string): void {
+  private emit(type: string, payload?: Record<string, unknown>): void {
     const s = this.getState();
-    // Older action handlers passed the actor in the public payload while the
-    // event contract also has a top-level playerId. Normalize both shapes so
-    // clients and replay consumers never lose the actor for an animation or
-    // sound cue.
-    const eventPlayerId =
-      playerId ?? (typeof payload?.playerId === 'string' ? payload.playerId : undefined);
     s.eventSeq += 1;
     s.events.push({
       seq: s.eventSeq,
       type,
-      playerId: eventPlayerId,
+      // The actor is also given at the top level, where the event contract has it.
+      playerId: typeof payload?.playerId === 'string' ? payload.playerId : undefined,
       timestamp: new Date().toISOString(),
       payload,
     });

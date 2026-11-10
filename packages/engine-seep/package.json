@@ -17,6 +17,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@game-night/core": "workspace:*",
     "@game-night/shared": "workspace:*"
   },
   "devDependencies": {

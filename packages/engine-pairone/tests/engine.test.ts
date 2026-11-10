@@ -203,31 +203,52 @@ describe('Pair One — end of round', () => {
   });
 
   it('round-end math crowns a single winner or records a tie', () => {
-    // Craft a finished-table snapshot: p1 has one pair, p2 none.
-    const engine = setup({ grid: [c('a', S, 4), c('b', H, 4), c('e', S, 9), c('f', H, 9)] });
-    mustOk(engine, flip('p1', 'a'));
-    mustOk(engine, flip('p1', 'b')); // p1 collects the 4s
-    const snap = JSON.parse(JSON.stringify(engine.getState())) as ReturnType<PairOneEngine['getState']>;
-    snap.grid = []; // pretend the rest of the table was cleared
-
-    const solo = new PairOneEngine();
-    solo.restoreState(snap);
-    solo.finishRound();
-    expect(solo.getState().scores).toEqual({ p1: 1, p2: 0 });
+    const solo = setup({ grid: [c('a', S, 4), c('b', H, 4), c('e', S, 9), c('f', H, 9)] });
+    for (const id of ['a', 'b', 'e', 'f']) mustOk(solo, flip('p1', id));
+    expect(solo.getState().scores).toEqual({ p1: 2, p2: 0 });
     expect(solo.getState().roundWinnerId).toBe('p1');
 
-    // Give p2 a pair too → dead heat.
-    const tieSnap = JSON.parse(JSON.stringify(snap));
-    const nineS = { id: 'e', suit: 'spades', rank: 9 };
-    const nineH = { id: 'f', suit: 'hearts', rank: 9 };
-    tieSnap.collections.p2 = [nineS, nineH];
-    const tied = new PairOneEngine();
-    tied.restoreState(tieSnap);
-    tied.finishRound();
+    // Two pairs each → dead heat.
+    const tied = setup();
+    const turns: [string, string, string][] = [
+      ['p1', 'g0', 'g2'], // 7s
+      ['p1', 'g1', 'g4'], // miss
+      ['p2', 'g1', 'g4'], // miss
+      ['p1', 'g1', 'g3'], // 3s
+      ['p1', 'g4', 'g6'], // miss
+      ['p2', 'g4', 'g5'], // 5s
+      ['p2', 'g6', 'g7'], // 2s
+    ];
+    for (const [pid, x, y] of turns) {
+      mustOk(tied, flip(pid, x));
+      mustOk(tied, flip(pid, y));
+    }
     const t = tied.getState();
-    expect(t.scores).toEqual({ p1: 1, p2: 1 });
+    expect(t.phase).toBe('ROUND_COMPLETE');
+    expect(t.scores).toEqual({ p1: 2, p2: 2 });
     expect(t.roundWinnerId).toBeNull();
     expect(t.tiedWinnerIds).toEqual(['p1', 'p2']);
+  });
+
+  it('a saved round plays on after a restore', () => {
+    const engine = setup();
+    mustOk(engine, flip('p1', 'g0'));
+    const again = new PairOneEngine();
+    again.restoreState(JSON.parse(JSON.stringify(engine.getState())));
+    mustOk(again, flip('p1', 'g2'));
+    expect(again.getState().collections.p1!.map((x) => x.id)).toEqual(['g0', 'g2']);
+    mustOk(engine, flip('p1', 'g2'));
+    expect(again.getState().grid).toEqual(engine.getState().grid);
+    expect(again.getState().core).toEqual(engine.getState().core);
+  });
+
+  it('without the extra-turn rule a pair passes the turn', () => {
+    const engine = new PairOneEngine();
+    engine.createGame(players(2), { forcedGrid: miniGrid(), rules: { extraTurn: false } });
+    mustOk(engine, flip('p1', 'g0'));
+    const res = mustOk(engine, flip('p1', 'g2'));
+    expect(res.events.map((e) => e.type)).toEqual(['CARD_FLIPPED', 'PAIR_COLLECTED', 'TURN_STARTED']);
+    expect(engine.getState().currentTurn).toBe(1);
   });
 
   it('a final MATCH on the last two cards ends the round immediately', () => {

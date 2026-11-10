@@ -7,7 +7,10 @@
  * re-validates every action; nothing here decides rules.
  */
 
-import { captureValue, enumerateSeepActions, type SeepAction, type SeepPlayerView } from '@seep/index.js';
+import { enumerateSeepActions } from '@seep/enumerate.js';
+import { captureValue } from '@seep/rules.js';
+import type { SeepAction } from '@seep/types.js';
+import type { SeepPlayerView } from '@seep/views.js';
 
 /** One complete, engine-legal capture play for a hand card. */
 export interface SeepCaptureChoice {

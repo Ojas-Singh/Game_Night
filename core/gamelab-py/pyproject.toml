@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "gamelab"
+version = "0.1.0"
+description = "Game Night rules core for Python: vectorised tables, single games and exact evaluation"
+requires-python = ">=3.10"
+dependencies = ["numpy"]
+
+[tool.maturin]
+module-name = "gamelab._core"
+python-source = "python"
+features = ["pyo3/extension-module"]

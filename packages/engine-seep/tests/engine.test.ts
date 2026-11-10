@@ -532,7 +532,7 @@ describe('sweep timing', () => {
 describe('baazi match play', () => {
   it('accumulates deal differences, applies the minimum-loss rule and rotates the dealer', () => {
     const e = new SeepEngine();
-    e.createGame(PLAYERS, { seed: 20240, rules: { minimumDealPoints: 40, baaziLeadTarget: 45 } as never });
+    e.createGame(PLAYERS, { seed: 20240, rules: { minimumDealPoints: 30, baaziLeadTarget: 45 } as never });
     let guard = 0;
     while (state(e).phase !== 'MATCH_COMPLETE' && guard++ < 30) {
       const driver = legalDriver();
@@ -568,17 +568,25 @@ describe('baazi match play', () => {
   });
 
   it('a deal below the minimum instantly loses the baazi', () => {
-    const e = new SeepEngine();
-    e.createGame(PLAYERS, { seed: 9001, rules: { minimumDealPoints: 500 } as never });
-    const driver = legalDriver();
-    while ((state(e).phase === 'TURN_PLAY' || state(e).phase === 'ANNOUNCE') && driver(e)) { /* one deal */ }
-    const s = state(e);
-    // 500 is unreachable → BOTH teams below the minimum → the lower scorer loses
-    expect(s.phase).toBe('MATCH_COMPLETE');
-    const winner = s.teamScores![0] < s.teamScores![1] ? 1 : 0;
-    expect(s.baaziWinnerTeam).toBe(winner);
-    expect(s.baaziReason).toBe('minimum-points');
-    expect(s.baaziLead).toBe(0);
+    // 30 is the highest minimum the rules allow; play deals until one side misses it
+    let found = false;
+    for (let seed = 9001; seed < 9201 && !found; seed++) {
+      const e = new SeepEngine();
+      e.createGame(PLAYERS, { seed, rules: { minimumDealPoints: 30, baaziLeadTarget: 300, sweepBonus: 0, firstPlaySweepBonus: 0 } as never });
+      const driver = legalDriver();
+      while ((state(e).phase === 'TURN_PLAY' || state(e).phase === 'ANNOUNCE') && driver(e)) { /* one deal */ }
+      const s = state(e);
+      const [a, b] = [s.teamScores![0], s.teamScores![1]];
+      if (a >= 30 && b >= 30) continue;
+      found = true;
+      expect(s.phase).toBe('MATCH_COMPLETE');
+      // if both fall short, the lower scorer loses
+      const winner = a < 30 && b < 30 ? (a < b ? 1 : 0) : a < 30 ? 1 : 0;
+      expect(s.baaziWinnerTeam).toBe(winner);
+      expect(s.baaziReason).toBe('minimum-points');
+      expect(s.baaziLead).toBe(0);
+    }
+    expect(found).toBe(true);
   });
 });
 

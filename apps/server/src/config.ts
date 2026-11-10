@@ -42,6 +42,20 @@ export const config = {
   roomTtlMs: intEnv('ROOM_TTL_MINUTES', 360) * 60_000,
   /** Reconnect grace period (ms) before a player is considered gone. Default: 2 minutes. */
   reconnectGraceMs: intEnv('RECONNECT_GRACE_MINUTES', 2) * 60_000,
+  /**
+   * Directory holding the trained player (`player.onnx`, `judge.onnx`,
+   * `model.json`, from `python -m gamelab_train.export`). Empty: AI seats are
+   * the heuristic bots.
+   */
+  modelDir: process.env.GAME_MODEL_DIR ?? '',
+  /** Deals of the hidden cards the model tries for each move when looking ahead. */
+  modelSamples: intEnv('GAME_MODEL_SAMPLES', 16),
+  /**
+   * Key for the game lab (/lab), whose runs use this server's processor. In
+   * production the lab exists only when this is set; elsewhere it is open
+   * unless a key is set.
+   */
+  labKey: process.env.GAME_LAB_KEY ?? '',
   /** Debug capabilities are only ever enabled outside production. */
   debugEnabled: (process.env.NODE_ENV ?? 'development') !== 'production',
 };

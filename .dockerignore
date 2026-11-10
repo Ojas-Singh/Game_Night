@@ -6,3 +6,7 @@ apps/server/web
 .git
 .env
 .env.local
+core/target
+**/__pycache__
+train
+.claude

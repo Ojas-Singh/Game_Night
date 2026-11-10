@@ -6,7 +6,11 @@ coverage/
 .env
 .env.local
 .DS_Store
-apps/arena/trajectories/
-apps/arena/ladder.json
 apps/web/test-results/
 apps/web/playwright-report/
+core/target/
+packages/core/pkg/
+__pycache__/
+.claude/
+*.egg-info/
+core/gamelab-py/python/gamelab/*.so

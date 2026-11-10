@@ -12,6 +12,7 @@ import type { ChatMessage, JoinResult, RoomLobbyState, MediaMemberInfo } from '.
 import { MediaMesh } from './media.js';
 import { TokenBucket, SocketRateLimits } from './rateLimit.js';
 import { log } from './log.js';
+import { config } from './config.js';
 import type { ShopService } from './shop.js';
 import type { ShopHelloResult } from './protocol.js';
 
@@ -22,10 +23,11 @@ interface SocketData {
 
 /** Grace window before a dropped socket marks a player disconnected. */
 import { AgentLoops } from './agents/loop.js';
+import { ModelPlayer } from './agents/model.js';
 
 const PRESENCE_DEBOUNCE_MS = 5_000;
 
-export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opts: { shop?: ShopService } = {}): void {
+export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opts: { shop?: ShopService; onModel?: (model: ModelPlayer) => void } = {}): void {
   // eslint note: AgentLoops imported statically below the io type import.
   const shop = opts.shop ?? null;
   // Flood control for chat/emotes/reports — per socket, GC'd on disconnect.
@@ -85,6 +87,16 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opt
       for (const sid of host.sockets) io.to(sid).emit('room:ai_thought', thought);
     },
   });
+  if (config.modelDir) {
+    // Seats are heuristic bots until the model is in memory, and stay so if it cannot be read.
+    void ModelPlayer.load(config.modelDir, { samples: config.modelSamples })
+      .then((model) => {
+        agents.setModel(model);
+        opts.onModel?.(model);
+        log.info('ai_model_loaded', { dir: config.modelDir, samples: model.settings.samples });
+      })
+      .catch((err) => log.error('ai_model_not_loaded', { dir: config.modelDir, error: String(err).slice(0, 200) }));
+  }
   const afterChange = async (room: Room): Promise<void> => {
     await persistRoom(room);
     broadcastLobby(room);

@@ -1,0 +1,11 @@
+[package]
+name = "gamelab"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "Game Night rules core: every card game written once, for the site, self-play and search"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+rayon.workspace = true

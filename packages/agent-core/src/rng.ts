@@ -1,5 +1,5 @@
 /**
- * Deterministic RNG shared by the arena and agents.
+ * Deterministic RNG shared by agents.
  * mulberry32 — tiny, fast, good enough distribution for game simulation.
  */
 

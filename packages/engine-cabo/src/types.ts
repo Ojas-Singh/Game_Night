@@ -2,7 +2,8 @@
  * Cabo game state, phases and action types.
  *
  * The state is plain JSON at all times so it can be persisted (Redis),
- * versioned and restored after a server restart.
+ * versioned and restored after a server restart. The rules core owns the
+ * round (`core`); the other fields restate it in the shape the views use.
  */
 
 import type { Card, GameEvent, GamePlayer } from '@game-night/shared';
@@ -52,7 +53,7 @@ export interface CaboCall {
 }
 
 export interface CaboState {
-  stateVersion: 1;
+  stateVersion: 2;
   gameId: 'cabo';
   phase: CaboPhase;
   players: GamePlayer[];
@@ -92,6 +93,12 @@ export interface CaboState {
   revision: number;
   /** Monotonic event sequence. */
   eventSeq: number;
+  /** The round as the rules core saves it. This is what a restore plays on
+   *  from; every other field is derived from it for the views and the log. */
+  core: unknown;
+  /** The table's card for each of the core's card numbers. Ids must not
+   *  encode the face. */
+  cards: Record<string, Card>;
 }
 
 /** Options accepted by createGame (debug/testing support included). */

@@ -1,0 +1,15 @@
+[package]
+name = "gamelab-py"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "Python bindings of the Game Night rules core, for training and evaluation"
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+gamelab = { path = "../gamelab" }
+pyo3 = { version = "0.30", features = ["extension-module", "abi3-py310"] }
+serde_json.workspace = true

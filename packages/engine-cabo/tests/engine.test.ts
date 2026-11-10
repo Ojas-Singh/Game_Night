@@ -7,7 +7,7 @@ const P1 = 'p1';
 const P2 = 'p2';
 const P3 = 'p3';
 
-/** Vanilla 60-card pop order: 12 dealt + plenty of plain draws. */
+/** Vanilla pop order: 12 dealt + 30 plain draws, with no rank more often than a forced deck can hold. */
 function baseOrder(): ReturnType<typeof c>[] {
   const order = [
     // p1 hand: 3, 4, 2, 5
@@ -16,7 +16,7 @@ function baseOrder(): ReturnType<typeof c>[] {
     c('a3', CL, 2), c('b3', CL, 4), c('d3', CL, 5),
     c('a4', D, 3), c('b4', D, 2), c('d4', D, 4),
     // draws (plain values)
-    ...Array.from({ length: 40 }, (_, i) => c(`draw${i}`, i % 2 ? H : S, 2 + (i % 3))),
+    ...Array.from({ length: 30 }, (_, i) => c(`draw${i}`, i % 2 ? H : S, ([2, 3, 6, 1, 5] as const)[i % 5]!)),
   ];
   return order;
 }
@@ -115,12 +115,12 @@ describe('scoring', () => {
   });
 
   it('king scoring is configurable in one place', () => {
-    const rules = { ...DEFAULT_CABO_RULES, kingValues: { red: 0, black: 0 } };
+    const rules = { ...DEFAULT_CABO_RULES, redKingValue: 0, blackKingValue: 0 };
     expect(cardValue(c('k3', H, 13), rules)).toBe(0);
   });
 
   it('scores remaining hands at round end', () => {
-    const e = setup(baseOrder(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(baseOrder(), { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     const scores = e.calculateScore();
     // p1 hand: 3,4,2,3 = 12 ; p2: 4,5,4,2 = 15 ; p3: 2,3,5,4 = 14
@@ -143,10 +143,11 @@ describe('power triggering rules', () => {
     }
   });
 
-  it('host-toggle: when swapOthersEnabled is false, discarding a 5/6 triggers no power', () => {
+  it('a rank whose power is turned off in the rules triggers nothing', () => {
     const order = baseOrder();
-    order[12] = c('draw5', H, 5); // p1 draws a 5
-    const e = setup(order, { rules: { swapOthersEnabled: false, endRoundWhenPlayerHasNoCards: false } });
+    order[12] = c('drawJ', H, 11); // p1 draws a jack
+    const rankPowers = DEFAULT_CABO_RULES.rankPowers.map((p, i) => (i === 10 ? 'NONE' : p));
+    const e = setup(order, { rules: { rankPowers, endRoundWhenPlayerOut: false } });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
@@ -387,7 +388,7 @@ describe('flushing own cards', () => {
   function withDiscardTop(rank: number) {
     const order = baseOrder();
     order[12] = c('drawX', H, rank);
-    const e = setup(order, { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(order, { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
@@ -444,7 +445,7 @@ describe('flushing own cards', () => {
     order[0] = c('a1', S, 8); // p1 slot 0 = 8
     order[6] = c('a3', S, 3); // p1 slot 2 = 3 (does not match 8)
     order[12] = c('draw8', D, 8);
-    const e = setup(order, { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(order, { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 }); // discard top = 8
@@ -468,7 +469,7 @@ describe('flushing own cards', () => {
     order[3] = c('a2', H, 8);
     order[6] = c('a3', CL, 8);
     order[12] = c('draw8', D, 8);
-    const e = setup(order, { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(order, { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 }); // 8 on discard
@@ -485,7 +486,7 @@ describe('flushing own cards', () => {
     order[6] = c('a3', CL, 4);
     order[9] = c('a4', D, 4);
     order[12] = c('draw6', H, 4);
-    const e = setup(order, { rules: { endRoundWhenPlayerHasNoCards: true } }); // legacy mode
+    const e = setup(order, { rules: { endRoundWhenPlayerOut: true } }); // legacy mode
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 }); // plain rank: turn ends
@@ -567,7 +568,7 @@ describe('flushing another player\u2019s card', () => {
   function setupTop(rank: number) {
     const order = baseOrder();
     order[12] = c('drawX', H, rank);
-    const e = setup(order, { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(order, { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
@@ -630,7 +631,7 @@ describe('flushing another player\u2019s card', () => {
 
   it('wrong-flush penalty is configurable (draw_two)', () => {
     const e = setup(baseOrder().map((card, i) => (i === 12 ? c('drawX', H, 3) : card)), {
-      rules: { wrongFlushPenalty: 'draw_two', endRoundWhenPlayerHasNoCards: false },
+      rules: { wrongFlushPenalty: 2, endRoundWhenPlayerOut: false },
     });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
@@ -678,7 +679,7 @@ describe('simultaneous flush attempts', () => {
     order[0] = c('a1', S, 8);
     order[1] = c('b1', H, 8);
     order[12] = c('draw8', D, 8);
-    const e = setup(order, { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(order, { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
@@ -700,7 +701,7 @@ describe('simultaneous flush attempts', () => {
     order[0] = c('a1', S, 8);
     order[3] = c('a2', H, 8);
     order[12] = c('draw8', D, 8);
-    const e = setup(order, { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(order, { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     mustOk(e, { type: 'DISCARD_DRAWN', playerId: P1 });
@@ -718,7 +719,7 @@ describe('simultaneous flush attempts', () => {
 
 describe('cabo call & final turns', () => {
   it('caller is skipped, every other player gets one final turn, then reveal+score', () => {
-    const e = setup(baseOrder(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(baseOrder(), { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     // Play a full action first, then call at TURN_END.
     mustOk(e, { type: 'DRAW', playerId: P1 });
@@ -757,10 +758,11 @@ describe('cabo call & final turns', () => {
 
   it('a tie is broken in favour of the cabo caller', () => {
     const order = baseOrder();
-    // Everyone keeps equal-value hands: p1 and p2 both all-4s (score 16),
-    // p3 all-4s too — a three-way tie, but p1 called cabo.
-    for (let i = 0; i < 12; i++) order[i] = c(`card${i}`, i % 2 ? H : S, 4);
+    // Everyone keeps equal-value hands (two 4s and two 3s, score 14):
+    // a three-way tie, but p1 called cabo.
+    for (let i = 0; i < 12; i++) order[i] = c(`card${i}`, i % 2 ? H : S, i < 6 ? 4 : 3);
     order[12] = c('draw4', D, 4);
+    order.length = 16;
     const e = setup(order);
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
@@ -781,8 +783,10 @@ describe('cabo call & final turns', () => {
 
   it('swap powers are skipped when every opponent has no cards (no dead-lock)', () => {
     const order2 = baseOrder();
-    for (let i = 0; i < 12; i++) order2[i] = c(`k${i}`, i % 2 ? H : S, 4);
-    order2[12] = c('drawJ', H, 11);
+    // Two players: eight dealt, then two 4s and the J are the first draws.
+    for (let i = 0; i < 10; i++) order2[i] = c(`k${i}`, i % 2 ? H : S, 4);
+    order2[10] = c('drawJ', H, 11);
+    order2[11] = c('k11', D, 2);
     const e2 = setup(order2, { players: 2 });
     const ids = e2.getState().players.map((p) => p.id);
     const [q1, q2] = ids;
@@ -846,7 +850,7 @@ describe('cabo call & final turns', () => {
       c('s2', H, 7), c('x2', H, 2),
       c('s3', CL, 7), c('x3', CL, 2),
       c('s4', D, 7),
-      ...Array.from({ length: 20 }, (_, i) => c(`f${i}`, S, 3)),
+      ...Array.from({ length: 20 }, (_, i) => c(`f${i}`, S, ([3, 4, 5, 6] as const)[i % 4]!)),
     ];
     const e = setup(order, { players: 2, rules: { startingCards: 3 } });
     for (const pid of [P1, P2]) mustOk(e, { type: 'PEEK_STARTING', playerId: pid, cardIndexes: [0, 1] });
@@ -862,7 +866,7 @@ describe('cabo call & final turns', () => {
   });
 
   it('cabo can be disabled by rules', () => {
-    const e = setup(baseOrder(), { rules: { cabo: { enabled: false, callerGetsFinalTurn: false, othersFinalTurns: 1 } } });
+    const e = setup(baseOrder(), { rules: { caboEnabled: false } });
     peekAll(e);
     mustFail(e, { type: 'CALL_CABO', playerId: P1 });
   });
@@ -872,7 +876,7 @@ describe('deck exhaustion', () => {
   it('reshuffles the discard pile (keeping the top) when the deck runs out', () => {
     const filler = Array.from({ length: 20 }, (_, i) => c(`f${i}`, S, 2 + (i % 2)));
     const order = [...filler]; // 20 cards: 12 dealt, 8 draws left
-    const e = setup(order, { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(order, { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     // Burn through draws: each turn draws + discards (rank 2/3, no powers).
     for (let i = 0; i < 8; i++) {
@@ -897,7 +901,7 @@ describe('deck exhaustion', () => {
 
 describe('restore / reconnect', () => {
   it('state round-trips through JSON and keeps the game playable', () => {
-    const e = setup(baseOrder(), { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(baseOrder(), { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     mustOk(e, { type: 'DRAW', playerId: P1 });
     const json = JSON.stringify(e.getState());
@@ -916,7 +920,7 @@ describe('full game playthrough', () => {
   it('plays a complete game through engine actions only', () => {
     const order = baseOrder();
     order[12] = c('draw7', H, 7);
-    const e = setup(order, { rules: { endRoundWhenPlayerHasNoCards: false } });
+    const e = setup(order, { rules: { endRoundWhenPlayerOut: false } });
     peekAll(e);
     // A few normal turns with mixed decisions.
     mustOk(e, { type: 'DRAW', playerId: P1 });
@@ -942,9 +946,9 @@ describe('full game playthrough', () => {
     const s = e.getState();
     expect(s.phase).toBe('ROUND_COMPLETE');
     expect(e.isGameFinished()).toBe(true);
-    // Every card accounted for: hands + deck + discard = 52.
+    // Every card accounted for: hands + deck + discard.
     const total =
       s.players.reduce((n, p) => n + s.hands[p.id]!.length, 0) + s.deck.length + s.discard.length;
-    expect(total).toBe(52);
+    expect(total).toBe(order.length);
   });
 });

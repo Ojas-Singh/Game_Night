@@ -4,7 +4,7 @@ import type { RoomApi, CardFlight, ClientGameAction } from '../useRoom.js';
 import type { FlightPos } from '../table/CardFlights.js';
 import type { SeepPlayerView } from '@seep/views.js';
 import type { SeepTeam } from '@seep/rules.js';
-import { captureValue } from '@seep/index.js';
+import { captureValue } from '@seep/rules.js';
 import { allIntents, biddableValues, type SeepCandidateIntents } from './seepCandidates.js';
 import Card from '../table/Card.js';
 import SeepCenter from './SeepCenter.js';

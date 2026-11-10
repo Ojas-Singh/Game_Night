@@ -16,6 +16,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: rustup target add wasm32-unknown-unknown
+      - run: cargo install wasm-bindgen-cli --version 0.2.127 --locked
+      - run: cargo test --release -p gamelab
+        working-directory: core
+      - run: pnpm --filter @game-night/core build:wasm
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test

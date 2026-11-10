@@ -1,11 +1,13 @@
 /**
- * Server-authoritative Seep (Sweep) engine — canonical Punjabi 100-point
- * rules. Contract: docs/rules/seep-punjabi-100.md.
+ * Server-authoritative Seep (Sweep), played by the rules core — canonical
+ * Punjabi 100-point rules. Contract: docs/rules/seep-punjabi-100.md.
  *
- * Pure state-machine over JSON state: no networking, no timers, no DOM.
- * All validation happens here — clients only ever send intentions.
+ * The core (`core/gamelab`, loaded through `@game-night/core`) holds the
+ * match and decides every action. This class names players, cards and
+ * houses, keeps the state in the shape the views read, and writes the event
+ * log.
  *
- * Ruleset implemented (see the doc for the authoritative wording):
+ * The rules in short:
  *  - 4 players, fixed teams by seat parity; deal & play COUNTER-CLOCKWISE;
  *  - dealer deals 4 to the bidder (to his right) + 4 face-down floor cards;
  *    the bidder announces 9–13 (auto-redeal while impossible, no penalty);
@@ -25,20 +27,11 @@
  *  - deal end: leftover floor cards go to the team that picked up last;
  *  - baazi match: only the signed deal difference accumulates; a side wins
  *    at a lead of 100 — or instantly when the opponent scores fewer than 9
- *    points in a deal. The losing team's dealer rules drive progression.
+ *    points in a deal.
  */
 
-import {
-  standardDeck,
-  shuffle,
-  shuffleDeck,
-  createRng,
-  type Card,
-  type GameAction,
-  type GameEvent,
-  type GamePlayer,
-  type Rng,
-} from '@game-night/shared';
+import { apply, check, deal, load, type Round } from '@game-night/core';
+import { SUITS, standardDeck, type Card, type GameAction, type GameEvent, type GamePlayer } from '@game-night/shared';
 import {
   captureValue,
   cardPoints,
@@ -51,13 +44,7 @@ import {
   type SeepRules,
   type SeepTeam,
 } from './rules.js';
-import type {
-  SeepAction,
-  SeepGameOptions,
-  SeepHouse,
-  SeepPlayIntent,
-  SeepState,
-} from './types.js';
+import type { SeepAction, SeepDealResult, SeepGameOptions, SeepHouse, SeepPhase, SeepState } from './types.js';
 import { buildPlayerView } from './views.js';
 
 export type { SeepState, SeepHouse, houseCopies, houseIsPakka } from './types.js';
@@ -87,14 +74,89 @@ function logWarn(msg: string, fields?: Record<string, unknown>): void {
  */
 const CARDS_PER_PLAYER = 12;
 
+type CoreReason = 'Lead' | 'MinimumPoints';
+
+/** The match as `Round.save` writes it (the fields used here). */
+interface CoreGame {
+  phase: 'Announce' | 'TurnPlay' | 'DealComplete' | 'MatchComplete';
+  hands: number[][];
+  loose: number[];
+  houses: Array<{ id: number; total: number; owners: [number | null, number | null]; cards: number[] }>;
+  deck: number[];
+  bidder: number;
+  dealer: number;
+  deal_no: number;
+  bid: number | null;
+  deal_rest_pending: boolean;
+  batches_dealt: number;
+  redeals: number;
+  plays_made: number;
+  captures: number[][];
+  sweeps: [number, number];
+  sweep_points: [number, number];
+  last_capture_team: SeepTeam | null;
+  last_pickup: { seat: number; cards: number[]; plays_made: number } | null;
+  turn: number;
+  house_seq: number;
+  baazi_lead: number;
+  baazis_won: [number, number];
+  deal_history: Array<{
+    deal_no: number;
+    team_scores: [number, number];
+    diff: number;
+    leftover_team: SeepTeam | null;
+    baazi: [SeepTeam, CoreReason] | null;
+    lead_after: number;
+    baazis_won_after: [number, number];
+  }>;
+  team_scores: [number, number] | null;
+  round_winner: SeepTeam | null;
+  baazi_winner: SeepTeam | null;
+  baazi_reason: CoreReason | null;
+  event_seq: number;
+  revision: number;
+  log: Array<Record<string, { dealer?: number }>>;
+}
+
+interface CoreSave {
+  rules: SeepRules;
+  game: CoreGame;
+}
+
+/** A play in the core's terms: the hand card by its place in the hand, loose
+ *  cards as a mask over the floor, a house by its total. */
+type CoreAction =
+  | { type: 'ANNOUNCE'; value: number }
+  | { type: 'LAY'; card: number }
+  | { type: 'CAPTURE'; card: number; loose: number }
+  | { type: 'BUILD'; card: number; loose: number; total: number }
+  | { type: 'ADD'; card: number; total: number; loose: number }
+  | { type: 'BREAK'; card: number; total: number }
+  | { type: 'NEXT_DEAL' };
+
+const PHASES: Record<CoreGame['phase'], SeepPhase> = {
+  Announce: 'ANNOUNCE',
+  TurnPlay: 'TURN_PLAY',
+  DealComplete: 'DEAL_COMPLETE',
+  MatchComplete: 'MATCH_COMPLETE',
+};
+
+const REASONS = { Lead: 'lead', MinimumPoints: 'minimum-points' } as const;
+
+const pair = <T>(a: [T, T]): { 0: T; 1: T } => ({ 0: a[0], 1: a[1] });
+
+const isPakka = (cards: Card[], total: number): boolean =>
+  Math.round(cards.reduce((acc, c) => acc + c.rank, 0) / total) >= 2;
+
 export class SeepEngine {
   readonly gameId = 'seep';
-  readonly stateVersion = 2 as const;
+  readonly stateVersion = 3 as const;
 
   private state: SeepState | null = null;
+  private round: Round | null = null;
   private rules: SeepRules = mergeSeepRules();
-  private rng: Rng = createRng();
-  private forcedDeck: Card[] | null = null;
+  /** A forced deck as core card numbers; every deal of the match uses it. */
+  private forced: number[] | null = null;
 
   getRules(): SeepRules {
     return this.rules;
@@ -105,12 +167,19 @@ export class SeepEngine {
     return this.state;
   }
 
-  /** Restore a previously serialized state (reconnect / redis restore). */
-  restoreState(state: SeepState, rules?: Partial<SeepRules>): void {
-    if (state.stateVersion !== 2) INVALID('unsupported state version');
+  /** Restore a previously serialized state (reconnect / redis restore). The
+   *  match continues from `state.core`. */
+  restoreState(state: SeepState): void {
+    if (state.stateVersion !== 3) INVALID('unsupported state version');
+    try {
+      this.round = load('seep', state.core);
+    } catch (err) {
+      INVALID(String((err as Error).message ?? err));
+    }
+    this.rules = (state.core as CoreSave).rules;
+    this.forced = null;
     this.state = state;
-    this.rules = mergeSeepRules(state.rules ?? rules);
-    this.rng = createRng();
+    this.refresh();
   }
 
   // -------------------------------------------------------------------
@@ -118,32 +187,57 @@ export class SeepEngine {
   // -------------------------------------------------------------------
 
   createGame(players: GamePlayer[], options: SeepGameOptions = {}): void {
-    this.rules = mergeSeepRules(options.rules);
+    const rules = mergeSeepRules(options.rules);
     if (players.length !== 4) {
       INVALID(`seep requires exactly 4 players (2 partnerships)`);
     }
-    this.rng = createRng(options.seed);
-    this.forcedDeck = options.forcedDeck ?? null;
     const seats = [...players].sort((a, b) => a.seat - b.seat);
-    const dealer = options.dealerSeat ?? this.rng.int(seats.length);
-    this.state = null;
-    this.startMatch(seats, dealer);
-  }
 
-  /** Fresh baazi: scores, lead, history and dealer all reset. */
-  private startMatch(seats: GamePlayer[], dealerSeat: number): void {
+    let round: Round;
+    try {
+      round = deal('seep', rules, seats.length, options.seed);
+    } catch (err) {
+      INVALID(String((err as Error).message ?? err));
+    }
+    let cards: Record<string, Card> = {};
+    this.forced = options.forcedDeck ? this.numberForced(options.forcedDeck, cards) : null;
+
+    if (this.forced || options.dealerSeat !== undefined) {
+      const saved = JSON.parse(round.save()) as CoreSave;
+      const g = saved.game;
+      const dealer = options.dealerSeat;
+      if (dealer !== undefined) {
+        if (!Number.isInteger(dealer) || dealer < 0 || dealer > 3) INVALID('no such dealer seat');
+        const opening = g.hands[g.bidder]!;
+        g.hands[g.bidder] = [];
+        g.dealer = dealer;
+        g.bidder = nextSeatCCW(dealer);
+        g.turn = g.bidder;
+        g.hands[g.bidder] = opening;
+        for (const entry of g.log) {
+          if (entry.DealStarted) entry.DealStarted.dealer = dealer;
+        }
+      }
+      round = this.reload(saved);
+    }
+    if (!this.forced) cards = this.nameCards(round);
+
+    this.round = round;
+    this.rules = rules;
     this.state = {
-      stateVersion: 2,
+      stateVersion: 3,
       gameId: 'seep',
+      core: null,
+      cards,
       phase: 'ANNOUNCE',
-      rules: this.rules,
+      rules,
       players: seats,
       hands: {},
       tableLoose: [],
       houses: [],
       deck: [],
-      bidderSeat: nextSeatCCW(dealerSeat),
-      dealerSeat,
+      bidderSeat: 0,
+      dealerSeat: 0,
       dealNo: 0,
       bid: null,
       dealRestPending: true,
@@ -154,7 +248,7 @@ export class SeepEngine {
       sweepPoints: { 0: 0, 1: 0 },
       lastCaptureTeam: null,
       lastPickup: null,
-      currentTurn: nextSeatCCW(dealerSeat),
+      currentTurn: 0,
       houseSeq: 0,
       baaziLead: 0,
       baazisWon: { 0: 0, 1: 0 },
@@ -168,10 +262,7 @@ export class SeepEngine {
       revision: 1,
       eventSeq: 0,
     };
-    for (const p of seats) {
-      this.state.hands[p.id] = [];
-      this.state.captures[p.id] = [];
-    }
+    this.refresh();
     this.emit('MATCH_STARTED', {
       playerIds: seats.map((p) => p.id),
       teams: {
@@ -179,140 +270,76 @@ export class SeepEngine {
         1: seats.filter((p) => teamOfSeat(p.seat) === 1).map((p) => p.id),
       },
     });
-    this.startDeal(dealerSeat);
+    this.emitDealStarted();
+  }
+
+  /** Core numbers for a forced deck: each card keeps its face (points go by
+   *  suit), a second card of a face takes that face in the next deck. */
+  private numberForced(deck: Card[], cards: Record<string, Card>): number[] {
+    if (deck.length < 52) INVALID('a forced deck needs all 52 cards');
+    return deck.map((card) => {
+      for (let copy = 0; copy < 3; copy++) {
+        const n = copy * 52 + SUITS.indexOf(card.suit) * 13 + card.rank - 1;
+        if (n < 128 && !(n in cards)) {
+          cards[n] = card;
+          return n;
+        }
+      }
+      INVALID('too many copies of one card in the forced deck');
+    });
   }
 
   /**
-   * Deal the next hand of a live baazi (phase DEAL_COMPLETE). Dealer
-   * progression per the contract: while the dealing team is behind or level
-   * the same dealer deals again; when the dealing team is winning, the deal
-   * passes to the next player to the right; after a baazi the partner of
-   * that next dealer takes over.
+   * The cards of a fresh deal, each named by its place in the shuffled deck.
+   * Ids go to every client, so they must not tell the card.
+   */
+  private nameCards(round: Round): Record<string, Card> {
+    const g = (JSON.parse(round.save()) as CoreSave).game;
+    const faces = standardDeck();
+    const dealt = [...g.deck, ...[...g.loose].reverse(), ...[...g.hands[g.bidder]!].reverse()];
+    return Object.fromEntries(dealt.map((n, i) => [n, { ...faces[n % 52]!, id: `c-${i}` }]));
+  }
+
+  /** The saved match as a round again, dealt from the forced deck if there
+   *  is one (used verbatim: fixtures must give the bidder a card to announce). */
+  private reload(saved: CoreSave): Round {
+    const g = saved.game;
+    if (this.forced) {
+      const deck = [...this.forced];
+      g.hands = [[], [], [], []];
+      g.loose = [];
+      for (let i = 0; i < saved.rules.openingHandCards; i++) g.hands[g.bidder]!.push(deck.pop()!);
+      for (let i = 0; i < saved.rules.tableStartCards; i++) g.loose.push(deck.pop()!);
+      g.deck = deck;
+      if (g.redeals > 0) {
+        g.redeals = 0;
+        g.event_seq -= 1;
+        g.revision -= 1;
+      }
+    }
+    try {
+      return load('seep', saved);
+    } catch (err) {
+      INVALID(String((err as Error).message ?? err));
+    }
+  }
+
+  /**
+   * Deal the next hand of a live baazi (phase DEAL_COMPLETE). While the
+   * dealing team is behind or level the same dealer deals again; when the
+   * dealing team is winning, the deal passes to the next player to the right.
    */
   nextDeal(): void {
     const s = this.getState();
     if (s.phase !== 'DEAL_COMPLETE') {
       INVALID(s.phase === 'MATCH_COMPLETE' ? 'the baazi is over' : 'the current deal is still running');
     }
-    const last = s.dealHistory[s.dealHistory.length - 1] ?? INVALID('no completed deal');
-    const dealerTeam = teamOfSeat(s.dealerSeat);
-    // "is the dealing team now winning" — the running lead right after this deal.
-    const dealerAhead = last.leadAfter === 0 ? null : last.leadAfter > 0 ? 0 : 1;
-    let next = dealerAhead === dealerTeam ? nextSeatCCW(s.dealerSeat) : s.dealerSeat;
-    if (last.baazi) {
-      // after a baazi: the partner of the would-be next dealer deals
-      next = (next + 2) % 4;
-    }
-    this.startDeal(next);
-  }
-
-  /** Shuffle, deal the opening instalment and set the bid phase. */
-  private startDeal(dealerSeat: number): void {
-    const s = this.getState();
-    const bidderSeat = nextSeatCCW(dealerSeat);
-    s.dealerSeat = dealerSeat;
-    s.bidderSeat = bidderSeat;
-    s.dealNo += 1;
-    s.phase = 'ANNOUNCE';
-    s.bid = null;
-    s.dealRestPending = true;
-    s.batchesDealt = 0;
-    s.playsMade = 0;
-    s.tableLoose = [];
-    s.houses = [];
-    s.captures = {};
-    for (const p of s.players) s.captures[p.id] = [];
-    s.sweeps = { 0: 0, 1: 0 };
-    s.sweepPoints = { 0: 0, 1: 0 };
-    s.lastCaptureTeam = null;
-    s.lastPickup = null;
-    s.currentTurn = bidderSeat;
-    s.houseSeq = 0;
-    s.teamScores = null;
-    s.roundWinnerTeam = null;
-    s.baaziWinnerTeam = null;
-    s.baaziReason = null;
-    s.tiedTeams = [];
-    for (const p of s.players) {
-      s.hands[p.id] = [];
-    }
-
-    const bidder = s.players[bidderSeat]!;
-    let deck = this.forcedDeck ? [...this.forcedDeck] : shuffleDeck(standardDeck(), this.rng);
-    // The bidder must hold a card worth announcing (9–13). If all four
-    // opening cards are 8 or below the deal is repeated (same dealer, new
-    // shuffle) — deterministic under a seeded RNG. A forced deck (tests)
-    // is used verbatim: fixtures must supply a biddable opening hand.
-    let redeals = 0;
-    if (!this.forcedDeck) {
-      while (deck.slice(-this.rules.openingHandCards).every((c) => c.rank < this.rules.minHouseTotal)) {
-        deck = shuffleDeck(standardDeck(), this.rng);
-        redeals += 1;
-      }
-    }
-    s.deck = deck;
-
-    this.emit('DEAL_STARTED', {
-      dealNo: s.dealNo,
-      dealerId: s.players[dealerSeat]!.id,
-      bidderId: bidder.id,
-      baaziLead: s.baaziLead,
-      baazisWon: { ...s.baazisWon },
-    });
-    if (redeals > 0) this.emit('REDEAL', { redeals });
-
-    for (let i = 0; i < this.rules.openingHandCards; i++) {
-      const card = s.deck.pop();
-      if (!card) INVALID('deck exhausted while dealing');
-      s.hands[bidder.id]!.push(card);
-    }
-    for (let i = 0; i < this.rules.tableStartCards; i++) {
-      const card = s.deck.pop();
-      if (!card) INVALID('deck exhausted while dealing the floor');
-      s.tableLoose.push(card);
-    }
-
-    this.emit('TURN_STARTED', { playerId: this.currentPlayerId() });
-  }
-
-  /**
-   * Complete the deal (called right after the bidder's first play):
-   * counter-clockwise packets of `cardsPerBatch` starting at the bidder —
-   * the bidder ends with 11 (they already played one), everyone else 12.
-   */
-  private dealRest(): void {
-    const s = this.getState();
-    const order: GamePlayer[] = [];
-    for (let seat = s.bidderSeat, i = 0; i < s.players.length; i++) {
-      order.push(s.players[seat]!);
-      seat = nextSeatCCW(seat);
-    }
-    // The bidder's target counts the card already played before the rest of
-    // the deck came out: he ends the deal holding 11, the others 12.
-    const targetFor = (playerId: string): number =>
-      playerId === s.players[s.bidderSeat]!.id ? CARDS_PER_PLAYER - 1 : CARDS_PER_PLAYER;
-    let round = 0;
-    while (s.players.some((p) => (s.hands[p.id]?.length ?? 0) < targetFor(p.id))) {
-      round += 1;
-      for (const p of order) {
-        const hand = s.hands[p.id]!;
-        const target = targetFor(p.id);
-        if (hand.length >= target) continue;
-        for (let i = 0; i < this.rules.cardsPerBatch && hand.length < target; i++) {
-          const card = s.deck.pop();
-          if (!card) INVALID('deck exhausted while dealing');
-          hand.push(card);
-        }
-      }
-      s.batchesDealt += 1;
-      this.emit('BATCH_DEALT', {
-        batch: s.batchesDealt,
-        round,
-        handCounts: Object.fromEntries(s.players.map((p) => [p.id, s.hands[p.id]!.length])),
-        tableIds: s.tableLoose.map((c) => c.id),
-      });
-    }
-    s.dealRestPending = false;
+    const refused = apply(this.round!, 0, { type: 'NEXT_DEAL' } satisfies CoreAction);
+    if (refused !== null) INVALID(refused);
+    if (this.forced) this.round = this.reload(JSON.parse(this.round!.save()) as CoreSave);
+    else s.cards = this.nameCards(this.round!);
+    this.refresh();
+    this.emitDealStarted();
   }
 
   // -------------------------------------------------------------------
@@ -378,8 +405,8 @@ export class SeepEngine {
 
   validateAction(action: GameAction): boolean {
     try {
-      this.checkAction(action as SeepAction);
-      return true;
+      const { seat, action: move } = this.translate(action as SeepAction);
+      return check(this.round!, seat, move) === null;
     } catch {
       return false;
     }
@@ -421,15 +448,84 @@ export class SeepEngine {
     return { ok: true, events: s.events.filter((e) => e.seq > before) };
   }
 
+  // -------------------------------------------------------------------
+  // Internals
+  // -------------------------------------------------------------------
+
   private currentPlayerId(): string {
     const s = this.getState();
     return s.players[s.currentTurn]?.id ?? INVALID('no current player');
   }
 
-  private checkAction(a: SeepAction): void {
+  /** Selected loose cards (distinct, all on the floor) as the core's mask. */
+  private looseMask(cardIds: string[]): number {
     const s = this.getState();
-    const ids = s.players.map((p) => p.id);
-    if (!ids.includes(a.playerId)) INVALID('player not in this game');
+    if (!Array.isArray(cardIds)) INVALID('invalid table card selection');
+    const seen = new Set<string>();
+    let mask = 0;
+    for (const id of cardIds) {
+      if (seen.has(id)) INVALID('duplicate table card in selection');
+      seen.add(id);
+      const at = s.tableLoose.findIndex((c) => c.id === id);
+      if (at < 0) INVALID('card not on the table');
+      mask |= 1 << at;
+    }
+    return mask >>> 0;
+  }
+
+  /**
+   * The action in the core's terms. What the core cannot be asked — a player,
+   * card or house it has no name for, or a move out of turn — is refused
+   * here; the rules of the play itself are the core's to judge.
+   */
+/** The round in the rules core, as it stands (for the model seat; do not change it). */
+  get table(): Round {
+    return this.round ?? INVALID('game not started');
+  }
+
+  /** An action of the rules core, by `seat`, as the action the table takes. */
+  fromCore(seat: number, move: unknown): SeepAction {
+    const s = this.getState();
+    const m = move as CoreAction;
+    const playerId = s.players[seat]?.id ?? INVALID('player not in this game');
+    if (m.type === 'ANNOUNCE') return { type: 'ANNOUNCE', playerId, value: m.value };
+    if (m.type === 'NEXT_DEAL') INVALID('the next deal is not a player action');
+    const card = (s.hands[playerId] ?? [])[m.card] ?? INVALID('card not in your hand');
+    const loose = (mask: number): string[] =>
+      s.tableLoose.filter((_, i) => (mask >>> i) & 1).map((c) => c.id);
+    const houseOf = (total: number): string => s.houses.find((h) => h.total === total)?.id ?? INVALID('no such house');
+    const play = (intent: Extract<SeepAction, { type: 'PLAY_CARD' }>['intent']): SeepAction => ({
+      type: 'PLAY_CARD',
+      playerId,
+      cardId: card.id,
+      intent,
+    });
+    switch (m.type) {
+      case 'LAY':
+        return play({ kind: 'LAY_DOWN' });
+      case 'CAPTURE': {
+        const v = captureValue(card);
+        return play({
+          kind: 'CAPTURE',
+          tableCardIds: loose(m.loose),
+          houseIds: s.houses.filter((h) => h.total === v).map((h) => h.id),
+        });
+      }
+      case 'BUILD':
+        return play({ kind: 'BUILD', tableCardIds: loose(m.loose), total: m.total });
+      case 'ADD':
+        return play({ kind: 'ADD_TO_HOUSE', houseId: houseOf(m.total), tableCardIds: loose(m.loose) });
+      case 'BREAK':
+        return play({ kind: 'BREAK_HOUSE', houseId: houseOf(m.total) });
+      default:
+        return INVALID(`unknown action type: ${(m as { type: string }).type}`);
+    }
+  }
+
+    private translate(a: SeepAction): { seat: number; action: CoreAction } {
+    const s = this.getState();
+    const seat = s.players.findIndex((p) => p.id === a.playerId);
+    if (seat < 0) INVALID('player not in this game');
     switch (a.type) {
       case 'ANNOUNCE': {
         if (s.phase !== 'ANNOUNCE') INVALID('the number has already been announced');
@@ -438,521 +534,171 @@ export class SeepEngine {
         if (!Number.isInteger(value) || value < this.rules.minHouseTotal || value > this.rules.maxHouseTotal) {
           INVALID(`announce a number between ${this.rules.minHouseTotal} and ${this.rules.maxHouseTotal}`);
         }
-        const hand = s.hands[a.playerId] ?? [];
-        if (!hand.some((c) => captureValue(c) === value)) INVALID(`you must hold a card of value ${value}`);
-        return;
+        return { seat, action: { type: 'ANNOUNCE', value } };
       }
       case 'PLAY_CARD': {
         if (s.phase !== 'TURN_PLAY') INVALID(s.phase === 'ANNOUNCE' ? 'announce a number first' : 'the deal is over');
         if (a.playerId !== this.currentPlayerId()) INVALID('not your turn');
-        this.validatePlay(a);
-        return;
+        const hand = s.hands[a.playerId] ?? [];
+        const card = hand.findIndex((c) => c.id === a.cardId);
+        if (card < 0) INVALID('card not in your hand');
+        const v = captureValue(hand[card]!);
+        const intent = a.intent;
+        if (!intent) INVALID('missing play intent');
+        switch (intent.kind) {
+          case 'LAY_DOWN':
+            return { seat, action: { type: 'LAY', card } };
+          case 'CAPTURE': {
+            const houseIds = intent.houseIds ?? [];
+            const looseIds = intent.tableCardIds ?? [];
+            if (looseIds.length === 0 && houseIds.length === 0) INVALID('select something to capture');
+            // Houses of the played value are ALL compulsory; the core takes them.
+            const matching = s.houses.filter((h) => h.total === v);
+            if (matching.length !== houseIds.length) INVALID('a card must take every ghar it matches');
+            for (const houseId of houseIds) {
+              if (!matching.some((h) => h.id === houseId)) INVALID('your card does not match that house total');
+            }
+            return { seat, action: { type: 'CAPTURE', card, loose: this.looseMask(looseIds) } };
+          }
+          case 'BUILD': {
+            const loose = this.looseMask(intent.tableCardIds);
+            const total = intent.total;
+            if (!Number.isInteger(total) || total < this.rules.minHouseTotal || total > this.rules.maxHouseTotal) {
+              INVALID(`a ghar must total between ${this.rules.minHouseTotal} and ${this.rules.maxHouseTotal}`);
+            }
+            return { seat, action: { type: 'BUILD', card, loose, total } };
+          }
+          case 'ADD_TO_HOUSE': {
+            const house = s.houses.find((h) => h.id === intent.houseId) ?? INVALID('no such house');
+            return { seat, action: { type: 'ADD', card, total: house.total, loose: this.looseMask(intent.tableCardIds ?? []) } };
+          }
+          case 'BREAK_HOUSE': {
+            const house = s.houses.find((h) => h.id === intent.houseId) ?? INVALID('no such house');
+            return { seat, action: { type: 'BREAK', card, total: house.total } };
+          }
+          default:
+            INVALID('unknown play intent');
+        }
       }
+      // eslint-disable-next-line no-fallthrough
       default:
         INVALID(`unknown action type: ${(a as { type: string }).type}`);
     }
   }
 
-  /** Full read-only validation of a play. Throws SeepEngineError. */
-  private validatePlay(a: Extract<SeepAction, { type: 'PLAY_CARD' }>): void {
-    const s = this.getState();
-    const hand = s.hands[a.playerId] ?? [];
-    const played = hand.find((c) => c.id === a.cardId);
-    if (!played) INVALID('card not in your hand');
-    const v = captureValue(played!);
-    const intent = a.intent;
-    if (!intent) INVALID('missing play intent');
-    const bid = s.bid ?? INVALID('no announce yet');
-    const myTeam = this.teamOfPlayer(a.playerId);
-
-    // The opening play must relate to the announced number.
-    if (s.playsMade === 0) {
-      if (intent.kind === 'CAPTURE' && v !== bid) INVALID(`the first play must involve the announced ${bid}`);
-      if (intent.kind === 'BUILD' && intent.total !== bid) INVALID(`the first play must involve the announced ${bid}`);
-      if (intent.kind === 'LAY_DOWN' && v !== bid) INVALID(`throw the announced ${bid}`);
-      if (intent.kind === 'ADD_TO_HOUSE' || intent.kind === 'BREAK_HOUSE') {
-        INVALID('there are no houses on the opening play');
-      }
-    }
-
-    /**
-     * Per-card must-capture: a card that is NOT being used in a house may
-     * not be thrown if it could take something. Building, cementing and
-     * breaking are legitimate alternative uses of the played card.
-     */
-    const thisCardCanCapture =
-      intent.kind === 'LAY_DOWN' &&
-      (reachableSubsetSum(s.tableLoose, v) || s.houses.some((h) => h.total === v));
-    if (thisCardCanCapture) INVALID('this card can take something — it cannot be thrown');
-
-    const handAfter = hand.filter((c) => c.id !== played!.id);
-
-    switch (intent.kind) {
-      case 'LAY_DOWN':
-        break;
-
-      case 'CAPTURE': {
-        const houseIds = intent.houseIds ?? [];
-        const looseIds = intent.tableCardIds ?? [];
-        if (looseIds.length === 0 && houseIds.length === 0) INVALID('select something to capture');
-        // Houses of the played value are ALL compulsory.
-        const matchingHouses = s.houses.filter((h) => h.total === v);
-        if (matchingHouses.length !== houseIds.length) {
-          INVALID('a card must take every ghar it matches');
-        }
-        for (const houseId of houseIds) {
-          if (!matchingHouses.some((h) => h.id === houseId)) {
-            INVALID('your card does not match that house total');
-          }
-        }
-        // Loose cards: exactly one maximal collection of non-overlapping groups.
-        const alternatives = maximalCaptureAlternatives(s.tableLoose, v);
-        if (looseIds.length > 0) {
-          if (alternatives.length === 0) INVALID('no set of table cards matches your card');
-          const selectedSet = new Set(looseIds);
-          const matches = alternatives.some((groups) => {
-            const ids = groups.flat();
-            return ids.length === looseIds.length && ids.every((id) => selectedSet.has(s.tableLoose[id]!.id));
-          });
-          if (!matches) {
-            INVALID('you must take a maximal set — pick a highlighted combination');
-          }
-        } else if (alternatives.length > 0) {
-          INVALID('a card must take every loose set it matches');
-        }
-        break;
-      }
-
-      case 'BUILD': {
-        const selected = this.selectedLooseCards(intent.tableCardIds);
-        const total = intent.total;
-        if (total < this.rules.minHouseTotal || total > this.rules.maxHouseTotal) {
-          INVALID(`a ghar must total between ${this.rules.minHouseTotal} and ${this.rules.maxHouseTotal}`);
-        }
-        // The played card plus the selected loose cards must form complete
-        // copies of the total (usually one; two 9s on a loose 9 make a
-        // cemented house in a single turn).
-        const sum = v + selected.reduce((acc, c) => acc + captureValue(c), 0);
-        if (sum < total || sum % total !== 0) {
-          INVALID('the build does not form complete copies of the house total');
-        }
-        // Establishing requires a backing card; merging into a house my
-        // team already owns does not (the existing owner retains).
-        const existing = s.houses.find((h) => h.total === total);
-        if (!existing || existing.ownerByTeam[myTeam] === undefined) {
-          if (!handAfter.some((c) => captureValue(c) === total)) {
-            INVALID(`you must hold a ${total} to promise this ghar`);
-          }
-        }
-        break;
-      }
-
-      case 'ADD_TO_HOUSE': {
-        const house = s.houses.find((h) => h.id === intent.houseId);
-        if (!house) INVALID('no such house');
-        const selected = intent.tableCardIds ?? [];
-        const rest = this.selectedLooseCards(selected);
-        const groupSum = v + rest.reduce((acc, c) => acc + captureValue(c), 0);
-        if (groupSum !== house!.total) {
-          INVALID(`the cards you add must make another complete set of ${house!.total}`);
-        }
-        // Cementing/adding to an opponent-owned house requires retention and
-        // makes you a second owner. Adding to your own side's house does not.
-        if (house!.ownerByTeam[myTeam] === undefined) {
-          if (!handAfter.some((c) => captureValue(c) === house!.total)) {
-            INVALID(`you must keep a ${house!.total} to cement an opponent's ghar`);
-          }
-        }
-        break;
-      }
-
-      case 'BREAK_HOUSE': {
-        const house = s.houses.find((h) => h.id === intent.houseId);
-        if (!house) INVALID('no such house');
-        const copies = Math.round(house!.cards.reduce((acc, c) => acc + c.rank, 0) / house!.total);
-        if (copies !== 1) INVALID('a pakka ghar cannot be broken');
-        if (house!.ownerByTeam[myTeam] === a.playerId) INVALID('you cannot break your own ghar');
-        const newTotal = house!.total + v;
-        if (newTotal > this.rules.maxHouseTotal) {
-          INVALID(`a ghar cannot exceed ${this.rules.maxHouseTotal}`);
-        }
-        if (!handAfter.some((c) => captureValue(c) === newTotal)) {
-          INVALID(`you must hold a ${newTotal} to raise this ghar`);
-        }
-        // Merging the broken house into an existing one: if the target is
-        // owned by the opponents and I am not taking ownership, my partner
-        // (as the existing owner) retains — no extra duty on me.
-        break;
-      }
-
-      default:
-        INVALID('unknown play intent');
-    }
-
-    this.checkRetention(s, a.playerId, handAfter, intent);
-  }
-
-  /**
-   * Every owner of every surviving house must keep a card of that house's
-   * total in hand. Simulated: the hand loses the played card; houses picked
-   * up in the same play no longer demand anything.
-   *
-   * Relaxation: a player on their LAST card cannot be blocked by their own
-   * retention duty — the deal would deadlock (the house simply remains on
-   * the floor capturable by its value, and sweeps as a leftover at the end).
-   */
-  private checkRetention(
-    s: SeepState,
-    playerId: string,
-    handAfter: Card[],
-    intent: SeepPlayIntent,
-  ): void {
-    let survivingHouses: SeepHouse[] = s.houses;
-    if (intent.kind === 'CAPTURE') {
-      const captured = new Set(intent.houseIds ?? []);
-      survivingHouses = s.houses.filter((h) => !captured.has(h.id));
-    }
-    for (const house of survivingHouses) {
-      for (const [teamStr, owner] of Object.entries(house.ownerByTeam)) {
-        if (!owner) continue;
-        const team = Number(teamStr) as SeepTeam;
-        if (owner === playerId) {
-          if (handAfter.length === 0) continue; // last-card relaxation
-          if (!handAfter.some((c) => captureValue(c) === house.total)) {
-            INVALID(`a ${house.total} must stay behind while the ghar ${house.total} stands`);
-          }
-        } else {
-          void team;
-        }
-      }
-    }
-  }
-
-  private teamOfPlayer(playerId: string): SeepTeam {
-    const s = this.getState();
-    const p = s.players.find((x) => x.id === playerId);
-    if (!p) INVALID('player not in this game');
-    return teamOfSeat(p.seat);
-  }
-
-  /** Resolve + verify selected loose table cards (distinct, all present). */
-  private selectedLooseCards(cardIds: string[]): Card[] {
-    const s = this.getState();
-    if (!Array.isArray(cardIds)) INVALID('invalid table card selection');
-    const seen = new Set<string>();
-    const out: Card[] = [];
-    for (const id of cardIds) {
-      if (seen.has(id)) INVALID('duplicate table card in selection');
-      seen.add(id);
-      const card = s.tableLoose.find((c) => c.id === id);
-      if (!card) INVALID('card not on the table');
-      out.push(card);
-    }
-    return out;
-  }
-
   private applyAction(a: SeepAction): void {
-    this.checkAction(a);
+    const { seat, action } = this.translate(a);
+    const s = this.getState();
+    // The table as it stood: `refresh` replaces these, it does not change them.
+    const hand = s.hands[a.playerId]!;
+    const floor = s.tableLoose;
+    const houses = s.houses;
+    const restPending = s.dealRestPending;
+    const sweepPoints = s.sweepPoints;
+    const sweeps = s.sweeps;
+
+    const refused = apply(this.round!, seat, action);
+    if (refused !== null) INVALID(refused);
+    this.refresh();
+
     if (a.type === 'ANNOUNCE') {
-      const s = this.getState();
-      s.bid = a.value;
-      s.phase = 'TURN_PLAY';
-      s.revision += 1;
       this.emit('BID_ANNOUNCED', { playerId: a.playerId, value: a.value });
       this.emit('TURN_STARTED', { playerId: this.currentPlayerId() });
       return;
     }
-    this.applyPlay(a);
-  }
 
-  private applyPlay(a: Extract<SeepAction, { type: 'PLAY_CARD' }>): void {
-    const s = this.getState();
-    const hand = s.hands[a.playerId]!;
-    const idx = hand.findIndex((c) => c.id === a.cardId);
-    const played = hand[idx]!;
-    const team = this.teamOfPlayer(a.playerId);
+    const played = hand.find((c) => c.id === a.cardId)!;
+    const team = teamOfSeat(seat);
     const intent = a.intent;
-
-    // Remove the played card from the hand up front; every intent consumes it.
-    hand.splice(idx, 1);
-    s.playsMade += 1;
+    /** The chosen loose cards, in floor order (the order the core moves them in). */
+    const chosen = (ids: string[] | undefined): Card[] => floor.filter((c) => (ids ?? []).includes(c.id));
+    const without = (cards: Card[]): Card[] => floor.filter((c) => !cards.includes(c));
 
     switch (intent.kind) {
       case 'LAY_DOWN': {
-        s.tableLoose.push(played);
         this.emit('PLAY_LAY', { playerId: a.playerId, cardId: played.id, value: captureValue(played) });
         break;
       }
       case 'CAPTURE': {
-        const loose = this.selectedLooseCards(intent.tableCardIds ?? []);
-        const houseIds = intent.houseIds ?? [];
-        const houses = houseIds.map((id) => s.houses.find((h) => h.id === id)!);
-        s.tableLoose = s.tableLoose.filter((c) => !(intent.tableCardIds ?? []).includes(c.id));
-        s.houses = s.houses.filter((h) => !houseIds.includes(h.id));
-        const pile = s.captures[a.playerId]!;
-        pile.push(played, ...loose, ...houses.flatMap((h) => h.cards));
-        s.lastCaptureTeam = team;
-        const capturedIds = [
-          played.id,
-          ...loose.map((c) => c.id),
-          ...houses.flatMap((h) => h.cards.map((c) => c.id)),
-        ];
-        s.lastPickup = { playerId: a.playerId, cardIds: capturedIds, playsMade: s.playsMade };
+        const capturedIds = s.lastPickup!.cardIds;
         this.emit('PLAY_CAPTURE', {
           playerId: a.playerId,
           cardId: played.id,
           capturedIds,
-          houseIds,
+          houseIds: intent.houseIds ?? [],
           capturedCount: capturedIds.length,
         });
-        this.checkSweep(s, team, a.playerId);
+        if (s.sweeps[team] > sweeps[team]) {
+          this.emit('SEEP_SWEEP', { playerId: a.playerId, team, bonus: s.sweepPoints[team] - sweepPoints[team] });
+        }
         break;
       }
       case 'BUILD': {
-        const selected = this.selectedLooseCards(intent.tableCardIds);
-        s.tableLoose = s.tableLoose.filter((c) => !intent.tableCardIds.includes(c.id));
-        const existing = s.houses.find((h) => h.total === intent.total);
-        let house: SeepHouse;
+        const selected = chosen(intent.tableCardIds);
         const joined = [played, ...selected];
-        if (existing) {
-          // A second house of the same value merges into a cemented one.
-          existing.cards.push(...joined);
-          if (existing.ownerByTeam[team] === undefined) {
-            existing.ownerByTeam[team] = a.playerId;
-          }
-          house = existing;
-          this.emit('PLAY_BUILD', {
-            playerId: a.playerId,
-            cardId: played.id,
-            houseId: house.id,
-            total: house.total,
-            merged: true,
-            joinedIds: joined.map((c) => c.id),
-          });
-        } else {
-          house = {
-            id: `h-${++s.houseSeq}`,
-            total: intent.total,
-            ownerByTeam: { [team]: a.playerId },
-            cards: [...joined],
-          };
-          s.houses.push(house);
-          this.emit('PLAY_BUILD', {
-            playerId: a.playerId,
-            cardId: played.id,
-            houseId: house.id,
-            total: house.total,
-            merged: false,
-            joinedIds: house.cards.map((c) => c.id),
-          });
-        }
-        this.autoCement(house);
+        const existing = houses.find((h) => h.total === intent.total);
+        const houseId = existing?.id ?? `h-${(s.core as CoreSave).game.house_seq}`;
+        this.emit('PLAY_BUILD', {
+          playerId: a.playerId,
+          cardId: played.id,
+          houseId,
+          total: intent.total,
+          merged: !!existing,
+          joinedIds: joined.map((c) => c.id),
+        });
+        this.emitCemented(houseId, intent.total, [...(existing?.cards ?? []), ...joined], without(selected));
         break;
       }
       case 'ADD_TO_HOUSE': {
-        const house = s.houses.find((h) => h.id === intent.houseId)!;
-        const selected = this.selectedLooseCards(intent.tableCardIds ?? []);
-        s.tableLoose = s.tableLoose.filter((c) => !(intent.tableCardIds ?? []).includes(c.id));
-        house.cards.push(played, ...selected);
-        if (house.ownerByTeam[team] === undefined) {
-          // cementing an opponent-owned house: become a second owner
-          house.ownerByTeam[team] = a.playerId;
-        }
+        const house = houses.find((h) => h.id === intent.houseId)!;
+        const selected = chosen(intent.tableCardIds);
+        const owners = { ...house.ownerByTeam };
+        // cementing an opponent-owned house: become a second owner
+        owners[team] ??= a.playerId;
         this.emit('PLAY_ADD', {
           playerId: a.playerId,
           cardId: played.id,
           houseId: house.id,
           total: house.total,
-          pakka: Math.round(house.cards.reduce((acc, c) => acc + c.rank, 0) / house.total) >= 2,
-          owners: { ...house.ownerByTeam },
+          pakka: isPakka([...house.cards, played, ...selected], house.total),
+          owners,
           joinedIds: [played.id, ...selected.map((c) => c.id)],
         });
         break;
       }
       case 'BREAK_HOUSE': {
-        const house = s.houses.find((h) => h.id === intent.houseId)!;
-        const fromTotal = house.total;
-        house.total += captureValue(played);
-        house.cards.push(played);
-        // The breaker takes over ownership of the broken house…
-        house.ownerByTeam = { [team]: a.playerId };
-        // …and if the new total matches another house, the two combine.
-        const twin = s.houses.find((h) => h.id !== house.id && h.total === house.total);
-        if (twin) {
-          // combined cemented house: the target's owners stay, the breaker
-          // joins (their team keeps its existing owner if it had one)
-          house.cards.push(...twin.cards);
-          for (const [ownerTeamStr, owner] of Object.entries(twin.ownerByTeam)) {
-            const ownerTeam = Number(ownerTeamStr) as SeepTeam;
-            if (house.ownerByTeam[ownerTeam] === undefined) {
-              house.ownerByTeam[ownerTeam] = owner!;
-            }
-          }
-          s.houses = s.houses.filter((h) => h.id !== twin.id);
+        const house = houses.find((h) => h.id === intent.houseId)!;
+        const toTotal = house.total + captureValue(played);
+        // The breaker takes over the house; one that already has the new
+        // total joins it and its owners stay.
+        const twin = houses.find((h) => h.id !== house.id && h.total === toTotal);
+        const owners: SeepHouse['ownerByTeam'] = { [team]: a.playerId };
+        for (const t of [0, 1] as const) {
+          if (owners[t] === undefined && twin?.ownerByTeam[t] !== undefined) owners[t] = twin.ownerByTeam[t];
         }
         this.emit('PLAY_BREAK', {
           playerId: a.playerId,
           cardId: played.id,
           houseId: house.id,
-          fromTotal,
-          toTotal: house.total,
+          fromTotal: house.total,
+          toTotal,
           merged: !!twin,
-          owners: { ...house.ownerByTeam },
+          owners,
         });
-        this.autoCement(house);
+        this.emitCemented(house.id, toTotal, [...house.cards, played, ...(twin?.cards ?? [])], floor);
         break;
       }
     }
 
-    s.revision += 1;
-    this.advanceAfterPlay();
-  }
-
-  /**
-   * The floor can never hold a loose card of a standing house's value: after
-   * establishing/breaking, loose cards of the total — or a set of loose
-   * cards summing to it — are automatically absorbed, cementing the house.
-   */
-  private autoCement(house: SeepHouse): void {
-    const s = this.getState();
-    const absorbed: string[] = [];
-    // every loose card equal to the total joins first
-    for (const card of [...s.tableLoose]) {
-      if (card.rank === house.total) {
-        house.cards.push(card);
-        absorbed.push(card.id);
-        s.tableLoose = s.tableLoose.filter((c) => c.id !== card.id);
-      }
-    }
-    // then one maximal set of remaining loose cards summing to the total
-    if (s.tableLoose.length > 0) {
-      const alternatives = maximalCaptureAlternatives(s.tableLoose, house.total);
-      if (alternatives.length > 0) {
-        const ids = alternatives[0]!.flat().map((i) => s.tableLoose[i]!.id);
-        for (const id of ids) {
-          const card = s.tableLoose.find((c) => c.id === id)!;
-          house.cards.push(card);
-          absorbed.push(id);
-          s.tableLoose = s.tableLoose.filter((c) => c.id !== id);
-        }
-      }
-    }
-    if (absorbed.length > 0) {
-      this.emit('HOUSE_CEMENTED', {
-        houseId: house.id,
-        total: house.total,
-        absorbedIds: absorbed,
-        pakka: Math.round(house.cards.reduce((acc, c) => acc + c.rank, 0) / house.total) >= 2,
-      });
-    }
-  }
-
-  /** Sweep detection: only a capture can clear the floor. */
-  private checkSweep(s: SeepState, team: SeepTeam, playerId: string): void {
-    if (s.tableLoose.length === 0 && s.houses.length === 0) {
-      const handsEmptyAfter = s.players.every((p) => (s.hands[p.id] ?? []).length === 0);
-      const bonus =
-        s.playsMade === 1
-          ? this.rules.firstPlaySweepBonus
-          : this.rules.lastPlaySweepZero && !s.dealRestPending && handsEmptyAfter
-            ? 0 // sweeping with the very last card of the deal scores nothing
-            : this.rules.sweepBonus;
-      s.sweeps[team] += 1;
-      s.sweepPoints[team] += bonus;
-      this.emit('SEEP_SWEEP', { playerId, team, bonus });
-    }
-  }
-
-  private advanceAfterPlay(): void {
-    const s = this.getState();
-    if (s.dealRestPending) this.dealRest();
-    const allHandsEmpty = s.players.every((p) => (s.hands[p.id] ?? []).length === 0);
-    if (allHandsEmpty) {
-      this.finishDeal();
+    if (restPending) this.emitBatches(Object.fromEntries(s.players.map((p) => [p.id, (p.id === a.playerId ? hand.length - 1 : 0)])));
+    if (s.phase === 'TURN_PLAY') {
+      this.emit('TURN_STARTED', { playerId: this.currentPlayerId() });
       return;
     }
-    s.currentTurn = nextSeatCCW(s.currentTurn);
-    this.emit('TURN_STARTED', { playerId: this.currentPlayerId() });
-  }
-
-  /** Distribute leftovers, settle the deal and apply the baazi rules. */
-  private finishDeal(): void {
-    const s = this.getState();
-    const firstSeatOf = (team: SeepTeam): string | null =>
-      s.players.find((p) => teamOfSeat(p.seat) === team)?.id ?? null;
-
-    // Leftover floor cards — loose cards and any surviving houses — go to
-    // the team that picked up last. (Houses are in practice always gone:
-    // their owners must have held and eventually played matching cards.)
-    if (s.lastCaptureTeam !== null) {
-      const receiver = firstSeatOf(s.lastCaptureTeam);
-      if (receiver) {
-        (s.captures[receiver] ??= []).push(...s.tableLoose, ...s.houses.flatMap((h) => h.cards));
-      }
-    }
-    s.tableLoose = [];
-    s.houses = [];
-
-    // Team deal score: card points + sweep bonuses (+ majority in the casual preset).
-    const tp = this.teamPoints(s);
-    if (this.rules.majorityCardsBonus > 0) {
-      const count = (team: SeepTeam): number =>
-        s.players.filter((p) => teamOfSeat(p.seat) === team).reduce((n, p) => n + (s.captures[p.id]?.length ?? 0), 0);
-      const c0 = count(0);
-      const c1 = count(1);
-      if (c0 !== c1) {
-        tp[c0 > c1 ? 0 : 1] += this.rules.majorityCardsBonus;
-      }
-    }
-
-    s.teamScores = tp;
-    s.roundWinnerTeam = tp[0] > tp[1] ? 0 : tp[1] > tp[0] ? 1 : null;
-    s.tiedTeams = s.roundWinnerTeam === null ? [0, 1] : [];
-
-    // Baazi rules: instant loss below the minimum, else accumulate the
-    // signed difference until a side leads by the target.
-    let baazi: { winnerTeam: SeepTeam; reason: 'lead' | 'minimum-points' } | null = null;
-    const min = this.rules.minimumDealPoints;
-    if (tp[0] < min || tp[1] < min) {
-      // the side below the minimum loses instantly; if the ruleset makes
-      // both fall short, the higher scorer takes the baazi
-      const winnerTeam: SeepTeam =
-        tp[0] < min && tp[1] < min ? (tp[0] < tp[1] ? 1 : 0) : tp[0] < min ? 1 : 0;
-      baazi = { winnerTeam, reason: 'minimum-points' };
-    } else {
-      s.baaziLead += tp[0] - tp[1];
-      if (Math.abs(s.baaziLead) >= this.rules.baaziLeadTarget) {
-        baazi = { winnerTeam: s.baaziLead > 0 ? 0 : 1, reason: 'lead' };
-      }
-    }
-
-    const leadAfterDeal = s.baaziLead;
-    if (baazi) {
-      s.baazisWon[baazi.winnerTeam] += 1;
-      s.baaziLead = 0;
-      s.baaziWinnerTeam = baazi.winnerTeam;
-      s.baaziReason = baazi.reason;
-      s.phase = 'MATCH_COMPLETE';
-    } else {
-      s.baaziWinnerTeam = null;
-      s.baaziReason = null;
-      s.phase = 'DEAL_COMPLETE';
-    }
-
-    s.dealHistory.push({
-      dealNo: s.dealNo,
-      teamScores: { ...tp },
-      diff: tp[0] - tp[1],
-      leftoverTeam: s.lastCaptureTeam,
-      baazi,
-      leadAfter: leadAfterDeal,
-      baazisWonAfter: { ...s.baazisWon },
-    });
-
-    s.revision += 1;
+    const baazi = s.dealHistory[s.dealHistory.length - 1]!.baazi;
     this.emit('DEAL_COMPLETE', {
       dealNo: s.dealNo,
-      teamScores: { ...tp },
+      teamScores: { ...s.teamScores! },
       winnerTeam: s.roundWinnerTeam,
       tiedTeams: s.tiedTeams,
       sweeps: { ...s.sweeps },
@@ -970,9 +716,123 @@ export class SeepEngine {
     }
   }
 
-  // -------------------------------------------------------------------
-  // Infrastructure
-  // -------------------------------------------------------------------
+  private emitDealStarted(): void {
+    const s = this.getState();
+    this.emit('DEAL_STARTED', {
+      dealNo: s.dealNo,
+      dealerId: s.players[s.dealerSeat]!.id,
+      bidderId: s.players[s.bidderSeat]!.id,
+      baaziLead: s.baaziLead,
+      baazisWon: { ...s.baazisWon },
+    });
+    const redeals = (s.core as CoreSave).game.redeals;
+    if (redeals > 0) this.emit('REDEAL', { redeals });
+    this.emit('TURN_STARTED', { playerId: this.currentPlayerId() });
+  }
+
+  /**
+   * The floor can never hold a loose card of a standing house's value: after
+   * a build or a break, loose cards of the total — then one maximal choice
+   * of loose sets summing to it — join the house by themselves. `cards` is
+   * the house and `floor` the loose cards as the play left them.
+   */
+  private emitCemented(houseId: string, total: number, cards: Card[], floor: Card[]): void {
+    const absorbed = floor.filter((c) => c.rank === total);
+    const rest = floor.filter((c) => c.rank !== total);
+    const sets = maximalCaptureAlternatives(rest, total)[0];
+    if (sets) absorbed.push(...sets.flat().map((i) => rest[i]!));
+    if (absorbed.length === 0) return;
+    this.emit('HOUSE_CEMENTED', {
+      houseId,
+      total,
+      absorbedIds: absorbed.map((c) => c.id),
+      pakka: isPakka([...cards, ...absorbed], total),
+    });
+  }
+
+  /**
+   * The rest of the deal, as it went out after the bidder's first play:
+   * counter-clockwise packets of `cardsPerBatch` starting at the bidder —
+   * the bidder ends with 11 (they already played one), everyone else 12.
+   */
+  private emitBatches(handCounts: Record<string, number>): void {
+    const s = this.getState();
+    const bidderId = s.players[s.bidderSeat]!.id;
+    const order: string[] = [];
+    for (let seat = s.bidderSeat, i = 0; i < s.players.length; i++) {
+      order.push(s.players[seat]!.id);
+      seat = nextSeatCCW(seat);
+    }
+    const tableIds = s.tableLoose.map((c) => c.id);
+    for (let round = 1; round <= s.batchesDealt; round++) {
+      for (const id of order) {
+        const target = id === bidderId ? CARDS_PER_PLAYER - 1 : CARDS_PER_PLAYER;
+        handCounts[id] = Math.min(target, handCounts[id]! + this.rules.cardsPerBatch);
+      }
+      this.emit('BATCH_DEALT', { batch: round, round, handCounts: { ...handCounts }, tableIds });
+    }
+  }
+
+  /** Rewrite the table's view of the match from the core's. */
+  private refresh(): void {
+    const s = this.getState();
+    const saved = JSON.parse(this.round!.save()) as CoreSave;
+    const g = saved.game;
+    const card = (n: number): Card => s.cards[n] ?? INVALID('the saved match holds an unknown card');
+    const id = (seat: number): string => s.players[seat]!.id;
+    const byPlayer = (piles: number[][]): Record<string, Card[]> =>
+      Object.fromEntries(s.players.map((p, i) => [p.id, piles[i]!.map(card)]));
+    const baazi = (b: [SeepTeam, CoreReason] | null): SeepDealResult['baazi'] =>
+      b ? { winnerTeam: b[0], reason: REASONS[b[1]] } : null;
+
+    s.core = saved;
+    s.rules = this.rules;
+    s.phase = PHASES[g.phase];
+    s.hands = byPlayer(g.hands);
+    s.tableLoose = g.loose.map(card);
+    s.houses = g.houses.map((h) => {
+      const ownerByTeam: SeepHouse['ownerByTeam'] = {};
+      for (const t of [0, 1] as const) {
+        const seat = h.owners[t];
+        if (seat !== null) ownerByTeam[t] = id(seat);
+      }
+      return { id: `h-${h.id}`, total: h.total, ownerByTeam, cards: h.cards.map(card) };
+    });
+    s.deck = g.deck.map(card);
+    s.bidderSeat = g.bidder;
+    s.dealerSeat = g.dealer;
+    s.dealNo = g.deal_no;
+    s.bid = g.bid;
+    s.dealRestPending = g.deal_rest_pending;
+    s.batchesDealt = g.batches_dealt;
+    s.playsMade = g.plays_made;
+    s.captures = byPlayer(g.captures);
+    s.sweeps = pair(g.sweeps);
+    s.sweepPoints = pair(g.sweep_points);
+    s.lastCaptureTeam = g.last_capture_team;
+    s.lastPickup = g.last_pickup
+      ? { playerId: id(g.last_pickup.seat), cardIds: g.last_pickup.cards.map((n) => card(n).id), playsMade: g.last_pickup.plays_made }
+      : null;
+    s.currentTurn = g.turn;
+    s.houseSeq = g.house_seq;
+    s.baaziLead = g.baazi_lead;
+    s.baazisWon = pair(g.baazis_won);
+    s.dealHistory = g.deal_history.map((d) => ({
+      dealNo: d.deal_no,
+      teamScores: pair(d.team_scores),
+      diff: d.diff,
+      leftoverTeam: d.leftover_team,
+      baazi: baazi(d.baazi),
+      leadAfter: d.lead_after,
+      baazisWonAfter: pair(d.baazis_won_after),
+    }));
+    s.teamScores = g.team_scores ? pair(g.team_scores) : null;
+    s.roundWinnerTeam = g.round_winner;
+    s.baaziWinnerTeam = g.baazi_winner;
+    s.baaziReason = g.baazi_reason ? REASONS[g.baazi_reason] : null;
+    s.tiedTeams = g.team_scores && g.round_winner === null ? [0, 1] : [];
+    s.revision = g.revision;
+  }
 
   private emit(type: string, payload?: Record<string, unknown>): void {
     const s = this.getState();
@@ -982,6 +842,5 @@ export class SeepEngine {
       timestamp: new Date().toISOString(),
       payload,
     });
-    s.revision += 1;
   }
 }

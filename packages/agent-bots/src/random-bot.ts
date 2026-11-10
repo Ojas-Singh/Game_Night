@@ -1,5 +1,5 @@
 /**
- * Random bot — uniform over enumerated candidate actions. The arena's
+ * Random bot — uniform over enumerated candidate actions. The
  * calibration floor: every real agent should crush this.
  */
 

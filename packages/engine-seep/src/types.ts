@@ -77,8 +77,12 @@ export interface SeepDealResult {
 }
 
 export interface SeepState {
-  stateVersion: 2;
+  stateVersion: 3;
   gameId: 'seep';
+  /** The round as the rules core saves it; `restoreState` continues from it. */
+  core: unknown;
+  /** The card each of the core's card numbers stands for at this table. */
+  cards: Record<string, Card>;
   phase: SeepPhase;
   rules: SeepRules;
   players: GamePlayer[];
