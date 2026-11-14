@@ -104,7 +104,8 @@ export class CanvasDoc {
     for (const l of this.layers) {
       const op = l.ops.find((o) => o.id === opId);
       if (!op) continue;
-      if (!!op.undone === undone) return false;
+      // The client's log and this layer share op objects, so the flag may
+      // already be set: always redraw rather than compare.
       op.undone = undone || undefined;
       this.rebuild(l, op.seq);
       this.version++;
