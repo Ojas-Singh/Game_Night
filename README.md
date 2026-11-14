@@ -1,9 +1,10 @@
 # Game Night
 
-An online multiplayer card-game platform — friends around one table, no accounts required.
+Cards and drawing with friends — one room, no accounts required.
 Games: our house-rules **Cabo**, **Pair One** (a memory game), and **Seep**
 (the Punjab 2v2 fishing game — announce a bid, capture in groups, build
 kachcha/pakka ghars, sweep the table; spades at face value, 100 points in the deck).
+And the **Studio**: a shared canvas with pen-tablet brushes (see below).
 
 ## Quick start (local dev)
 
@@ -82,6 +83,30 @@ apps/web                # React client (round-table Cabo, memory-grid Pair One, 
   web client (views are discriminated by `gameId`).
 - Per-player filtered views: hidden card values never leave the server.
 - Debug endpoints (`/debug/*`) and the 🛠 overlay exist only in non-production builds.
+
+## Studio (drawing together)
+
+A room's host can open the studio from the lobby ("Draw together" tab), or anyone can start one
+from the home page. Three modes: **Draw together** (one canvas), **Colour together** (the host's
+picture sits on top as line art and fills stop at its lines) and **Side by side** (the same picture,
+one canvas each, optionally hidden until the host reveals them). Pictures are uploaded by the host
+or generated (mandala, flower, garden colouring pages).
+
+- **Pen tablets:** pointer events with every coalesced sample, pressure (with a per-person pen-feel
+  curve), tilt (pencil shading), the pen's eraser end, and the barrel button as the colour picker.
+  Palm rejection: once a pen is seen, fingers only move the canvas. Two fingers pan/pinch/rotate;
+  two-finger tap undoes, three-finger tap redoes. Holding the pen still at the end of a stroke snaps
+  it to a straight line or an ellipse.
+- **Brushes:** 30 stamp-based brushes (pencils, inks, paints, watercolour with wet edges, textures,
+  airbrushes, fun stamps) with paper grain, plus layers (blend modes, opacity), bucket fill,
+  symmetry guides, eight papers and PNG export. Keys: B/E/G/I tools, [ ] size, 1–9 opacity,
+  Ctrl+Z / Ctrl+Shift+Z, Space-drag to pan, Ctrl+scroll to zoom, Tab hides the tools.
+- **Sync:** every stroke, fill and clear is an op the server numbers (`apps/server/src/studio/`);
+  clients replay ops in order with a deterministic brush engine (`apps/web/src/studio/engine/`).
+  Fills travel as run-length masks so everyone paints the same pixels. Strokes in progress and
+  cursors are relayed live but not stored. When a canvas passes 1,200 ops, one client flattens the
+  older ones into a PNG per layer (`/api/studio/<room>/asset`), so late joiners load quickly.
+  Pictures and flattened layers live in Redis next to the room (same expiry).
 
 ## Live voice & webcam
 

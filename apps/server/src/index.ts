@@ -21,6 +21,8 @@ import { registerSocketHandlers } from './socket.js';
 import { ShopService, RedisShopStore, MemoryShopStore } from './shop.js';
 import { initServerObservability } from './observability.js';
 import { iceServers } from './ice.js';
+import { studioRouter } from './studio/router.js';
+import { MemoryAssetStore, RedisAssetStore, type AssetStore } from './studio/assets.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -64,6 +66,19 @@ if (config.redisUrl) {
 }
 rooms.setLoadoutProvider((playerIds) => shop.loadoutsFor(playerIds));
 
+// Studio pictures and flattened layers live as long as their room.
+let assets: AssetStore;
+if (config.redisUrl) {
+  const { Redis } = await import('ioredis');
+  const redis = new Redis(config.redisUrl, { lazyConnect: false, maxRetriesPerRequest: 3 });
+  redis.on('error', (err: Error) => log.error('asset_redis_error', { error: err.message }));
+  assets = new RedisAssetStore(redis, Math.ceil(config.roomTtlMs / 1000));
+} else {
+  assets = new MemoryAssetStore();
+}
+rooms.onDelete = (roomId) => void assets.prune(roomId, new Set());
+app.use('/api/studio', studioRouter(rooms, assets));
+
 app.use(express.json());
 // Game Lab is a product feature: mount unconditionally (S33 caps are
 // enforced server-side inside the router). The debug router below stays
@@ -97,9 +112,11 @@ if (webRoot) {
 const httpServer = createServer(app);
 const io = new SocketServer(httpServer, {
   cors: { origin: true, credentials: true },
+  // A long stroke or a big fill can pass the 1 MB default.
+  maxHttpBufferSize: 8e6,
 });
 
-registerSocketHandlers(io, rooms, { shop });
+registerSocketHandlers(io, rooms, { shop, assets });
 
 httpServer.listen(config.port, () => {
   log.info('server_started', { port: config.port, env: config.nodeEnv, redis: !!config.redisUrl });

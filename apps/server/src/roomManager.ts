@@ -20,6 +20,9 @@ export class RoomManager {
     this.ttlMs = ttlMs;
   }
 
+  /** Called after a room is deleted (the studio drops its pictures). */
+  onDelete?: (roomId: string) => void;
+
   attachStore(store: RoomStore): void {
     this.store = store;
   }
@@ -91,6 +94,7 @@ export class RoomManager {
     this.rooms.get(roomId)?.dispose();
     if (this.rooms.delete(roomId)) {
       if (this.store) void this.store.delete(roomId);
+      this.onDelete?.(roomId);
       log.info('room_deleted', { roomId, reason });
     }
   }

@@ -9,6 +9,7 @@ import RuleZeroTable from '../rulezero/RuleZeroTable.js';
 import SeepTable from '../seep/SeepTable.js';
 import TableShell from '../table/TableShell.js';
 import ActionBar from '../table/ActionBar.js';
+import StudioView from '../studio/StudioView.js';
 
 export default function GamePage({ room, media }: { room: RoomApi; media: MediaChat }) {
   const { roomId } = useParams<{ roomId: string }>();
@@ -18,13 +19,14 @@ export default function GamePage({ room, media }: { room: RoomApi; media: MediaC
   const [pendingName, setPendingName] = useState('');
 
   // Tab title follows the table: the site is Game Night, the game has a name.
-  const gameName = { cabo: 'Cabo', pairone: 'Pair One', seep: 'Seep', rulezero: 'Custom game' }[room.lobby?.gameId ?? ''] as string | undefined;
-  const inGame = Boolean(room.lobby?.inGame);
+  const inStudio = Boolean(room.lobby?.studio?.open);
+  const gameName = inStudio ? 'Studio' : ({ cabo: 'Cabo', pairone: 'Pair One', seep: 'Seep', rulezero: 'Custom game' }[room.lobby?.gameId ?? ''] as string | undefined);
+  const inGame = Boolean(room.lobby?.inGame) || inStudio;
   useEffect(() => {
     const base = 'Game Night';
     document.title = room.lobby ? `${inGame && gameName ? gameName : `Room ${room.lobby.roomId}`} · ${base}` : base;
     return () => {
-      document.title = 'Game Night — card games with friends';
+      document.title = 'Game Night — cards and drawing with friends';
     };
   }, [room.lobby?.roomId, gameName, inGame]);
 
@@ -100,6 +102,9 @@ export default function GamePage({ room, media }: { room: RoomApi; media: MediaC
       );
     }
     return <TableView room={room} view={view} media={media} />;
+  }
+  if (room.lobby.studio?.open && !room.lobby.inGame) {
+    return <StudioView room={room} media={media} />;
   }
   return <LobbyView room={room} media={media} />;
 }
