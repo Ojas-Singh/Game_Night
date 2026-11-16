@@ -3,8 +3,9 @@
 import { describe, expect, it } from 'vitest';
 import { CaboEngine, buildPlayerView as caboView } from '@game-night/engine-cabo';
 import { PairOneEngine, buildPlayerView as pairOneView } from '@game-night/engine-pairone';
+import { SeepEngine } from '@game-night/engine-seep';
 import { createAgentRng } from '@game-night/agent-core';
-import { CaboHeuristicBot, PairOneHeuristicBot, heuristicFor, randomBot } from '../src/index.js';
+import { CaboHeuristicBot, PairOneHeuristicBot, SeepHeuristicBot, heuristicFor, randomBot } from '../src/index.js';
 
 const players = [
   { id: 'p0', name: 'A', seat: 0 },
@@ -52,6 +53,28 @@ describe('heuristic bots', () => {
       flips++;
     }
     expect(flips).toBeGreaterThan(4);
+  });
+
+  it('seep bots play whole deals legally without handing each other sweeps', async () => {
+    const seats = [0, 1, 2, 3].map((i) => ({ id: `p${i}`, name: `P${i}`, seat: i }));
+    const bot = new SeepHeuristicBot();
+    const deals = 20;
+    let sweeps = 0;
+    for (let deal = 0; deal < deals; deal++) {
+      const e = new SeepEngine();
+      e.createGame(seats, { seed: 500 + deal, dealerSeat: deal % 4 });
+      for (let step = 0; step < 60 && e.getState().phase !== 'DEAL_COMPLETE' && e.getState().phase !== 'MATCH_COMPLETE'; step++) {
+        const s = e.getState();
+        const who = s.players[s.phase === 'ANNOUNCE' ? s.bidderSeat : s.currentTurn]!.id;
+        const d = await bot.decide({ gameId: 'seep', selfId: who, view: e.getPlayerState(who), step }, { rng: rng() });
+        expect(e.handleAction(d.action).ok).toBe(true);
+      }
+      const s = e.getState();
+      expect(s.playsMade).toBe(48);
+      sweeps += s.sweeps[0] + s.sweeps[1];
+    }
+    // Throwing blind onto a bare floor gave about eight sweeps a deal.
+    expect(sweeps / deals).toBeLessThan(2);
   });
 
   it('factory helpers return game-appropriate agents', () => {
