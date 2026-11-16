@@ -48,6 +48,8 @@ export interface AgentLoopOptions {
   maxThinkMs?: number;
   /** The trained player; without it every seat is a heuristic bot. */
   model?: ModelPlayer | null;
+  /** Which AI seats the model plays (all of them when left out); the rest are heuristic bots. */
+  modelSeat?: (playerId: string) => boolean;
 }
 
 /** What the model needs from an engine: its round in the rules core, and the way back to table actions. */
@@ -69,6 +71,7 @@ export class AgentLoops {
   private readonly minThinkMs: number;
   private readonly maxThinkMs: number;
   private model: ModelPlayer | null;
+  private readonly modelSeat: (playerId: string) => boolean;
   /** roomId:playerId → the situation the model was last asked about flushing in. */
   private flushAsked = new Map<string, string>();
 
@@ -80,6 +83,7 @@ export class AgentLoops {
     this.minThinkMs = opts.minThinkMs ?? DEFAULT_MIN_THINK_MS;
     this.maxThinkMs = opts.maxThinkMs ?? DEFAULT_MAX_THINK_MS;
     this.model = opts.model ?? null;
+    this.modelSeat = opts.modelSeat ?? (() => true);
   }
 
   /** Seat AI players with this model from now on (null: heuristic bots). */
@@ -116,7 +120,7 @@ export class AgentLoops {
   private modelFlushToAsk(room: Room, core: CoreTable): string | null {
     if (room.gameId !== 'cabo') return null;
     for (const player of room.players.values()) {
-      if (player.kind !== 'ai') continue;
+      if (player.kind !== 'ai' || !this.modelSeat(player.id)) continue;
       const situation = this.flushSituation(room, player.id);
       if (situation === null || this.flushAsked.get(`${room.id}:${player.id}`) === situation) continue;
       const asked = core.table.forSeat(this.seatOf(room, player.id), true, 0);
@@ -165,7 +169,7 @@ export class AgentLoops {
     // The model is asked about a flush at once and waits before acting only
     // if it takes one: most asks end in "no", and should not hold the table up.
     const delay =
-      flushAiId && this.coreTable(room)
+      flushAiId && this.coreTable(room) && this.modelSeat(flushAiId)
         ? Math.min(50, this.minThinkMs)
         : this.minThinkMs + Math.floor(Math.random() * (this.maxThinkMs - this.minThinkMs));
     const timer = setTimeout(() => {
@@ -186,11 +190,14 @@ export class AgentLoops {
     const engine = room.engine;
     if (!engine) return null;
     const core = this.coreTable(room);
-    if (core) return this.modelFlushToAsk(room, core);
+    if (core) {
+      const asked = this.modelFlushToAsk(room, core);
+      if (asked) return asked;
+    }
     const state = engine.getState() as { phase: string };
     if (state.phase === 'INITIAL_PEEK' || state.phase === 'ROUND_REVEAL' || state.phase === 'ROUND_COMPLETE') return null;
     for (const player of room.players.values()) {
-      if (player.kind !== 'ai') continue;
+      if (player.kind !== 'ai' || (core && this.modelSeat(player.id))) continue;
       const view = room.gameView(player.id, { forAi: true });
       if (!view || view.gameId !== 'cabo') continue;
       const flushes = enumerateLegalActions(view, player.id).filter(
@@ -311,6 +318,16 @@ export class AgentLoops {
       if (!interruptOnly) await fail('no_decision', 'The model chose no action.');
       return interruptOnly;
     }
+    const stale = async (): Promise<boolean> => {
+      const latest = room.gameView(aiId, { forAi: true });
+      if (room.engine === decisionEngine && latest && latest.revision === decisionRevision) return false;
+      await fail('stale_decision', 'The table changed while this decision was being prepared; the proposed move was discarded.');
+      // Asked again from the new position by the next notification.
+      if (interruptOnly) this.flushAsked.delete(`${room.id}:${aiId}`);
+      return true;
+    };
+    // The move names positions at the table it was chosen for; at a changed table they may hold other cards.
+    if (await stale()) return true;
     let action: GameAction;
     try {
       action = core.fromCore(seat, move);
@@ -338,13 +355,7 @@ export class AgentLoops {
         })
       : null;
     await this.publishTrace(room, decided);
-    const latestView = room.gameView(aiId, { forAi: true });
-    if (room.engine !== decisionEngine || !latestView || latestView.revision !== decisionRevision) {
-      await fail('stale_decision', 'The table changed while this decision was being prepared; the proposed move was discarded.');
-      // Asked again from the new position by the next notification.
-      if (interruptOnly) this.flushAsked.delete(`${room.id}:${aiId}`);
-      return true;
-    }
+    if (await stale()) return true;
     try {
       room.handleGameAction(aiId, action);
     } catch (err) {
@@ -384,7 +395,7 @@ export class AgentLoops {
     try {
       if (!room.engine || room.engine.isGameFinished()) return;
       const core = this.coreTable(room);
-      if (core && (await this.actWithModel(room, core, aiId, interruptOnly))) return;
+      if (core && this.modelSeat(aiId) && (await this.actWithModel(room, core, aiId, interruptOnly))) return;
       // Test Mode is a human debugging aid. AI seats always receive their
       // normal filtered view, otherwise the host's reveal switch becomes a
       // hidden-information leak.
