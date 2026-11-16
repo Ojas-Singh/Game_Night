@@ -77,6 +77,40 @@ describe('heuristic bots', () => {
     expect(sweeps / deals).toBeLessThan(2);
   });
 
+  it('cabo bots call Cabo when the call is likely to hold up', () => {
+    const seats = [0, 1, 2].map((i) => ({ id: `p${i}`, name: `P${i}`, seat: i }));
+    const bot = new CaboHeuristicBot();
+    const rounds = 120;
+    let calls = 0;
+    let held = 0;
+    for (let round = 0; round < rounds; round++) {
+      const e = new CaboEngine();
+      e.createGame(seats, { seed: 900 + round });
+      const random = createAgentRng(31 * (round + 1));
+      for (let step = 0; step < 2000 && !e.isGameFinished(); step++) {
+        const s = e.getState();
+        const owing = s.pendingTransfers.find((t) => s.hands[t.fromPlayerId]!.some((c) => c != null));
+        const who =
+          s.phase === 'TRANSFER_PENDING'
+            ? owing!.fromPlayerId
+            : s.phase === 'INITIAL_PEEK'
+              ? s.initialPeeksRemaining[0]!
+              : s.players[s.currentTurn]!.id;
+        const d = bot.decide({ gameId: 'cabo', selfId: who, view: caboView(s, who), step }, { rng: random });
+        expect(e.handleAction(d.action).ok).toBe(true);
+      }
+      const s = e.getState();
+      expect(e.isGameFinished()).toBe(true);
+      const caller = s.events.filter((ev) => ev.type === 'CABO_CALLED' && !ev.payload?.auto).at(-1)?.payload?.playerId;
+      if (typeof caller !== 'string') continue;
+      calls += 1;
+      if (s.tiedWinnerIds.includes(caller)) held += 1;
+    }
+    // Calling on a low-looking hand alone won about four calls in ten at this table.
+    expect(calls).toBeGreaterThan(rounds / 2);
+    expect(held / calls).toBeGreaterThan(0.55);
+  });
+
   it('factory helpers return game-appropriate agents', () => {
     expect(heuristicFor('cabo')).toBeInstanceOf(CaboHeuristicBot);
     expect(heuristicFor('pairone')).toBeInstanceOf(PairOneHeuristicBot);

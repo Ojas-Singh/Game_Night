@@ -217,12 +217,16 @@ export class AgentLoops {
       initialPeeksRemaining?: string[];
       pendingTransfer?: { fromPlayerId: string } | null;
       pendingTransfers?: Array<{ fromPlayerId: string }>;
+      hands?: Record<string, Array<unknown | null>>;
     };
     if (s.phase === 'ROUND_COMPLETE' || s.phase === 'ROUND_REVEAL') return null;
     let who: string | null;
     if (s.phase === 'TRANSFER_PENDING') {
       const pending = s.pendingTransfers ?? (s.pendingTransfer ? [s.pendingTransfer] : []);
-      who = pending.find((transfer) => room.players.get(transfer.fromPlayerId)?.kind === 'ai')?.fromPlayerId ?? null;
+      // The first player who still has a card to hand over pays first; one left without cards owes nothing.
+      const canPay = (id: string): boolean => (s.hands?.[id] ?? [null]).some((card) => card != null) || !s.hands;
+      const payer = pending.find((transfer) => canPay(transfer.fromPlayerId))?.fromPlayerId;
+      who = payer && room.players.get(payer)?.kind === 'ai' ? payer : null;
     }
     else if (s.phase === 'INITIAL_PEEK') who = s.initialPeeksRemaining?.[0] ?? null;
     else who = s.players[s.currentTurn]?.id ?? null;
