@@ -14,6 +14,7 @@ import type { AiDecisionTrace, ChatMessage, LobbyPlayer, RoomLobbyState } from '
 import { isValidAvatar, randomAvatar, type Avatar } from './protocol.js';
 import type { PlayerLoadout } from './shop.js';
 import { log } from './log.js';
+import { Studio } from './studio/studio.js';
 
 /** Any engine on the platform. Rooms talk to this union via the shared surface
  *  (createGame/getState/getPlayerState/handleAction/calculateScore/...). */
@@ -52,6 +53,8 @@ const GAME_REGISTRY = {
 } as const;
 
 export type GameId = keyof typeof GAME_REGISTRY;
+
+const STUDIO_MAX_PLAYERS = 12;
 
 export interface RoomPlayer {
   id: string;
@@ -115,6 +118,11 @@ export class Room {
   }
 
   roundScored = false;
+  /** Card tables seat what the game allows; an open studio takes more artists. */
+  get maxPlayers(): number {
+    if (this.studio?.state.open) return STUDIO_MAX_PLAYERS;
+    return GAME_REGISTRY[this.gameId].maxPlayers;
+  }
   get requiredPlayers(): number {
     return GAME_REGISTRY[this.gameId].minPlayers;
   }
@@ -134,6 +142,8 @@ export class Room {
   gameId: GameId = 'cabo';
   chat: ChatMessage[] = [];
   engine: AnyGameEngine | null = null;
+  /** The drawing studio, once the host has opened it (kept when closed). */
+  studio: Studio | null = null;
   /** Cumulative match scoreboard across rounds. */
   scoreboard: Record<string, number> = {};
   /** Test Mode: reveal every card's value to all players so anyone can watch
@@ -174,6 +184,13 @@ export class Room {
     room.aiDebug = snap.aiDebug ?? false;
     room.seriesTarget = snap.seriesTarget ?? null;
     room.debug = snap.debug ?? {};
+    if (snap.studio) {
+      try {
+        room.studio = Studio.fromSnapshot(snap.studio);
+      } catch (err) {
+        log.warn('studio_not_restored', { roomId: room.id, error: String((err as Error).message ?? err) });
+      }
+    }
     for (const sp of snap.players) {
       room.players.set(sp.id, {
         id: sp.id,
@@ -241,7 +258,7 @@ export class Room {
       // Mid-game join without a valid token → reject (bots/spectators later).
       throw new RoomError('game already in progress');
     }
-    if (this.players.size >= GAME_REGISTRY[this.gameId].maxPlayers) {
+    if (this.players.size >= this.maxPlayers) {
       throw new RoomError('room is full');
     }
     const player: RoomPlayer = {
@@ -425,6 +442,9 @@ export class Room {
     if (seated.length < this.requiredPlayers) {
       throw new RoomError(`needs at least ${this.requiredPlayers} players`);
     }
+    if (seated.length > reg.maxPlayers) {
+      throw new RoomError(`${reg.label} seats at most ${reg.maxPlayers} players`);
+    }
     const seats = seated.map((p, i) => ({ id: p.id, name: p.name, seat: i }));
     let engine: AnyGameEngine;
     if (reg.id === 'cabo') {
@@ -463,6 +483,7 @@ export class Room {
   startGame(playerId: string): void {
     if (playerId !== this.hostId) throw new RoomError('only the host can start the game');
     if (this.engine) throw new RoomError('game already running');
+    if (this.studio?.state.open) this.studio.state.open = false;
     this.roundScored = false;
     this.engine = this.dealNewGame();
     for (const p of this.players.values()) p.ready = false;
@@ -672,6 +693,7 @@ export class Room {
       aiDebug: this.aiDebug,
       seriesTarget: this.seriesTarget,
       loadouts: this.loadoutProvider?.([...this.players.keys()]),
+      studio: this.studio ? { open: this.studio.state.open, mode: this.studio.state.mode } : null,
     };
   }
 

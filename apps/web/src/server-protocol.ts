@@ -59,6 +59,8 @@ export interface RoomLobbyState {
   seriesTarget?: number | null;
   /** Equipped cosmetics per seated player (server-verified ownership). */
   loadouts?: Record<string, PlayerLoadout>;
+  /** The drawing studio, when the host has set one up. */
+  studio?: { open: boolean; mode: import('@game-night/shared').StudioMode } | null;
 }
 
 // --- Shop -------------------------------------------------------------------

@@ -16,6 +16,8 @@ import { loadAvatar, randomAvatar, saveAvatar } from '../avatar.js';
 import { AVATAR_COLORS, EYE_STYLES, MOUTH_STYLES, HAT_STYLES } from '../avatar.js';
 import type { Avatar as AvatarModel } from '../server-protocol.js';
 import type { MediaChat } from '../useMediaChat.js';
+import SetupPanel, { DEFAULT_SETUP, MODE_INFO, type SetupValue } from '../studio/SetupPanel.js';
+import { openStudio } from '../studio/client.js';
 
 export default function LobbyView({ room, media }: { room: RoomApi; media: MediaChat }) {
   const lobby = room.lobby!;
@@ -34,6 +36,19 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Rules live on each game tile — tap a tile's ⓘ to read them. No auto-popup.
   const [rulesGame, setRulesGame] = useState<GameId | null>(null);
+  // Cards or drawing: a local tab; the host's choice of what to start decides for everyone.
+  const [activity, setActivity] = useState<'cards' | 'draw'>(() => (lobby.studio || wantsStudio() ? 'draw' : 'cards'));
+  const [studioSetup, setStudioSetup] = useState<SetupValue>(DEFAULT_SETUP);
+  const [opening, setOpening] = useState(false);
+
+  const enterStudio = async () => {
+    if (!room.socket) return;
+    setOpening(true);
+    setStartError(null);
+    const res = await openStudio(room.socket, lobby.studio ? undefined : studioSetup);
+    setOpening(false);
+    if (!res.ok) setStartError(res.error ?? 'Could not open the studio');
+  };
 
   const customize = (patch: Partial<AvatarModel>) => {
     const next = { ...avatar, ...patch };
@@ -297,6 +312,47 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
           </section>
 
           <section className="lobby-panel game-panel">
+            <div className="activity-tabs" role="tablist" aria-label="What to do">
+              <button role="tab" aria-selected={activity === 'cards'} className={activity === 'cards' ? 'on' : ''} onClick={() => setActivity('cards')}>
+                <span aria-hidden>♠</span> Play cards
+              </button>
+              <button role="tab" aria-selected={activity === 'draw'} className={activity === 'draw' ? 'on' : ''} onClick={() => setActivity('draw')}>
+                <span aria-hidden>✎</span> Draw together
+              </button>
+            </div>
+            {activity === 'draw' ? (
+              <div className="lobby-studio">
+                {lobby.studio ? (
+                  <p className="lobby-studio-note">
+                    A {MODE_INFO[lobby.studio.mode].name.toLowerCase()} canvas is waiting — the drawing is kept.
+                  </p>
+                ) : isHost ? (
+                  <SetupPanel
+                    roomId={lobby.roomId}
+                    value={studioSetup}
+                    onChange={(patch) => setStudioSetup((v) => ({ ...v, ...patch } as SetupValue))}
+                  />
+                ) : (
+                  <p className="lobby-studio-note">
+                    The host picks a mode and maybe a picture to colour. When the studio opens, everyone here jumps straight in —
+                    bring a pen tablet if you have one.
+                  </p>
+                )}
+                {isHost ? (
+                  <div className="host-controls">
+                    <button className="start-btn" disabled={opening || (!lobby.studio && studioSetup.mode === 'colouring' && !studioSetup.image)} onClick={() => void enterStudio()}>
+                      {opening ? 'Opening…' : lobby.studio ? 'Back to the studio' : 'Open the studio'}
+                    </button>
+                    {!lobby.studio && studioSetup.mode === 'colouring' && !studioSetup.image && (
+                      <p className="lobby-action-hint">Pick or upload a picture to colour first.</p>
+                    )}
+                    {startError && <p className="lobby-action-error">{startError}</p>}
+                  </div>
+                ) : (
+                  <p className="waiting-host">Waiting for the host to open the studio…</p>
+                )}
+              </div>
+            ) : (<>
             <h2 className="lobby-section-title">Game</h2>
             <div className="game-selector">
               <GameTile
@@ -358,6 +414,7 @@ export default function LobbyView({ room, media }: { room: RoomApi; media: Media
                 )}
               </p>
             )}
+            </>)}
           </section>
         </div>
       </div>
@@ -580,5 +637,14 @@ function Icon({ name }: { name: IconName }) {
       return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>;
     case 'shuffle':
       return <svg {...common}><path d="M16 3h5v5M4 7h2c4 0 5 10 10 10h5M16 21h5v-5M4 17h2c1.4 0 2.4-.8 3.2-1.8M14.8 8.8C15.6 7.8 16.6 7 18 7h3" /></svg>;
+  }
+}
+
+/** The home page's "Draw together" door sets this so the lobby opens on the drawing tab. */
+function wantsStudio(): boolean {
+  try {
+    return sessionStorage.getItem('gn:intent') === 'draw';
+  } catch {
+    return false;
   }
 }

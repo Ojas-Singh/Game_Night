@@ -15,6 +15,8 @@ import { log } from './log.js';
 import { config } from './config.js';
 import type { ShopService } from './shop.js';
 import type { ShopHelloResult } from './protocol.js';
+import { registerStudioHandlers } from './studio/socket.js';
+import { MemoryAssetStore, type AssetStore } from './studio/assets.js';
 
 interface SocketData {
   roomId?: string;
@@ -27,7 +29,12 @@ import { ModelPlayer } from './agents/model.js';
 
 const PRESENCE_DEBOUNCE_MS = 5_000;
 
-export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opts: { shop?: ShopService; onModel?: (model: ModelPlayer) => void } = {}): void {
+export function registerSocketHandlers(
+  io: SocketServer,
+  rooms: RoomManager,
+  opts: { shop?: ShopService; assets?: AssetStore; onModel?: (model: ModelPlayer) => void } = {},
+): void {
+  const assets = opts.assets ?? new MemoryAssetStore();
   // eslint note: AgentLoops imported statically below the io type import.
   const shop = opts.shop ?? null;
   // Flood control for chat/emotes/reports — per socket, GC'd on disconnect.
@@ -132,6 +139,8 @@ export function registerSocketHandlers(io: SocketServer, rooms: RoomManager, opt
       if (!data.playerId || !room.participant(data.playerId)) throw new RoomError('not in room');
       return { room, playerId: data.playerId };
     };
+
+    registerStudioHandlers(socket, { io, assets, requireRoom, broadcastLobby, system });
 
     // -----------------------------------------------------------------
     // Room lifecycle

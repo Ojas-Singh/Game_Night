@@ -40,6 +40,7 @@ export interface RoomSnapshot {
   roundScored?: boolean;
   allowSpectators?: boolean;
   spectators?: Array<Omit<RoomPlayer, 'sockets'> & { socketCount: number }>;
+  studio?: import('@game-night/shared').StudioSnapshot & { seq?: number };
 }
 
 export function serializeRoom(room: Room): RoomSnapshot {
@@ -73,6 +74,7 @@ export function serializeRoom(room: Room): RoomSnapshot {
     spectators: [...room.spectators.values()].map(p => ({ ...p, sockets: undefined, socketCount: 0, connected: false })),
     roundScored: room.roundScored,
     engineState: room.engine ? room.engine.getState() : null,
+    studio: room.studio?.snapshot(),
   };
 }
 

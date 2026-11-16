@@ -2,3 +2,4 @@ export * from './cards.js';
 export * from './game.js';
 export * from './rng.js';
 export * from './lab.js';
+export * from './studio.js';

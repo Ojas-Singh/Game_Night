@@ -9,6 +9,7 @@ import './styles/table.css';
 import './styles/seep.css';
 import './styles/platform.css';
 import './styles/garden.css';
+import './styles/studio.css';
 
 if (window.location.hash.startsWith('#/')) {
   window.history.replaceState(null, '', window.location.hash.slice(1));

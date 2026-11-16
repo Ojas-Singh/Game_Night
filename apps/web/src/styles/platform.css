@@ -151,7 +151,7 @@ button, .button-link { min-height: 44px; }
 }
 .home-tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px;
   margin-bottom: clamp(13px, 2vh, 18px);
   padding: 5px;
