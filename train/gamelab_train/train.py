@@ -67,8 +67,13 @@ class Trainer:
         self.slots = [copy.deepcopy(self.net).eval().requires_grad_(False) for _ in range(cfg.league_slots)]
         self.random_id = 1 + cfg.league_slots
         past = cfg.league_share if cfg.league_slots else 0.0
-        league = [1.0 - past - cfg.random_share] + [past / max(cfg.league_slots, 1)] * cfg.league_slots + [cfg.random_share]
-        self.tables = gamelab.Tables(cfg.table_specs(), cfg.tables, cfg.seed, cfg.step_limit, league)
+        # The hand-written player's seats are played inside the tables.
+        self.bot_id = self.random_id + 1
+        own = 1.0 - past - cfg.random_share - cfg.bot_share
+        league = [own] + [past / max(cfg.league_slots, 1)] * cfg.league_slots + [cfg.random_share, cfg.bot_share]
+        self.tables = gamelab.Tables(
+            cfg.table_specs(), cfg.tables, cfg.seed, cfg.step_limit, league, scripted=self.bot_id if cfg.bot_share else None
+        )
         # Results are divided by their usual size in each game, so that a game
         # played for chips and one played for a win count the same.
         self.square = np.ones(GAMES)
@@ -132,7 +137,7 @@ class Trainer:
         d = {"omni": Ragged(), "tokens": Ragged(), "actions": Ragged(), "old": Ragged(), "step": [], "table": [], "choice": [], "logp": []}
         stats = {"rounds": np.zeros(GAMES), "length": np.zeros(GAMES), "cut": np.zeros(GAMES)}
         # Mean result of the player's seat against each kind of opponent.
-        against = {"past": [], "random": []}
+        against = {"past": [], "random": [], "bot": []}
         self.net.eval()
         for s in range(steps):
             obs, omni = t.observe(False), t.observe(True)
@@ -193,6 +198,7 @@ class Trainer:
         top = control.max(axis=1)
         against["random"] += list(mine[ok & (top == self.random_id) & ((control == 0).sum(1) == MAX_SEATS - 1)])
         against["past"] += list(mine[ok & (top > 0) & (top < self.random_id)])
+        against["bot"] += list(mine[ok & (top == self.bot_id) & ((control == 0).sum(1) == MAX_SEATS - 1)])
 
     # -- learning ----------------------------------------------------------
 

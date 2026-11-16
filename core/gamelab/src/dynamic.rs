@@ -57,6 +57,9 @@ pub trait AnyGame: Send + Sync {
     /// `Game::at_table` for the `index`-th legal action: `{ "action": .., "more": .. }`,
     /// the action being null when nothing happens at the table.
     fn at_table(&self, index: usize) -> Result<Value, String>;
+    /// `Game::scripted` as an index into the legal actions; `None` for a game
+    /// without a hand-written player and when the round is over.
+    fn scripted(&self, rng: &mut Rng) -> Option<usize>;
     fn boxed(&self) -> Box<dyn AnyGame>;
 }
 
@@ -143,6 +146,13 @@ impl<G: Game> AnyGame for Held<G> {
             AtTable::Nothing => json!({ "action": null, "more": false }),
             AtTable::More => json!({ "action": null, "more": true }),
         })
+    }
+    fn scripted(&self, rng: &mut Rng) -> Option<usize> {
+        let action = self.game.scripted(rng)?;
+        let index = self.legal.iter().position(|a| *a == action);
+        debug_assert!(index.is_some(), "{action:?} is not among {:?}", self.legal);
+        // Under rules its move does not fit, it plays at random.
+        Some(index.unwrap_or_else(|| rng.int(self.legal.len())))
     }
     fn boxed(&self) -> Box<dyn AnyGame> {
         Box::new(self.clone())

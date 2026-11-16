@@ -96,7 +96,7 @@ impl Cabo {
     }
 
     /// Seats that know `card`, as a bit per absolute seat.
-    fn knowers(&self, card: Card) -> u8 {
+    pub(super) fn knowers(&self, card: Card) -> u8 {
         (0..self.n).filter(|&p| self.known[p as usize].has(card)).fold(0, |m, p| m | 1 << p)
     }
 
@@ -474,6 +474,9 @@ impl Game for Cabo {
     }
     fn for_seat(&self, seat: Seat, reacting: bool, rng: &mut Rng) -> Option<Self> {
         Cabo::for_seat(self, seat, reacting, rng)
+    }
+    fn scripted(&self, rng: &mut Rng) -> Option<CaboAction> {
+        self.bot_action(rng)
     }
     fn at_table(&self, seat: Seat, action: &CaboAction) -> AtTable<CaboAction> {
         Cabo::at_table(self, seat, action)

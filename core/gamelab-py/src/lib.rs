@@ -117,10 +117,10 @@ struct Tables {
 #[pymethods]
 impl Tables {
     #[new]
-    #[pyo3(signature = (specs, tables, seed=0, step_limit=2000, league=vec![1.0]))]
-    fn new(specs: &str, tables: usize, seed: u64, step_limit: u32, league: Vec<f32>) -> PyResult<Tables> {
+    #[pyo3(signature = (specs, tables, seed=0, step_limit=2000, league=vec![1.0], scripted=None))]
+    fn new(specs: &str, tables: usize, seed: u64, step_limit: u32, league: Vec<f32>, scripted: Option<u8>) -> PyResult<Tables> {
         let specs: Vec<TableSpec> = serde_json::from_str(specs).map_err(err)?;
-        let env = VecEnv::new(&specs, tables, seed, step_limit, &league).map_err(err)?;
+        let env = VecEnv::new(&specs, tables, seed, step_limit, &league, scripted).map_err(err)?;
         Ok(Tables { env, batch: Batch::default() })
     }
 

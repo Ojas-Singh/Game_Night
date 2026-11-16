@@ -90,10 +90,10 @@ def test_all_games_train_and_resume(tmp_path):
         {"game": "minipoker", "randomize": 0.5, "players": [2, 3]},
     ]
     out = str(tmp_path / "run")
-    t = Trainer(config(specs=specs, tables=64, exact=[], updates=2), out)
+    t = Trainer(config(specs=specs, tables=64, exact=[], updates=2, bot_share=0.3), out)
     t.run()
     assert t.update == 2 and len(t.pool) == 3
-    again = Trainer(config(specs=specs, tables=64, exact=[], updates=3), out)
+    again = Trainer(config(specs=specs, tables=64, exact=[], updates=3, bot_share=0.3), out)
     again.run()
     assert again.update == 3
     lines = open(tmp_path / "run" / "log.jsonl").read().splitlines()
@@ -104,6 +104,12 @@ def test_versus_reports_every_spec():
     net = Net(NetConfig(**SMALL)).eval()
     out = versus(net, None, [{"game": "minipoker"}, {"game": "pairone", "rules": {"ranks": 3, "copies": 2, "extraTurn": True}}], rounds=50, tables=32)
     assert [o["game"] for o in out] == ["minipoker", "pairone"] and all(o["rounds"] >= 50 for o in out)
+
+
+def test_the_hand_written_cabo_player_beats_an_untrained_one():
+    net = Net(NetConfig(**SMALL)).eval()
+    (out,) = versus(net, "bot", [{"game": "cabo", "players": [2, 2]}], rounds=200, tables=64)
+    assert out["rounds"] >= 200 and out["mean"] < -0.4
 
 
 def test_untrained_player_is_as_exploitable_as_uniform():

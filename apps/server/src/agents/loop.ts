@@ -24,7 +24,7 @@ import {
   type AgentDecision,
   type GameAgent,
 } from '@game-night/agent-core';
-import { CaboHeuristicBot, PairOneHeuristicBot, SeepHeuristicBot } from '@game-night/agent-bots';
+import { CaboHeuristicBot, worthFlushing, PairOneHeuristicBot, SeepHeuristicBot } from '@game-night/agent-bots';
 import type { Round } from '@game-night/core';
 import type { GameAction } from '@game-night/shared';
 import type { AiDecisionPatch, Room } from '../room.js';
@@ -201,7 +201,7 @@ export class AgentLoops {
       const view = room.gameView(player.id, { forAi: true });
       if (!view || view.gameId !== 'cabo') continue;
       const flushes = enumerateLegalActions(view, player.id).filter(
-        (action) => action.type === 'FLUSH_OWN' || action.type === 'FLUSH_OTHER',
+        (action) => (action.type === 'FLUSH_OWN' || action.type === 'FLUSH_OTHER') && worthFlushing(view, action),
       );
       if (flushes.some((action) => engine.validateAction(action))) return player.id;
     }
@@ -410,7 +410,9 @@ export class AgentLoops {
       const obs = { gameId: view.gameId, selfId: aiId, view, step: 0 };
       const allCandidates = enumerateLegalActions(view, aiId);
       const legalCandidates = interruptOnly
-        ? allCandidates.filter((action) => action.type === 'FLUSH_OWN' || action.type === 'FLUSH_OTHER')
+        ? allCandidates.filter(
+            (action) => (action.type === 'FLUSH_OWN' || action.type === 'FLUSH_OTHER') && (view.gameId !== 'cabo' || worthFlushing(view, action)),
+          )
         : allCandidates;
       if (legalCandidates.length === 0) return;
       const rng = createAgentRng(randomBytes(4).readUInt32BE(0));

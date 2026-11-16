@@ -20,6 +20,7 @@ use crate::rng::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+mod bot;
 mod observe;
 
 /// Hand positions are addressed by bit masks in some actions.

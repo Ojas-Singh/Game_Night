@@ -124,6 +124,13 @@ pub trait Game: Clone + Sized + Send + Sync + Serialize + DeserializeOwned + 'st
         (!reacting && self.to_act() == Some(seat)).then(|| self.clone())
     }
 
+    /// The move of the game's hand-written player for the seat to act, for
+    /// the games that have one. It is an opponent to train against and a bar
+    /// to beat; it sees only what its seat sees.
+    fn scripted(&self, _rng: &mut Rng) -> Option<Self::Action> {
+        None
+    }
+
     /// What `action`, chosen by `seat` in a round `for_seat` returned (`self`,
     /// before the action is applied to it), means at the table.
     fn at_table(&self, _seat: Seat, action: &Self::Action) -> AtTable<Self::Action> {

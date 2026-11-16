@@ -8,7 +8,7 @@
  */
 import { CaboEngine, buildPlayerView } from '@game-night/engine-cabo';
 import { createAgentRng, enumerateLegalActions, type GameAgent } from '@game-night/agent-core';
-import { CaboHeuristicBot } from '@game-night/agent-bots';
+import { CaboHeuristicBot, worthFlushing } from '@game-night/agent-bots';
 
 const [roundsArg, playersArg, ...kinds] = process.argv.slice(2);
 const rounds = Number(roundsArg ?? 1000);
@@ -50,7 +50,7 @@ for (let round = 0; round < rounds; round += 1) {
       for (const p of players) {
         const view = buildPlayerView(s, p.id);
         const flushes = enumerateLegalActions(view, p.id).filter(
-          (a) => (a.type === 'FLUSH_OWN' || a.type === 'FLUSH_OTHER') && engine.validateAction(a),
+          (a) => (a.type === 'FLUSH_OWN' || a.type === 'FLUSH_OTHER') && worthFlushing(view, a) && engine.validateAction(a),
         );
         if (flushes.length === 0) continue;
         const d = await bots.get(kindOf(p.id))!.decide(

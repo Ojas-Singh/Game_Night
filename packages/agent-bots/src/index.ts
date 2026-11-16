@@ -1,5 +1,6 @@
 export { RandomBot } from './random-bot.js';
 export { CaboHeuristicBot } from './cabo-heuristic-bot.js';
+export { worthFlushing } from './cabo-beliefs.js';
 export type { CaboHeuristicOptions } from './cabo-heuristic-bot.js';
 export { PairOneHeuristicBot } from './pairone-heuristic-bot.js';
 export { SeepHeuristicBot } from './seep-heuristic-bot.js';

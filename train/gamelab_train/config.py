@@ -48,6 +48,10 @@ class Config:
     league_share: float = 0.25
     league_slots: int = 2
     random_share: float = 0.02
+    #: Share of the other seats played by the game's hand-written player, at
+    #: the games that have one (Cabo). It is an opponent that already plays
+    #: sensibly, and the bar the player has to clear.
+    bot_share: float = 0.0
     pool_size: int = 16
     snapshot_every: int = 25
 

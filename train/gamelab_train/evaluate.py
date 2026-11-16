@@ -35,13 +35,17 @@ def versus(net, opponent, specs, rounds=2000, tables=512, seed=0, step_limit=200
     """Play `net` in one seat against `opponent` in the others.
 
     Each is a network, a `Searcher` (a network that looks ahead), or None for
-    random moves.
+    random moves. The opponent may also be "bot", the game's hand-written
+    player (for the games that have one).
 
     Returns one dict per spec: rounds played, the player's mean return, its
     standard error, mean decisions per round and the share of rounds abandoned
     at the step limit.
     """
-    t = gamelab.Tables(specs, tables, seed, step_limit, league=(0.0, 1.0))
+    bot = isinstance(opponent, str)
+    if bot and opponent != "bot":
+        raise ValueError(f"unknown opponent {opponent}")
+    t = gamelab.Tables(specs, tables, seed, step_limit, league=(0.0, 1.0), scripted=1 if bot else None)
     rng = np.random.default_rng(seed)
     got = [[] for _ in specs]
     steps = [[] for _ in specs]
@@ -60,6 +64,8 @@ def versus(net, opponent, specs, rounds=2000, tables=512, seed=0, step_limit=200
         mine = np.nonzero(obs["control"] == 0)[0]
         other = np.nonzero(obs["control"] != 0)[0]
         actions[mine] = act(net, t, obs, mine, rng, greedy)
+        if bot and len(other):
+            raise ValueError("one of the games has no hand-written player")
         actions[other] = act(opponent, t, obs, other, rng, greedy)
         fin = t.step(actions)
         for i in range(len(fin["env"])):

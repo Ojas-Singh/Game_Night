@@ -10,6 +10,10 @@
 //! trained, other numbers are whatever the caller means by them (earlier
 //! versions of the player, fixed opponents). The caller reads `control` in
 //! the batch and asks the right player for each table's action.
+//!
+//! One controller can be the game's hand-written player (`Game::scripted`).
+//! Its seats are played here, so they never come up in `observe`; at a game
+//! without such a player they go to controller 0.
 
 use crate::dynamic::{create, info, sample_rules, AnyGame};
 use crate::obs::{ActionToken, Obs, Token, FIELDS};
@@ -138,6 +142,7 @@ impl Batch {
 pub struct VecEnv {
     kinds: Vec<Kind>,
     league: Vec<f32>,
+    scripted: Option<u8>,
     tables: Vec<Table>,
     step_limit: u32,
 }
@@ -156,6 +161,35 @@ fn pick(weights: impl Iterator<Item = f32> + Clone, rng: &mut Rng) -> usize {
         }
     }
     last
+}
+
+/// Play the hand-written player's seats until another seat is to move.
+fn play_scripted(game: &mut dyn AnyGame, control: &[u8; MAX_SEATS], scripted: Option<u8>, rng: &mut Rng) -> u32 {
+    let mut steps = 0;
+    while let Some(seat) = game.to_act() {
+        if Some(control[seat as usize]) != scripted {
+            break;
+        }
+        let Some(action) = game.scripted(rng) else { break };
+        game.step(action).expect("a legal action");
+        steps += 1;
+    }
+    steps
+}
+
+/// `deal`, with the hand-written player's first moves made.
+fn deal_ready(kinds: &[Kind], league: &[f32], scripted: Option<u8>, rng: &mut Rng) -> (Box<dyn AnyGame>, u16, [u8; MAX_SEATS], u32) {
+    loop {
+        let (mut game, spec, mut control) = deal(kinds, league, rng);
+        if scripted.is_some() && game.scripted(rng).is_none() {
+            control.iter_mut().filter(|c| Some(**c) == scripted).for_each(|c| *c = 0);
+        }
+        let steps = play_scripted(&mut *game, &control, scripted, rng);
+        // A round that ended before the trained player moved teaches nothing.
+        if !game.is_over() {
+            return (game, spec, control, steps);
+        }
+    }
 }
 
 fn deal(kinds: &[Kind], league: &[f32], rng: &mut Rng) -> (Box<dyn AnyGame>, u16, [u8; MAX_SEATS]) {
@@ -180,8 +214,19 @@ fn deal(kinds: &[Kind], league: &[f32], rng: &mut Rng) -> (Box<dyn AnyGame>, u16
 
 impl VecEnv {
     /// `league[c]` is how often a seat other than the trained one is given
-    /// controller `c`; `[1.0]` is plain self-play.
-    pub fn new(specs: &[TableSpec], tables: usize, seed: u64, step_limit: u32, league: &[f32]) -> Result<VecEnv, String> {
+    /// controller `c`; `[1.0]` is plain self-play. `scripted` is the
+    /// controller played by the games' hand-written players, if any.
+    pub fn new(
+        specs: &[TableSpec],
+        tables: usize,
+        seed: u64,
+        step_limit: u32,
+        league: &[f32],
+        scripted: Option<u8>,
+    ) -> Result<VecEnv, String> {
+        if scripted == Some(0) {
+            return Err("controller 0 is the player being trained".into());
+        }
         if specs.is_empty() || tables == 0 {
             return Err("at least one kind of table and one table are needed".into());
         }
@@ -201,13 +246,13 @@ impl VecEnv {
             }
             kinds.push(Kind { game: s.game.clone(), rules, players, randomize: s.randomize, weight: s.weight });
         }
-        let mut env = VecEnv { kinds, league: Vec::new(), tables: Vec::new(), step_limit };
+        let mut env = VecEnv { kinds, league: Vec::new(), scripted, tables: Vec::new(), step_limit };
         env.set_league(league)?;
         let mut master = Rng::from_u64(seed);
         for _ in 0..tables {
             let mut rng = master.fork();
-            let (game, spec, control) = deal(&env.kinds, &env.league, &mut rng);
-            env.tables.push(Table { game, spec, steps: 0, control, rng, obs: Obs::default() });
+            let (game, spec, control, steps) = deal_ready(&env.kinds, &env.league, scripted, &mut rng);
+            env.tables.push(Table { game, spec, steps, control, rng, obs: Obs::default() });
         }
         Ok(env)
     }
@@ -266,7 +311,7 @@ impl VecEnv {
         if actions.len() != self.tables.len() {
             return Err(format!("{} actions for {} tables", actions.len(), self.tables.len()));
         }
-        let (kinds, league, limit) = (&self.kinds, &self.league, self.step_limit);
+        let (kinds, league, scripted, limit) = (&self.kinds, &self.league, self.scripted, self.step_limit);
         let done: Vec<Result<Option<Finished>, String>> = self
             .tables
             .par_iter_mut()
@@ -275,7 +320,7 @@ impl VecEnv {
             .with_min_len(64)
             .map(|(env, (t, &a))| {
                 t.game.step(a as usize).map_err(|e| format!("table {env}: action {a}: {e}"))?;
-                t.steps += 1;
+                t.steps += 1 + play_scripted(&mut *t.game, &t.control, scripted, &mut t.rng);
                 let over = t.game.is_over();
                 if !over && t.steps < limit {
                     return Ok(None);
@@ -300,8 +345,7 @@ impl VecEnv {
                     returns,
                     stats,
                 };
-                (t.game, t.spec, t.control) = deal(kinds, league, &mut t.rng);
-                t.steps = 0;
+                (t.game, t.spec, t.control, t.steps) = deal_ready(kinds, league, scripted, &mut t.rng);
                 Ok(Some(finished))
             })
             .collect();
@@ -318,6 +362,36 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn the_hand_written_player_takes_its_seats() {
+        let specs: Vec<TableSpec> = serde_json::from_value(json!([
+            { "game": "cabo", "randomize": 0.5 },
+            { "game": "pairone" },
+        ]))
+        .unwrap();
+        let mut env = VecEnv::new(&specs, 200, 9, 2000, &[0.0, 1.0], Some(1)).unwrap();
+        let (mut batch, mut rng) = (Batch::default(), Rng::new(3));
+        // Random play in the trained seat against the Cabo player.
+        let (mut rounds, mut total, mut other) = (0, 0.0, 0);
+        for _ in 0..600 {
+            env.observe(false, &mut batch);
+            assert!(batch.control.iter().all(|&c| c == 0));
+            let actions: Vec<u32> = batch.action_count.iter().map(|&a| rng.int(a as usize) as u32).collect();
+            for f in env.step(&actions).unwrap() {
+                let seats = &f.control[..f.players as usize];
+                if seats.contains(&1) {
+                    assert_eq!(seats.iter().filter(|c| **c == 0).count(), 1);
+                    rounds += 1;
+                    total += f.returns[seats.iter().position(|c| *c == 0).unwrap()];
+                } else {
+                    other += 1;
+                }
+            }
+        }
+        assert!(rounds > 200 && other > 20, "{rounds} rounds of Cabo, {other} of the other game");
+        assert!(total / (rounds as f32) < -0.3, "random play made {} a round against the Cabo player", total / rounds as f32);
+    }
+
     fn play(seed: u64, threads: usize) -> (u64, Vec<f32>) {
         let specs: Vec<TableSpec> = serde_json::from_value(json!([
             { "game": "cabo", "randomize": 0.5, "rules": null },
@@ -327,7 +401,7 @@ mod tests {
         .unwrap();
         let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
         pool.install(|| {
-            let mut env = VecEnv::new(&specs, 300, seed, 400, &[1.0, 1.0, 2.0]).unwrap();
+            let mut env = VecEnv::new(&specs, 300, seed, 400, &[1.0, 1.0, 2.0], None).unwrap();
             let (mut batch, mut rng) = (Batch::default(), Rng::new(7));
             let (mut rounds, mut sums) = (0, vec![0.0; MAX_SEATS]);
             for step in 0..300 {

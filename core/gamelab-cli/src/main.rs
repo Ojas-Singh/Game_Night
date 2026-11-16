@@ -21,11 +21,12 @@ fn main() {
     match args.first().map(String::as_str) {
         Some("cabo-trace") => cabo_trace(num(1, 100), num(2, 1) as u32),
         Some("cabo-bench") => cabo_bench(num(1, 10_000), num(2, 4) as usize),
+        Some("cabo-bot") => cabo_bot(num(1, 2_000), num(2, 2) as usize),
         Some("pairone-trace") => pairone::trace(num(1, 100), num(2, 1) as u32),
         Some("seep-trace") => seep::trace(num(1, 100), num(2, 1) as u32),
         Some("seep-bench") => seep::bench(num(1, 1_000)),
         _ => {
-            eprintln!("usage: gamelab cabo-trace <games> [seed] | cabo-bench <games> [players] | pairone-trace <games> [seed] | seep-trace <games> [seed] | seep-bench <games>");
+            eprintln!("usage: gamelab cabo-trace <games> [seed] | cabo-bench <games> [players] | cabo-bot <games> [players] | pairone-trace <games> [seed] | seep-trace <games> [seed] | seep-bench <games>");
             std::process::exit(2);
         }
     }
@@ -224,6 +225,39 @@ fn cabo_trace(games: u64, seed: u32) {
 // -------------------------------------------------------------------
 // Simulation-mode playouts
 // -------------------------------------------------------------------
+
+/// The hand-written Cabo player against itself: how it calls and how fast it is.
+fn cabo_bot(games: u64, players: usize) {
+    let rules = CaboRules { turn_limit: 400, ..CaboRules::default() };
+    let mut r = Rng::new(11);
+    let (mut steps, mut calls, mut held, mut score) = (0u64, 0u64, 0u64, 0i64);
+    let start = std::time::Instant::now();
+    for _ in 0..games {
+        let mut g = Cabo::deal(&rules, players, r.fork(), true).unwrap();
+        while let Some(seat) = g.to_act() {
+            let action = g.bot_action(&mut r).unwrap();
+            g.apply(seat, &action).unwrap_or_else(|e| panic!("the bot's move was refused: {e} {action:?}"));
+            steps += 1;
+        }
+        let result = g.result.as_ref().unwrap();
+        score += result.scores.iter().map(|&s| s as i64).sum::<i64>();
+        for e in &g.log {
+            if let gamelab::games::cabo::CaboEvent::CaboCalled { seat, auto: false } = *e {
+                calls += 1;
+                held += result.winners.contains(&seat) as u64;
+            }
+        }
+    }
+    let secs = start.elapsed().as_secs_f64();
+    println!(
+        "{games} games, {players} players: {:.3} calls per seat, {:.3} of them won, mean score {:.2}, {:.1} decisions per game, {:.0} games/s",
+        calls as f64 / (games * players as u64) as f64,
+        held as f64 / calls.max(1) as f64,
+        score as f64 / (games * players as u64) as f64,
+        steps as f64 / games as f64,
+        games as f64 / secs
+    );
+}
 
 fn cabo_bench(games: u64, players: usize) {
     let rules = CaboRules { turn_limit: 400, ..CaboRules::default() };

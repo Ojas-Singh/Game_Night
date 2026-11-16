@@ -133,7 +133,7 @@ export class CaboHeuristicBot implements GameAgent {
 
     // --- Free interrupts: flushes -----------------------------------------
     if (v.discardTopRank != null && v.phase !== 'INITIAL_PEEK') {
-      const matches = knownOwn().filter((k) => k.c.rank === v.discardTopRank);
+      const matches = knownOwn().filter((k) => k.c.rank === v.discardTopRank && cardValue(k.c) >= 0);
       if (matches.length >= 2) {
         return {
           action: { type: 'FLUSH_OWN', ...me, cardIds: [matches[0]!.id, matches[1]!.id] },

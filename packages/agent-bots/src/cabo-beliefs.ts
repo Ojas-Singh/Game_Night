@@ -25,6 +25,18 @@ export function cardValue(c: Card): number {
   return c.rank;
 }
 
+/**
+ * Whether a flush is worth making at all: throwing out a card that scores
+ * below zero (a black king on a king) only raises the hand.
+ */
+export function worthFlushing(view: CaboPlayerView, action: { type: string; cardIds?: string[] }): boolean {
+  if (action.type !== 'FLUSH_OWN') return true;
+  return (action.cardIds ?? []).every((id) => {
+    const c = view.knownCards[id];
+    return !c || cardValue(c) >= 0;
+  });
+}
+
 const isRealCard = (id: string): boolean => !id.startsWith('__slot__');
 
 /** A card of unknown face: its rank and what it scores. */

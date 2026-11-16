@@ -72,12 +72,15 @@ class Tables:
 
     Each seat of a round has a controller number: 0 for the player being
     trained (one seat chosen at random each round), and for the other seats a
-    number drawn with the weights in `league`.
+    number drawn with the weights in `league`. `scripted` names the controller
+    played by the games' hand-written players (Cabo has one): its seats are
+    played inside `step` and never come up in `observe`. At a game without
+    such a player those seats go to controller 0.
     """
 
-    def __init__(self, specs, tables, seed=0, step_limit=2000, league=(1.0,)):
+    def __init__(self, specs, tables, seed=0, step_limit=2000, league=(1.0,), scripted=None):
         self.specs = list(specs)
-        self._t = _core.Tables(json.dumps(self.specs), tables, seed, step_limit, list(league))
+        self._t = _core.Tables(json.dumps(self.specs), tables, seed, step_limit, list(league), scripted)
 
     def __len__(self):
         return len(self._t)
