@@ -82,7 +82,11 @@ struct Table {
     control: [u8; MAX_SEATS],
     rng: Rng,
     obs: Obs,
+    hint: u16,
 }
+
+/// No hand-written player's move is known for the row.
+pub const NO_HINT: u16 = u16::MAX;
 
 /// What the seat to move sees at every table. Row `i` of each array belongs
 /// to table `i`; token and action rows are padded with zeros.
@@ -102,6 +106,9 @@ pub struct Batch {
     pub control: Vec<u8>,
     pub game: Vec<u8>,
     pub spec: Vec<u16>,
+    /// The hand-written player's move at each table (an index into its legal
+    /// actions), or `NO_HINT`; empty unless hints were asked for.
+    pub hint: Vec<u16>,
 }
 
 impl Batch {
@@ -143,6 +150,7 @@ pub struct VecEnv {
     kinds: Vec<Kind>,
     league: Vec<f32>,
     scripted: Option<u8>,
+    hints: bool,
     tables: Vec<Table>,
     step_limit: u32,
 }
@@ -246,13 +254,13 @@ impl VecEnv {
             }
             kinds.push(Kind { game: s.game.clone(), rules, players, randomize: s.randomize, weight: s.weight });
         }
-        let mut env = VecEnv { kinds, league: Vec::new(), scripted, tables: Vec::new(), step_limit };
+        let mut env = VecEnv { kinds, league: Vec::new(), scripted, hints: false, tables: Vec::new(), step_limit };
         env.set_league(league)?;
         let mut master = Rng::from_u64(seed);
         for _ in 0..tables {
             let mut rng = master.fork();
             let (game, spec, control, steps) = deal_ready(&env.kinds, &env.league, scripted, &mut rng);
-            env.tables.push(Table { game, spec, steps, control, rng, obs: Obs::default() });
+            env.tables.push(Table { game, spec, steps, control, rng, obs: Obs::default(), hint: NO_HINT });
         }
         Ok(env)
     }
@@ -264,6 +272,12 @@ impl VecEnv {
         }
         self.league = league.to_vec();
         Ok(())
+    }
+
+    /// Report, with every observation, the move the game's hand-written
+    /// player would make in the seat to move.
+    pub fn set_hints(&mut self, hints: bool) {
+        self.hints = hints;
     }
 
     pub fn len(&self) -> usize {
@@ -287,9 +301,14 @@ impl VecEnv {
     /// What the seat to move sees at every table. With `omniscient` the
     /// hidden cards are shown too (for the value estimate in training).
     pub fn observe(&mut self, omniscient: bool, out: &mut Batch) {
+        let hints = self.hints && !omniscient;
         self.tables.par_iter_mut().with_min_len(64).for_each(|t| {
             let seat = t.game.to_act().expect("a finished round is dealt again at once");
             t.game.observe(seat, omniscient, &mut t.obs);
+            if hints {
+                // On a copy of the generator: asking must not change the round.
+                t.hint = t.game.scripted(&mut t.rng.clone()).map_or(NO_HINT, |a| a as u16);
+            }
         });
         out.pack(&self.tables.iter().map(|t| &t.obs).collect::<Vec<_>>());
         macro_rules! column {
@@ -303,6 +322,11 @@ impl VecEnv {
         column!(control, |t| t.control[t.game.to_act().unwrap() as usize]);
         column!(game, |t| t.game.number() as u8);
         column!(spec, |t| t.spec);
+        if hints {
+            column!(hint, |t| t.hint);
+        } else if !omniscient {
+            out.hint.clear();
+        }
     }
 
     /// Take `actions[i]` (an index into the table's legal actions) at table

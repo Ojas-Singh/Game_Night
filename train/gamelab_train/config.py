@@ -37,6 +37,12 @@ class Config:
     #: the hard limit `clip`). Small steps are what make self-play settle
     #: instead of chasing its own tail in games that need bluffing.
     step_cost: float = 5.0
+    #: Weight of copying the games' hand-written players (where a game has
+    #: one) at the start, lowered linearly to zero over `guide_updates`
+    #: updates. It shows the player moves it would rarely try by itself,
+    #: such as throwing out a card that matches the discard.
+    guide_start: float = 0.0
+    guide_updates: int = 0
     #: Rescale advantages to unit spread in every update.
     normalize_advantage: bool = False
     grad_clip: float = 1.0

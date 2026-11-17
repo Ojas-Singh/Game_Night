@@ -90,10 +90,10 @@ def test_all_games_train_and_resume(tmp_path):
         {"game": "minipoker", "randomize": 0.5, "players": [2, 3]},
     ]
     out = str(tmp_path / "run")
-    t = Trainer(config(specs=specs, tables=64, exact=[], updates=2, bot_share=0.3), out)
+    t = Trainer(config(specs=specs, tables=64, exact=[], updates=2, bot_share=0.3, guide_start=1.0, guide_updates=10), out)
     t.run()
     assert t.update == 2 and len(t.pool) == 3
-    again = Trainer(config(specs=specs, tables=64, exact=[], updates=3, bot_share=0.3), out)
+    again = Trainer(config(specs=specs, tables=64, exact=[], updates=3, bot_share=0.3, guide_start=1.0, guide_updates=10), out)
     again.run()
     assert again.update == 3
     lines = open(tmp_path / "run" / "log.jsonl").read().splitlines()
@@ -178,3 +178,16 @@ def test_lab_reports():
     pot = next(row for row in rows if row["name"] == "Pot")
     assert pot["change"] > 3 and pot["z"] > 5
     assert "Pot" in lab.text_changes(c)
+
+
+def test_tables_report_the_hand_written_players_move():
+    t = gamelab.Tables([{"game": "cabo"}, {"game": "seep"}], 32, seed=3)
+    assert len(t.observe()["hint"]) == 0
+    t.set_hints()
+    for _ in range(30):
+        obs = t.observe()
+        cabo = obs["game"] == obs["game"][obs["spec"] == 0][0]
+        assert (obs["hint"][cabo] < obs["action_count"][cabo]).all()
+        assert (obs["hint"][~cabo] == gamelab.NO_HINT).all()
+        # Following the hint is always a legal move.
+        t.step(np.where(cabo, obs["hint"], 0).astype(np.uint32))

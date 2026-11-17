@@ -44,6 +44,7 @@ fn batch_dict<'py>(py: Python<'py>, b: &Batch) -> PyResult<Bound<'py, PyDict>> {
     d.set_item("control", bytes(py, &b.control))?;
     d.set_item("game", bytes(py, &b.game))?;
     d.set_item("spec", bytes(py, &b.spec))?;
+    d.set_item("hint", bytes(py, &b.hint))?;
     Ok(d)
 }
 
@@ -126,6 +127,10 @@ impl Tables {
 
     fn __len__(&self) -> usize {
         self.env.len()
+    }
+
+    fn set_hints(&mut self, hints: bool) {
+        self.env.set_hints(hints);
     }
 
     fn set_league(&mut self, league: Vec<f32>) -> PyResult<()> {

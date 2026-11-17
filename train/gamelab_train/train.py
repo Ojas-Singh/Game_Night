@@ -74,6 +74,8 @@ class Trainer:
         self.tables = gamelab.Tables(
             cfg.table_specs(), cfg.tables, cfg.seed, cfg.step_limit, league, scripted=self.bot_id if cfg.bot_share else None
         )
+        self.guided = cfg.guide_start > 0 and cfg.guide_updates > 0
+        self.tables.set_hints(self.guided)
         # Results are divided by their usual size in each game, so that a game
         # played for chips and one played for a win count the same.
         self.square = np.ones(GAMES)
@@ -134,7 +136,7 @@ class Trainer:
         cut = np.zeros((steps, n), bool)
         seat = np.zeros((steps, n), np.int64)
         players = np.zeros((steps, n), np.int64)
-        d = {"omni": Ragged(), "tokens": Ragged(), "actions": Ragged(), "old": Ragged(), "step": [], "table": [], "choice": [], "logp": []}
+        d = {"omni": Ragged(), "tokens": Ragged(), "actions": Ragged(), "old": Ragged(), "step": [], "table": [], "choice": [], "logp": [], "hint": []}
         stats = {"rounds": np.zeros(GAMES), "length": np.zeros(GAMES), "cut": np.zeros(GAMES)}
         # Mean result of the player's seat against each kind of opponent.
         against = {"past": [], "random": [], "bot": []}
@@ -160,13 +162,15 @@ class Trainer:
                     d["table"].append(rows)
                     d["choice"].append(actions[rows].astype(np.int64))
                     d["logp"].append(logp)
+                    hint = obs["hint"][rows] if self.guided else np.full(len(rows), gamelab.NO_HINT)
+                    d["hint"].append(hint.astype(np.int64))
             game = obs["game"].astype(np.int64)
             fin = t.step(actions)
             self._finished(fin, game, s, ret, done, cut, stats, against)
         value[steps] = self._judge(t.observe(True))
         for key in ("omni", "tokens", "actions", "old"):
             d[key].close()
-        for key in ("step", "table", "choice", "logp"):
+        for key in ("step", "table", "choice", "logp", "hint"):
             d[key] = np.concatenate(d[key])
         adv = advantages(value, ret, done, cut, cfg.lam)
         d.update(value=value[:-1], adv=adv, seat=seat, players=players, stats=stats, against=against)
@@ -244,12 +248,13 @@ class Trainer:
         adv = d["adv"][d["step"], d["table"], d["seat"][d["step"], d["table"]]]
         if cfg.normalize_advantage:
             adv = (adv - adv.mean()) / (adv.std() + 1e-8)
-        log = {k: [] for k in ("policy", "value", "entropy", "kl", "clipped", "judge")}
+        guide = cfg.guide_start * max(1.0 - self.update / cfg.guide_updates, 0.0) if self.guided else 0.0
+        log = {k: [] for k in ("policy", "value", "entropy", "kl", "clipped", "judge", "agree")}
         self.net.train()
         for _ in range(cfg.epochs):
             for batch in self._batches(len(adv)):
                 seats = float(d["players"][d["step"][batch], d["table"][batch]].sum())
-                part = {k: 0.0 for k in ("policy", "value", "entropy", "kl", "clipped")}
+                part = {k: 0.0 for k in ("policy", "value", "entropy", "kl", "clipped", "agree")}
                 self.opt.zero_grad(set_to_none=True)
                 for rows in self._chunks(batch, d["tokens"].len):
                     share = len(rows) / len(batch)
@@ -271,6 +276,13 @@ class Trainer:
                         before = torch.from_numpy(d["old"].take(rows)[0][:, :, 0]).to(dev)
                         moved = (logp_all.exp() * (logp_all - before)).sum(-1).mean() * share
                         loss = loss + cfg.step_cost * moved
+                    hint = torch.from_numpy(d["hint"][rows]).to(dev)
+                    hinted = hint != gamelab.NO_HINT
+                    if guide and hinted.any():
+                        copy_loss = -logp_all.gather(1, hint.clamp(max=scores.shape[1] - 1)[:, None]).squeeze(1)
+                        loss = loss + guide * (copy_loss * hinted).sum() / len(batch)
+                    if hinted.any():
+                        part["agree"] += ((scores.argmax(-1) == hint) & hinted).sum().item() / max(int((d["hint"][batch] != gamelab.NO_HINT).sum()), 1)
                     loss.backward()
                     part["policy"] += policy.item()
                     part["value"] += vloss.item()
@@ -311,6 +323,10 @@ class Trainer:
                 self.pool.pop(int(self.rng.integers(len(self.pool) - 1)))
         out = {k: float(np.mean(v)) for k, v in log.items()}
         out["entropy_coef"] = entropy_coef
+        if self.guided:
+            out["guide"] = guide
+        else:
+            del out["agree"]
         return out
 
     # -- the run -----------------------------------------------------------

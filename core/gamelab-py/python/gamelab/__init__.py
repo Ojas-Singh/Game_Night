@@ -17,9 +17,11 @@ from . import _core
 from ._core import ACTION_FIELDS, FIELDS, GAME_BLOCK, MAX_SEATS, MAX_STATS, NO_ARG
 
 FIELD_SIZE = tuple(_core.FIELD_SIZE)
+#: In `hint`: the game has no hand-written player.
+NO_HINT = 0xFFFF
 
 __all__ = [
-    "ACTION_FIELDS", "FIELDS", "FIELD_SIZE", "GAME_BLOCK", "MAX_SEATS", "MAX_STATS", "NO_ARG",
+    "ACTION_FIELDS", "FIELDS", "FIELD_SIZE", "GAME_BLOCK", "MAX_SEATS", "MAX_STATS", "NO_ARG", "NO_HINT",
     "Exact", "Round", "Search", "Tables", "games", "preset", "sample_rules",
 ]
 
@@ -60,6 +62,8 @@ def _batch(d):
         "control": _array(d["control"], np.uint8),
         "game": _array(d["game"], np.uint8),
         "spec": _array(d["spec"], np.uint16),
+        # The hand-written player's move (NO_HINT where there is none); empty unless asked for.
+        "hint": _array(d["hint"], np.uint16),
     }
 
 
@@ -84,6 +88,11 @@ class Tables:
 
     def __len__(self):
         return len(self._t)
+
+    def set_hints(self, hints=True):
+        """Add `hint` to what `observe` returns: the move the game's hand-written
+        player would make in the seat to move, or NO_HINT."""
+        self._t.set_hints(hints)
 
     def set_league(self, league):
         self._t.set_league(list(league))
