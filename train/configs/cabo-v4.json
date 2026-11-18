@@ -1,0 +1,76 @@
+{
+ "specs": [
+  {
+   "game": "cabo",
+   "randomize": 0.2,
+   "weight": 10
+  },
+  {
+   "game": "seep",
+   "randomize": 0.5,
+   "weight": 1
+  },
+  {
+   "game": "pairone",
+   "randomize": 0.5,
+   "weight": 0.5
+  },
+  {
+   "game": "minipoker",
+   "randomize": 0.5,
+   "weight": 0.5
+  },
+  {
+   "game": "minipoker",
+   "preset": "Kuhn poker",
+   "players": [
+    2,
+    2
+   ],
+   "weight": 0.1
+  },
+  {
+   "game": "minipoker",
+   "preset": "Leduc hold'em",
+   "players": [
+    2,
+    2
+   ],
+   "weight": 0.2
+  }
+ ],
+ "exact": [
+  {
+   "game": "minipoker",
+   "preset": "Kuhn poker"
+  },
+  {
+   "game": "minipoker",
+   "preset": "Leduc hold'em"
+  }
+ ],
+ "tables": 4096,
+ "rollout": 64,
+ "updates": 4000,
+ "net": {
+  "width": 256,
+  "layers": 6,
+  "heads": 4
+ },
+ "critic": {
+  "width": 256,
+  "layers": 4,
+  "heads": 4
+ },
+ "minibatch": 4096,
+ "epochs": 2,
+ "normalize_advantage": true,
+ "entropy_start": 0.01,
+ "entropy_end": 0.001,
+ "step_cost": 1.0,
+ "league_share": 0.15,
+ "bot_share": 0.5,
+ "guide_start": 1.0,
+ "guide_updates": 300,
+ "guide_end": 0.05
+}

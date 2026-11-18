@@ -90,10 +90,10 @@ def test_all_games_train_and_resume(tmp_path):
         {"game": "minipoker", "randomize": 0.5, "players": [2, 3]},
     ]
     out = str(tmp_path / "run")
-    t = Trainer(config(specs=specs, tables=64, exact=[], updates=2, bot_share=0.3, guide_start=1.0, guide_updates=10), out)
+    t = Trainer(config(specs=specs, tables=64, exact=[], updates=2, bot_share=0.3, guide_start=1.0, guide_updates=10, guide_end=0.1), out)
     t.run()
     assert t.update == 2 and len(t.pool) == 3
-    again = Trainer(config(specs=specs, tables=64, exact=[], updates=3, bot_share=0.3, guide_start=1.0, guide_updates=10), out)
+    again = Trainer(config(specs=specs, tables=64, exact=[], updates=3, bot_share=0.3, guide_start=1.0, guide_updates=10, guide_end=0.1), out)
     again.run()
     assert again.update == 3
     lines = open(tmp_path / "run" / "log.jsonl").read().splitlines()

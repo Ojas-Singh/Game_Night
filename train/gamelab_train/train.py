@@ -248,7 +248,8 @@ class Trainer:
         adv = d["adv"][d["step"], d["table"], d["seat"][d["step"], d["table"]]]
         if cfg.normalize_advantage:
             adv = (adv - adv.mean()) / (adv.std() + 1e-8)
-        guide = cfg.guide_start * max(1.0 - self.update / cfg.guide_updates, 0.0) if self.guided else 0.0
+        left = max(1.0 - self.update / cfg.guide_updates, 0.0) if self.guided else 0.0
+        guide = cfg.guide_end + (cfg.guide_start - cfg.guide_end) * left if self.guided else 0.0
         log = {k: [] for k in ("policy", "value", "entropy", "kl", "clipped", "judge", "agree")}
         self.net.train()
         for _ in range(cfg.epochs):
